@@ -55,6 +55,11 @@ struct HeartRateDisplayView: View {
 
     private var statsBar: some View {
         HStack(spacing: 40) {
+            if let connectedDevice = bluetoothManager.connectedDevice,
+               let deviceName = bluetoothManager.getDeviceName(for: connectedDevice.identifier) {
+                statColumn(title: "NAME", value: nil, customText: deviceName)
+                Spacer()
+            }
             statColumn(title: "MAX", value: bluetoothManager.maxHeartRateLastHour)
             Spacer()
             statColumn(title: "AVG", value: bluetoothManager.avgHeartRateLastHour)
@@ -75,14 +80,14 @@ struct HeartRateDisplayView: View {
         .background(Color.black.opacity(0.8))
     }
 
-    private func statColumn(title: String, value: Int?) -> some View {
+    private func statColumn(title: String, value: Int?, customText: String? = nil) -> some View {
         VStack(spacing: 4) {
             Text(title)
                 .font(.system(size: 20, weight: .semibold))
                 .foregroundColor(.gray)
-            Text(value.map(String.init) ?? "---")
+            Text(customText ?? value.map(String.init) ?? "---")
                 .font(.system(size: 36, weight: .bold))
-                .foregroundColor(value == nil ? .gray : .white)
+                .foregroundColor((value == nil && customText == nil) ? .gray : .white)
         }
     }
 }

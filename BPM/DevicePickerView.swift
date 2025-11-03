@@ -99,43 +99,60 @@ private struct DeviceRow: View {
     @EnvironmentObject private var bluetoothManager: HeartRateBluetoothManager
     @Environment(\.dismiss) private var dismiss
     let device: CBPeripheral
+    @State private var deviceName: String = ""
 
     private var isConnected: Bool {
         bluetoothManager.connectedDevice?.identifier == device.identifier
     }
 
     var body: some View {
-        Button {
-            if isConnected {
-                bluetoothManager.disconnect()
-            } else {
-                bluetoothManager.connect(to: device)
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                    dismiss()
-                }
-            }
-        } label: {
-            HStack {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(device.name ?? "Unknown Device")
-                        .font(.headline)
-                        .foregroundColor(.primary)
-                    Text(device.identifier.uuidString)
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-
-                Spacer()
-
+        HStack(spacing: 12) {
+            Button {
                 if isConnected {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundColor(.green)
-                        .font(.title2)
+                    bluetoothManager.disconnect()
+                } else {
+                    bluetoothManager.connect(to: device)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                        dismiss()
+                    }
                 }
+            } label: {
+                HStack {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(device.name ?? "Unknown Device")
+                            .font(.headline)
+                            .foregroundColor(.primary)
+                        Text(device.identifier.uuidString)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+
+                    Spacer()
+
+                    if isConnected {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundColor(.green)
+                            .font(.title2)
+                    }
+                }
+                .padding(.vertical, 8)
             }
-            .padding(.vertical, 8)
+            .buttonStyle(.plain)
+            
+            TextField("Name", text: $deviceName)
+                .textFieldStyle(.roundedBorder)
+                .frame(width: 80)
+                .onAppear {
+                    deviceName = bluetoothManager.getDeviceName(for: device.identifier) ?? ""
+                }
+                .onChange(of: deviceName) {
+                    let limited = String(deviceName.prefix(10))
+                    if limited != deviceName {
+                        deviceName = limited
+                    }
+                    bluetoothManager.setDeviceName(limited, for: device.identifier)
+                }
         }
-        .buttonStyle(.plain)
     }
 }
 

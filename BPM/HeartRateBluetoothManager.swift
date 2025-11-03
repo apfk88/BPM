@@ -13,10 +13,40 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
     private let heartRateServiceUUID = CBUUID(string: "180D")
     private let heartRateMeasurementCharacteristicUUID = CBUUID(string: "2A37")
     private var pendingScanRequest = false
+    
+    // Device names storage
+    private var deviceNames: [String: String] = [:]
+    private let deviceNamesKey = "HeartRateDeviceNames"
 
     override init() {
         super.init()
         centralManager = CBCentralManager(delegate: self, queue: nil)
+        loadDeviceNames()
+    }
+    
+    func getDeviceName(for identifier: UUID) -> String? {
+        return deviceNames[identifier.uuidString]
+    }
+    
+    func setDeviceName(_ name: String, for identifier: UUID) {
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmedName.isEmpty {
+            deviceNames.removeValue(forKey: identifier.uuidString)
+        } else {
+            deviceNames[identifier.uuidString] = trimmedName
+        }
+        saveDeviceNames()
+        objectWillChange.send()
+    }
+    
+    private func loadDeviceNames() {
+        if let data = UserDefaults.standard.dictionary(forKey: deviceNamesKey) as? [String: String] {
+            deviceNames = data
+        }
+    }
+    
+    private func saveDeviceNames() {
+        UserDefaults.standard.set(deviceNames, forKey: deviceNamesKey)
     }
 
     func startScanning() {
