@@ -34,7 +34,7 @@ class SharingService: ObservableObject {
     @Published var errorMessage: String?
     
     private var baseURL: String {
-        UserDefaults.standard.string(forKey: "BPM_API_BASE_URL") ?? "https://your-vercel-app.vercel.app"
+        UserDefaults.standard.string(forKey: "BPM_API_BASE_URL") ?? "https://bpm-chi.vercel.app"
     }
     
     private var updateTimer: Timer?
