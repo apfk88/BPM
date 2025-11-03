@@ -18,12 +18,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(400).json({ error: 'Missing code' });
     }
 
-    const sessionStr = await kv.get(`share:${code}`);
-    if (!sessionStr) {
+    const sessionData = await kv.get(`share:${code}`);
+    if (!sessionData) {
       return res.status(404).json({ error: 'Session not found' });
     }
 
-    const session: ShareSession = JSON.parse(sessionStr as string);
+    // Handle both string and object responses from KV
+    const session: ShareSession = typeof sessionData === 'string' 
+      ? JSON.parse(sessionData) 
+      : sessionData as ShareSession;
 
     res.status(200).json({
       bpm: session.bpm,

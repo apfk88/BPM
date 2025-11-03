@@ -17,8 +17,6 @@ struct HeartRateDisplayView: View {
     @StateObject private var sharingService = SharingService.shared
     @State private var showDevicePicker = false
     @State private var appMode: AppMode = .myDevice
-    @State private var friendCodeInput: String = ""
-    @State private var showFriendCodeInput = false
 
     var body: some View {
         GeometryReader { geometry in
@@ -26,32 +24,19 @@ struct HeartRateDisplayView: View {
                 Color.black.ignoresSafeArea()
 
                 VStack(spacing: 0) {
-                    modeSelector
                     heartRateDisplay(height: geometry.size.height)
                     statsBar
                     sharingStatus
+                }
+                .overlay(alignment: .top) {
+                    sharingCodeDisplay
                 }
             }
         }
         .sheet(isPresented: $showDevicePicker) {
             DevicePickerView()
                 .environmentObject(bluetoothManager)
-        }
-        .alert("Enter Friend's Code", isPresented: $showFriendCodeInput) {
-            TextField("Code", text: $friendCodeInput)
-                .textInputAutocapitalization(.characters)
-            Button("Cancel", role: .cancel) {
-                friendCodeInput = ""
-            }
-            Button("Connect") {
-                if !friendCodeInput.isEmpty {
-                    sharingService.startViewing(code: friendCodeInput)
-                    appMode = .friendCode
-                    friendCodeInput = ""
-                }
-            }
-        } message: {
-            Text("Enter the 6-character share code")
+                .environmentObject(sharingService)
         }
         .onAppear {
             // Restore mode based on saved state
@@ -76,6 +61,11 @@ struct HeartRateDisplayView: View {
                 IdleTimer.enable()
             }
         }
+        .onChange(of: sharingService.isViewing) { oldValue, newValue in
+            if newValue && appMode == .myDevice && !oldValue {
+                appMode = .friendCode
+            }
+        }
         .onDisappear {
             if appMode == .myDevice {
                 bluetoothManager.stopScanning()
@@ -84,40 +74,15 @@ struct HeartRateDisplayView: View {
         }
     }
     
-    private var modeSelector: some View {
-        HStack(spacing: 20) {
-            Button {
-                appMode = .myDevice
-            } label: {
-                Text("My Device")
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundColor(appMode == .myDevice ? .white : .gray)
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, 10)
-                    .background(appMode == .myDevice ? Color.blue.opacity(0.3) : Color.clear)
-                    .cornerRadius(8)
+    private var sharingCodeDisplay: some View {
+        Group {
+            if appMode == .myDevice && sharingService.isSharing, let code = sharingService.shareCode {
+                Text(code)
+                    .font(.system(size: 20, weight: .bold, design: .monospaced))
+                    .foregroundColor(.green)
+                    .padding(.top, 20)
             }
-            
-            Button {
-                if sharingService.friendCode == nil {
-                    showFriendCodeInput = true
-                } else {
-                    appMode = .friendCode
-                }
-            } label: {
-                Text("Friend's Code")
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundColor(appMode == .friendCode ? .white : .gray)
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, 10)
-                    .background(appMode == .friendCode ? Color.blue.opacity(0.3) : Color.clear)
-                    .cornerRadius(8)
-            }
-            
-            Spacer()
         }
-        .padding(.horizontal, 40)
-        .padding(.top, 20)
     }
 
     @ViewBuilder
@@ -153,78 +118,14 @@ struct HeartRateDisplayView: View {
         }
     }
     
+    @ViewBuilder
     private var sharingStatus: some View {
-        Group {
-            if appMode == .myDevice && sharingService.isSharing {
+        if appMode == .friendCode {
+            if let error = sharingService.errorMessage {
                 HStack {
-                    Image(systemName: "link.circle.fill")
-                        .foregroundColor(.green)
-                    Text("Sharing: \(sharingService.shareCode ?? "")")
-                        .font(.system(size: 16, weight: .medium))
-                        .foregroundColor(.white)
-                    Spacer()
-                    Button {
-                        sharingService.stopSharing()
-                    } label: {
-                        Text("Stop")
-                            .font(.system(size: 14))
-                            .foregroundColor(.red)
-                    }
-                }
-                .padding(.horizontal, 40)
-                .padding(.vertical, 12)
-                .background(Color.black.opacity(0.8))
-            } else if appMode == .friendCode {
-                HStack {
-                    if let friendCode = sharingService.friendCode {
-                        Image(systemName: "person.2.fill")
-                            .foregroundColor(.blue)
-                        Text("Viewing: \(friendCode)")
-                            .font(.system(size: 16, weight: .medium))
-                            .foregroundColor(.white)
-                    }
-                    Spacer()
-                    Button {
-                        sharingService.stopViewing()
-                        appMode = .myDevice
-                    } label: {
-                        Text("Disconnect")
-                            .font(.system(size: 14))
-                            .foregroundColor(.red)
-                    }
-                    if let error = sharingService.errorMessage {
-                        Text(error)
-                            .font(.system(size: 12))
-                            .foregroundColor(.red)
-                            .padding(.leading, 10)
-                    }
-                }
-                .padding(.horizontal, 40)
-                .padding(.vertical, 12)
-                .background(Color.black.opacity(0.8))
-            } else if appMode == .myDevice {
-                HStack {
-                    Spacer()
-                    Button {
-                        Task {
-                            do {
-                                try await sharingService.startSharing()
-                            } catch {
-                                // Error handled by sharingService
-                            }
-                        }
-                    } label: {
-                        HStack {
-                            Image(systemName: "square.and.arrow.up")
-                            Text("Start Sharing")
-                        }
-                        .font(.system(size: 16, weight: .medium))
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 8)
-                        .background(Color.blue.opacity(0.3))
-                        .cornerRadius(8)
-                    }
+                    Text(error)
+                        .font(.system(size: 12))
+                        .foregroundColor(.red)
                     Spacer()
                 }
                 .padding(.horizontal, 40)
@@ -234,6 +135,7 @@ struct HeartRateDisplayView: View {
         }
     }
 
+    @ViewBuilder
     private var statsBar: some View {
         if appMode == .myDevice {
             HStack(spacing: 40) {
@@ -256,6 +158,27 @@ struct HeartRateDisplayView: View {
                         .background(Color.gray.opacity(0.3))
                         .clipShape(Circle())
                 }
+                
+                Button {
+                    if sharingService.isSharing {
+                        sharingService.stopSharing()
+                    } else {
+                        Task {
+                            do {
+                                try await sharingService.startSharing()
+                            } catch {
+                                // Error handled by sharingService
+                            }
+                        }
+                    }
+                } label: {
+                    Image(systemName: sharingService.isSharing ? "link.circle.fill" : "link.circle")
+                        .font(.system(size: 32))
+                        .foregroundColor(sharingService.isSharing ? .green : .white)
+                        .padding()
+                        .background(Color.gray.opacity(0.3))
+                        .clipShape(Circle())
+                }
             }
             .padding(.horizontal, 60)
             .padding(.vertical, 30)
@@ -268,6 +191,16 @@ struct HeartRateDisplayView: View {
                 Spacer()
                 statColumn(title: "AVG", value: sharingService.friendAvgHeartRate)
                 Spacer()
+                Button {
+                    showDevicePicker = true
+                } label: {
+                    Image(systemName: "antenna.radiowaves.left.and.right")
+                        .font(.system(size: 32))
+                        .foregroundColor(.white)
+                        .padding()
+                        .background(Color.gray.opacity(0.3))
+                        .clipShape(Circle())
+                }
             }
             .padding(.horizontal, 60)
             .padding(.vertical, 30)

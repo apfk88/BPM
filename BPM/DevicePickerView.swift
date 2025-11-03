@@ -3,11 +3,14 @@ import CoreBluetooth
 
 struct DevicePickerView: View {
     @EnvironmentObject private var bluetoothManager: HeartRateBluetoothManager
+    @EnvironmentObject private var sharingService: SharingService
     @Environment(\.dismiss) private var dismiss
+    @State private var friendCodeInput: String = ""
 
     var body: some View {
         NavigationView {
             VStack {
+                friendCodeSection
                 deviceList
                 connectionInfo
                 actionButtons
@@ -18,6 +21,60 @@ struct DevicePickerView: View {
                 bluetoothManager.startScanning()
             }
         }
+    }
+    
+    private var friendCodeSection: some View {
+        VStack(spacing: 12) {
+            Divider()
+            Text("View Friend's Heart Rate")
+                .font(.headline)
+                .foregroundColor(.primary)
+            
+            HStack(spacing: 12) {
+                TextField("Enter 6-character code", text: $friendCodeInput)
+                    .textFieldStyle(.roundedBorder)
+                    .textInputAutocapitalization(.characters)
+                    .autocorrectionDisabled()
+                    .frame(maxWidth: .infinity)
+                
+                Button {
+                    let code = friendCodeInput.uppercased().trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !code.isEmpty && code.count == 6 {
+                        sharingService.startViewing(code: code)
+                        friendCodeInput = ""
+                        dismiss()
+                    }
+                } label: {
+                    Text("Connect")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
+                        .background(friendCodeInput.trimmingCharacters(in: .whitespacesAndNewlines).count == 6 ? Color.blue : Color.gray)
+                        .cornerRadius(8)
+                }
+                .disabled(friendCodeInput.trimmingCharacters(in: .whitespacesAndNewlines).count != 6)
+            }
+            .padding(.horizontal)
+            
+            if let friendCode = sharingService.friendCode {
+                HStack {
+                    Text("Currently viewing: \(friendCode)")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Spacer()
+                    Button("Disconnect") {
+                        sharingService.stopViewing()
+                    }
+                    .font(.caption)
+                    .foregroundColor(.red)
+                }
+                .padding(.horizontal)
+            }
+            
+            Divider()
+        }
+        .padding(.vertical, 8)
     }
 
     @ViewBuilder
@@ -48,6 +105,7 @@ struct DevicePickerView: View {
             List(bluetoothManager.availableDevices, id: \.identifier) { device in
                 DeviceRow(device: device)
                     .environmentObject(bluetoothManager)
+                    .environmentObject(sharingService)
             }
         }
     }
@@ -97,6 +155,7 @@ struct DevicePickerView: View {
 
 private struct DeviceRow: View {
     @EnvironmentObject private var bluetoothManager: HeartRateBluetoothManager
+    @EnvironmentObject private var sharingService: SharingService
     @Environment(\.dismiss) private var dismiss
     let device: CBPeripheral
     @State private var deviceName: String = ""
@@ -111,6 +170,7 @@ private struct DeviceRow: View {
                 if isConnected {
                     bluetoothManager.disconnect()
                 } else {
+                    sharingService.stopViewing()
                     bluetoothManager.connect(to: device)
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                         dismiss()

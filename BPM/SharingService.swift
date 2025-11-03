@@ -49,19 +49,18 @@ class SharingService: ObservableObject {
     }
     
     private func loadSavedState() {
-        shareCode = UserDefaults.standard.string(forKey: shareCodeKey)
-        shareToken = UserDefaults.standard.string(forKey: shareTokenKey)
+        // Only restore friend code viewing state, not sharing state
+        // Sharing should be explicitly started by the user
         friendCode = UserDefaults.standard.string(forKey: friendCodeKey)
-        
-        if shareCode != nil && shareToken != nil {
-            isSharing = true
-            startUpdatingHeartRate()
-        }
         
         if friendCode != nil {
             isViewing = true
             startPollingFriendHeartRate()
         }
+        
+        // Clear any old sharing state that might be lingering
+        UserDefaults.standard.removeObject(forKey: shareCodeKey)
+        UserDefaults.standard.removeObject(forKey: shareTokenKey)
     }
     
     func startSharing() async throws {
