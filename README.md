@@ -10,6 +10,8 @@ Minimalist, distraction-free heart rate display for iPad and iPhone (iPad-first 
 - **Quick device picker**: Tap the antenna icon to select or switch devices.
 - **On-screen stats**: Max and average over the last hour.
 - **Workout-friendly**: Dark, landscape UI and idle timer disabled while active.
+- **Share your heart rate**: Generate a share code and let friends view your live BPM remotely.
+- **View friend's heart rate**: Enter a friend's code to see their live heart rate updates.
 
 ### Requirements
 - **Xcode**: 16 or newer.
@@ -43,17 +45,26 @@ The app requests Bluetooth access on first launch to scan and connect to your he
 You can change permission later in iOS Settings → Privacy & Security → Bluetooth → BPM.
 
 ### Using the App
+
+**My Device Mode:**
 1. Put on and power your heart rate strap (so it starts advertising).
-2. Launch the app.
+2. Launch the app (defaults to "My Device" mode).
 3. Tap the antenna button to open the device picker and select your strap.
 4. Your current BPM appears in large digits; Max and Avg (last hour) show at the bottom.
+5. Optionally tap "Start Sharing" to generate a share code for friends to view your heart rate.
+
+**Friend's Code Mode:**
+1. Tap "Friend's Code" at the top of the screen.
+2. Enter the 6-character share code provided by a friend.
+3. View their live heart rate updates (updates every second).
 
 ### Project Structure
 - `BPMApp.swift`: App entry; manages app lifecycle and scanning start/stop.
-- `ContentView.swift` (`HeartRateDisplayView`): Main UI, BPM digits and stats bar.
+- `ContentView.swift` (`HeartRateDisplayView`): Main UI, BPM digits, stats bar, and sharing controls.
 - `DevicePickerView.swift`: Scanning view and connect/disconnect actions.
 - `HeartRateBluetoothManager.swift`: CoreBluetooth central, device discovery, connection, and HR parsing (8-bit and 16-bit per spec).
 - `HeartRateSample.swift`: In-memory samples with timestamps for last-hour stats.
+- `SharingService.swift`: API client for sharing heart rate data via backend service.
 - `Info.plist`: Bluetooth usage descriptions and supported orientations (landscape).
 
 ### Testing
@@ -69,8 +80,28 @@ You can change permission later in iOS Settings → Privacy & Security → Bluet
 - **Permission denied**: Go to iOS Settings → Privacy & Security → Bluetooth and allow access.
 - **Build fails due to iOS version**: Lower the iOS Deployment Target in the target settings to match your device.
 
+### Sharing Setup
+
+The app uses a backend service to share heart rate data. To enable sharing:
+
+1. **Deploy the backend** (see `backend/README.md`):
+   - The backend is a Next.js app using Vercel KV (Upstash Redis).
+   - Deploy to Vercel and set up environment variables (`KV_REST_API_URL`, `KV_REST_API_TOKEN`).
+   - See `backend/README.md` for detailed setup instructions.
+
+2. **Configure the app**:
+   - Set the API base URL in the app by adding a UserDefaults key `BPM_API_BASE_URL` with your Vercel deployment URL.
+   - Or modify `SharingService.swift` directly to change the default base URL.
+
+3. **Start sharing**:
+   - In "My Device" mode, tap "Start Sharing" to generate a 6-character code.
+   - Share this code with friends who can enter it in "Friend's Code" mode.
+
+**Note**: Heart rate updates are sent to the backend at 1 Hz (once per second) when sharing is enabled.
+
 ### Privacy
-- No network calls; heart rate data stays on-device.
+- When sharing is disabled, no network calls are made; heart rate data stays on-device.
+- When sharing is enabled, heart rate data is sent to your backend service (requires your own deployment).
 - Samples are held in-memory and trimmed to the last hour.
 
 ### Roadmap (ideas)
