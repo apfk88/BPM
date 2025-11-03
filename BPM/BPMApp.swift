@@ -19,8 +19,8 @@ struct BPMApp: App {
                 .environmentObject(bluetoothManager)
                 .preferredColorScheme(.dark)
         }
-        .onChange(of: scenePhase) { phase in
-            switch phase {
+        .onChange(of: scenePhase) { oldPhase, newPhase in
+            switch newPhase {
             case .active:
                 bluetoothManager.startScanning()
                 IdleTimer.disable()
