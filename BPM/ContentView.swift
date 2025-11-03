@@ -6,81 +6,83 @@
 //
 
 import SwiftUI
-import CoreData
 
-struct ContentView: View {
-    @Environment(\.managedObjectContext) private var viewContext
-
-    @FetchRequest(
-        sortDescriptors: [NSSortDescriptor(keyPath: \Item.timestamp, ascending: true)],
-        animation: .default)
-    private var items: FetchedResults<Item>
+struct HeartRateDisplayView: View {
+    @EnvironmentObject var bluetoothManager: HeartRateBluetoothManager
+    @State private var showDevicePicker = false
 
     var body: some View {
-        NavigationView {
-            List {
-                ForEach(items) { item in
-                    NavigationLink {
-                        Text("Item at \(item.timestamp!, formatter: itemFormatter)")
-                    } label: {
-                        Text(item.timestamp!, formatter: itemFormatter)
-                    }
-                }
-                .onDelete(perform: deleteItems)
-            }
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    EditButton()
-                }
-                ToolbarItem {
-                    Button(action: addItem) {
-                        Label("Add Item", systemImage: "plus")
-                    }
+        GeometryReader { geometry in
+            ZStack {
+                Color.black.ignoresSafeArea()
+
+                VStack(spacing: 0) {
+                    heartRateDisplay(height: geometry.size.height)
+                    statsBar
                 }
             }
-            Text("Select an item")
+        }
+        .sheet(isPresented: $showDevicePicker) {
+            DevicePickerView()
+                .environmentObject(bluetoothManager)
+        }
+        .onAppear {
+            bluetoothManager.startScanning()
+            IdleTimer.disable()
+        }
+        .onDisappear {
+            bluetoothManager.stopScanning()
+            IdleTimer.enable()
         }
     }
 
-    private func addItem() {
-        withAnimation {
-            let newItem = Item(context: viewContext)
-            newItem.timestamp = Date()
-
-            do {
-                try viewContext.save()
-            } catch {
-                // Replace this implementation with code to handle the error appropriately.
-                // fatalError() causes the application to generate a crash log and terminate. You should not use this function in a shipping application, although it may be useful during development.
-                let nsError = error as NSError
-                fatalError("Unresolved error \(nsError), \(nsError.userInfo)")
+    @ViewBuilder
+    private func heartRateDisplay(height: CGFloat) -> some View {
+        let fontSize = height * 0.88
+        Group {
+            if let heartRate = bluetoothManager.currentHeartRate {
+                Text("\(heartRate)")
+            } else {
+                Text("---")
             }
         }
+        .font(.system(size: fontSize, weight: .bold, design: .rounded))
+        .foregroundColor(bluetoothManager.currentHeartRate == nil ? .gray : .white)
+        .minimumScaleFactor(0.1)
+        .lineLimit(1)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    private func deleteItems(offsets: IndexSet) {
-        withAnimation {
-            offsets.map { items[$0] }.forEach(viewContext.delete)
-
-            do {
-                try viewContext.save()
-            } catch {
-                // Replace this implementation with code to handle the error appropriately.
-                // fatalError() causes the application to generate a crash log and terminate. You should not use this function in a shipping application, although it may be useful during development.
-                let nsError = error as NSError
-                fatalError("Unresolved error \(nsError), \(nsError.userInfo)")
+    private var statsBar: some View {
+        HStack(spacing: 40) {
+            statColumn(title: "MAX", value: bluetoothManager.maxHeartRateLastHour)
+            Spacer()
+            statColumn(title: "AVG", value: bluetoothManager.avgHeartRateLastHour)
+            Spacer()
+            Button {
+                showDevicePicker = true
+            } label: {
+                Image(systemName: "antenna.radiowaves.left.and.right")
+                    .font(.system(size: 32))
+                    .foregroundColor(.white)
+                    .padding()
+                    .background(Color.gray.opacity(0.3))
+                    .clipShape(Circle())
             }
         }
+        .padding(.horizontal, 60)
+        .padding(.vertical, 30)
+        .background(Color.black.opacity(0.8))
     }
-}
 
-private let itemFormatter: DateFormatter = {
-    let formatter = DateFormatter()
-    formatter.dateStyle = .short
-    formatter.timeStyle = .medium
-    return formatter
-}()
-
-#Preview {
-    ContentView().environment(\.managedObjectContext, PersistenceController.preview.container.viewContext)
+    private func statColumn(title: String, value: Int?) -> some View {
+        VStack(spacing: 4) {
+            Text(title)
+                .font(.system(size: 20, weight: .semibold))
+                .foregroundColor(.gray)
+            Text(value.map(String.init) ?? "---")
+                .font(.system(size: 36, weight: .bold))
+                .foregroundColor(value == nil ? .gray : .white)
+        }
+    }
 }

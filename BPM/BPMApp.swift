@@ -6,15 +6,42 @@
 //
 
 import SwiftUI
+import UIKit
 
 @main
 struct BPMApp: App {
-    let persistenceController = PersistenceController.shared
+    @StateObject private var bluetoothManager = HeartRateBluetoothManager()
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some Scene {
         WindowGroup {
-            ContentView()
-                .environment(\.managedObjectContext, persistenceController.container.viewContext)
+            HeartRateDisplayView()
+                .environmentObject(bluetoothManager)
+                .preferredColorScheme(.dark)
+        }
+        .onChange(of: scenePhase) { phase in
+            switch phase {
+            case .active:
+                bluetoothManager.startScanning()
+                IdleTimer.disable()
+            case .inactive, .background:
+                bluetoothManager.stopScanning()
+                IdleTimer.enable()
+            @unknown default:
+                IdleTimer.enable()
+                break
+            }
+        }
+    }
+}
+
+enum IdleTimer {
+    static func disable() { setDisabled(true) }
+    static func enable() { setDisabled(false) }
+
+    private static func setDisabled(_ disabled: Bool) {
+        DispatchQueue.main.async {
+            UIApplication.shared.isIdleTimerDisabled = disabled
         }
     }
 }
