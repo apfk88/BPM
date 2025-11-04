@@ -112,7 +112,7 @@ struct HeartRateDisplayView: View {
 
     @ViewBuilder
     private func heartRateDisplay(size: CGSize, isLandscape: Bool) -> some View {
-        let fontSize = isLandscape ? min(size.width * 0.4, size.height * 0.8) : size.height * 0.88
+        let fontSize = isLandscape ? min(size.width * 0.4, size.height * 0.8) : size.height * 0.65
         Group {
             if appMode == .myDevice {
                 if let heartRate = bluetoothManager.currentHeartRate {
@@ -163,73 +163,157 @@ struct HeartRateDisplayView: View {
     @ViewBuilder
     private func statsBar(isLandscape: Bool) -> some View {
         if appMode == .myDevice {
-            HStack(spacing: 40) {
-                if let connectedDevice = bluetoothManager.connectedDevice,
-                   let deviceName = bluetoothManager.getDeviceName(for: connectedDevice.identifier) {
-                    statColumn(title: "NAME", value: nil, customText: deviceName)
+            if isLandscape {
+                HStack(spacing: 40) {
+                    if let connectedDevice = bluetoothManager.connectedDevice,
+                       let deviceName = bluetoothManager.getDeviceName(for: connectedDevice.identifier) {
+                        statColumn(title: "NAME", value: nil, customText: deviceName)
+                        Spacer()
+                    }
+                    statColumn(title: "MAX", value: bluetoothManager.maxHeartRateLastHour)
                     Spacer()
-                }
-                statColumn(title: "MAX", value: bluetoothManager.maxHeartRateLastHour)
-                Spacer()
-                statColumn(title: "AVG", value: bluetoothManager.avgHeartRateLastHour)
-                Spacer()
-                Button {
-                    showDevicePicker = true
-                } label: {
-                    Image(systemName: "heart.fill")
-                        .font(.system(size: 32))
-                        .foregroundColor(.white)
-                        .padding()
-                        .background(Color.gray.opacity(0.3))
-                        .clipShape(Circle())
-                }
-                
-                Button {
-                    if sharingService.isSharing {
-                        sharingService.stopSharing()
-                    } else {
-                        Task {
-                            do {
-                                try await sharingService.startSharing()
-                            } catch {
-                                // Error handled by sharingService
+                    statColumn(title: "AVG", value: bluetoothManager.avgHeartRateLastHour)
+                    Spacer()
+                    Button {
+                        showDevicePicker = true
+                    } label: {
+                        Image(systemName: "heart.fill")
+                            .font(.system(size: 32))
+                            .foregroundColor(.white)
+                            .padding()
+                            .background(Color.gray.opacity(0.3))
+                            .clipShape(Circle())
+                    }
+                    
+                    Button {
+                        if sharingService.isSharing {
+                            sharingService.stopSharing()
+                        } else {
+                            Task {
+                                do {
+                                    try await sharingService.startSharing()
+                                } catch {
+                                    // Error handled by sharingService
+                                }
                             }
                         }
+                    } label: {
+                        Image(systemName: "antenna.radiowaves.left.and.right")
+                            .font(.system(size: 32))
+                            .foregroundColor(sharingService.isSharing ? .green : .white)
+                            .padding()
+                            .background(Color.gray.opacity(0.3))
+                            .clipShape(Circle())
                     }
-                } label: {
-                    Image(systemName: "antenna.radiowaves.left.and.right")
-                        .font(.system(size: 32))
-                        .foregroundColor(sharingService.isSharing ? .green : .white)
-                        .padding()
-                        .background(Color.gray.opacity(0.3))
-                        .clipShape(Circle())
                 }
+                .padding(.horizontal, 40)
+                .padding(.vertical, 20)
+                .background(Color.black.opacity(0.8))
+            } else {
+                // Portrait mode - stack stats and buttons vertically
+                VStack(spacing: 12) {
+                    HStack(spacing: 30) {
+                        if let connectedDevice = bluetoothManager.connectedDevice,
+                           let deviceName = bluetoothManager.getDeviceName(for: connectedDevice.identifier) {
+                            statColumn(title: "NAME", value: nil, customText: deviceName)
+                        }
+                        statColumn(title: "MAX", value: bluetoothManager.maxHeartRateLastHour)
+                        statColumn(title: "AVG", value: bluetoothManager.avgHeartRateLastHour)
+                    }
+                    
+                    HStack(spacing: 40) {
+                        Spacer()
+                        Button {
+                            showDevicePicker = true
+                        } label: {
+                            Image(systemName: "heart.fill")
+                                .font(.system(size: 28))
+                                .foregroundColor(.white)
+                                .padding()
+                                .background(Color.gray.opacity(0.3))
+                                .clipShape(Circle())
+                        }
+                        
+                        Button {
+                            if sharingService.isSharing {
+                                sharingService.stopSharing()
+                            } else {
+                                Task {
+                                    do {
+                                        try await sharingService.startSharing()
+                                    } catch {
+                                        // Error handled by sharingService
+                                    }
+                                }
+                            }
+                        } label: {
+                            Image(systemName: "antenna.radiowaves.left.and.right")
+                                .font(.system(size: 28))
+                                .foregroundColor(sharingService.isSharing ? .green : .white)
+                                .padding()
+                                .background(Color.gray.opacity(0.3))
+                                .clipShape(Circle())
+                        }
+                        Spacer()
+                    }
+                }
+                .padding(.horizontal, 40)
+                .padding(.vertical, 20)
+                .background(Color.black.opacity(0.8))
             }
-            .padding(.horizontal, isLandscape ? 40 : 60)
-            .padding(.vertical, isLandscape ? 20 : 30)
-            .background(Color.black.opacity(0.8))
         } else {
             // Friend mode stats
-            HStack(spacing: 40) {
-                Spacer()
-                statColumn(title: "MAX", value: sharingService.friendMaxHeartRate)
-                Spacer()
-                statColumn(title: "AVG", value: sharingService.friendAvgHeartRate)
-                Spacer()
-                Button {
-                    showDevicePicker = true
-                } label: {
-                    Image(systemName: "heart.fill")
-                        .font(.system(size: 32))
-                        .foregroundColor(.white)
-                        .padding()
-                        .background(Color.gray.opacity(0.3))
-                        .clipShape(Circle())
+            if isLandscape {
+                HStack(spacing: 40) {
+                    Spacer()
+                    statColumn(title: "MAX", value: sharingService.friendMaxHeartRate)
+                    Spacer()
+                    statColumn(title: "AVG", value: sharingService.friendAvgHeartRate)
+                    Spacer()
+                    Button {
+                        showDevicePicker = true
+                    } label: {
+                        Image(systemName: "heart.fill")
+                            .font(.system(size: 32))
+                            .foregroundColor(.white)
+                            .padding()
+                            .background(Color.gray.opacity(0.3))
+                            .clipShape(Circle())
+                    }
                 }
+                .padding(.horizontal, 40)
+                .padding(.vertical, 20)
+                .background(Color.black.opacity(0.8))
+            } else {
+                // Portrait mode - stack stats and buttons vertically
+                VStack(spacing: 12) {
+                    HStack(spacing: 40) {
+                        Spacer()
+                        statColumn(title: "MAX", value: sharingService.friendMaxHeartRate)
+                        Spacer()
+                        statColumn(title: "AVG", value: sharingService.friendAvgHeartRate)
+                        Spacer()
+                    }
+                    
+                    HStack {
+                        Spacer()
+                        Button {
+                            showDevicePicker = true
+                        } label: {
+                            Image(systemName: "heart.fill")
+                                .font(.system(size: 28))
+                                .foregroundColor(.white)
+                                .padding()
+                                .background(Color.gray.opacity(0.3))
+                                .clipShape(Circle())
+                        }
+                        Spacer()
+                    }
+                }
+                .padding(.horizontal, 40)
+                .padding(.vertical, 20)
+                .background(Color.black.opacity(0.8))
             }
-            .padding(.horizontal, isLandscape ? 40 : 60)
-            .padding(.vertical, isLandscape ? 20 : 30)
-            .background(Color.black.opacity(0.8))
         }
     }
 
