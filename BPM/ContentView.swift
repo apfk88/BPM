@@ -20,16 +20,15 @@ struct HeartRateDisplayView: View {
 
     var body: some View {
         GeometryReader { geometry in
+            let isLandscape = geometry.size.width > geometry.size.height
+            
             ZStack {
                 Color.black.ignoresSafeArea()
 
-                VStack(spacing: 0) {
-                    heartRateDisplay(height: geometry.size.height)
-                    statsBar
-                    sharingStatus
-                }
-                .overlay(alignment: .top) {
-                    sharingCodeDisplay
+                if isLandscape {
+                    landscapeLayout(geometry: geometry)
+                } else {
+                    portraitLayout(geometry: geometry)
                 }
             }
         }
@@ -74,6 +73,32 @@ struct HeartRateDisplayView: View {
         }
     }
     
+    @ViewBuilder
+    private func portraitLayout(geometry: GeometryProxy) -> some View {
+        VStack(spacing: 0) {
+            heartRateDisplay(size: geometry.size, isLandscape: false)
+            statsBar(isLandscape: false)
+            sharingStatus
+        }
+        .overlay(alignment: .top) {
+            sharingCodeDisplay
+        }
+    }
+    
+    @ViewBuilder
+    private func landscapeLayout(geometry: GeometryProxy) -> some View {
+        VStack(spacing: 0) {
+            heartRateDisplay(size: geometry.size, isLandscape: true)
+            
+            statsBar(isLandscape: true)
+            
+            sharingStatus
+        }
+        .overlay(alignment: .top) {
+            sharingCodeDisplay
+        }
+    }
+    
     private var sharingCodeDisplay: some View {
         Group {
             if appMode == .myDevice && sharingService.isSharing, let code = sharingService.shareCode {
@@ -86,8 +111,8 @@ struct HeartRateDisplayView: View {
     }
 
     @ViewBuilder
-    private func heartRateDisplay(height: CGFloat) -> some View {
-        let fontSize = height * 0.88
+    private func heartRateDisplay(size: CGSize, isLandscape: Bool) -> some View {
+        let fontSize = isLandscape ? min(size.width * 0.4, size.height * 0.8) : size.height * 0.88
         Group {
             if appMode == .myDevice {
                 if let heartRate = bluetoothManager.currentHeartRate {
@@ -136,7 +161,7 @@ struct HeartRateDisplayView: View {
     }
 
     @ViewBuilder
-    private var statsBar: some View {
+    private func statsBar(isLandscape: Bool) -> some View {
         if appMode == .myDevice {
             HStack(spacing: 40) {
                 if let connectedDevice = bluetoothManager.connectedDevice,
@@ -151,7 +176,7 @@ struct HeartRateDisplayView: View {
                 Button {
                     showDevicePicker = true
                 } label: {
-                    Image(systemName: "antenna.radiowaves.left.and.right")
+                    Image(systemName: "heart.fill")
                         .font(.system(size: 32))
                         .foregroundColor(.white)
                         .padding()
@@ -172,7 +197,7 @@ struct HeartRateDisplayView: View {
                         }
                     }
                 } label: {
-                    Image(systemName: sharingService.isSharing ? "link.circle.fill" : "link.circle")
+                    Image(systemName: "antenna.radiowaves.left.and.right")
                         .font(.system(size: 32))
                         .foregroundColor(sharingService.isSharing ? .green : .white)
                         .padding()
@@ -180,8 +205,8 @@ struct HeartRateDisplayView: View {
                         .clipShape(Circle())
                 }
             }
-            .padding(.horizontal, 60)
-            .padding(.vertical, 30)
+            .padding(.horizontal, isLandscape ? 40 : 60)
+            .padding(.vertical, isLandscape ? 20 : 30)
             .background(Color.black.opacity(0.8))
         } else {
             // Friend mode stats
@@ -194,7 +219,7 @@ struct HeartRateDisplayView: View {
                 Button {
                     showDevicePicker = true
                 } label: {
-                    Image(systemName: "antenna.radiowaves.left.and.right")
+                    Image(systemName: "heart.fill")
                         .font(.system(size: 32))
                         .foregroundColor(.white)
                         .padding()
@@ -202,8 +227,8 @@ struct HeartRateDisplayView: View {
                         .clipShape(Circle())
                 }
             }
-            .padding(.horizontal, 60)
-            .padding(.vertical, 30)
+            .padding(.horizontal, isLandscape ? 40 : 60)
+            .padding(.vertical, isLandscape ? 20 : 30)
             .background(Color.black.opacity(0.8))
         }
     }
