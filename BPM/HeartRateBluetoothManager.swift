@@ -21,7 +21,7 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
     // Sharing integration
     private let sharingService = SharingService.shared
     private var lastUpdateTime: Date?
-    private let updateThrottleInterval: TimeInterval = 1.0 // 1 second minimum
+    private let updateThrottleInterval: TimeInterval = 0.5 // 0.5 second minimum (2 Hz)
 
     override init() {
         super.init()
@@ -102,7 +102,7 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
 
         currentHeartRate = value
         
-        // Update sharing service (throttled to 1 Hz)
+        // Update sharing service (throttled to 2 Hz)
         if let lastUpdate = lastUpdateTime {
             let timeSinceLastUpdate = now.timeIntervalSince(lastUpdate)
             if timeSinceLastUpdate >= updateThrottleInterval {
