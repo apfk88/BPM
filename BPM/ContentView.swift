@@ -64,7 +64,7 @@ struct HeartRateDisplayView: View {
                 sharingService.stopViewing()
             } else {
                 bluetoothManager.stopScanning()
-                IdleTimer.enable()
+                IdleTimer.disable() // Keep screen on when viewing friend's heart rate
             }
         }
         .onChange(of: sharingService.isViewing) { oldValue, newValue in
@@ -76,6 +76,8 @@ struct HeartRateDisplayView: View {
             if appMode == .myDevice {
                 bluetoothManager.stopScanning()
                 IdleTimer.enable()
+            } else {
+                IdleTimer.enable() // Re-enable idle timer when leaving friend view
             }
         }
     }
@@ -230,7 +232,7 @@ struct HeartRateDisplayView: View {
                     VStack(spacing: 20) {
                         if let connectedDevice = bluetoothManager.connectedDevice,
                            let deviceName = bluetoothManager.getDeviceName(for: connectedDevice.identifier) {
-                            statColumn(title: "NAME", value: nil, customText: deviceName, scaleFactor: 1.0)
+                            statColumn(title: "NAME", value: nil, customText: String(deviceName.prefix(4)), scaleFactor: 1.0)
                         }
                         statColumn(title: "MAX", value: bluetoothManager.maxHeartRateLastHour, scaleFactor: 1.0)
                         statColumn(title: "AVG", value: bluetoothManager.avgHeartRateLastHour, scaleFactor: 1.0)
@@ -277,7 +279,7 @@ struct HeartRateDisplayView: View {
                     HStack(spacing: scaledSpacing) {
                         if let connectedDevice = bluetoothManager.connectedDevice,
                            let deviceName = bluetoothManager.getDeviceName(for: connectedDevice.identifier) {
-                            statColumn(title: "NAME", value: nil, customText: deviceName, scaleFactor: scaleFactor)
+                            statColumn(title: "NAME", value: nil, customText: String(deviceName.prefix(4)), scaleFactor: scaleFactor)
                         }
                         statColumn(title: "MAX", value: bluetoothManager.maxHeartRateLastHour, scaleFactor: scaleFactor)
                         statColumn(title: "AVG", value: bluetoothManager.avgHeartRateLastHour, scaleFactor: scaleFactor)
@@ -328,15 +330,29 @@ struct HeartRateDisplayView: View {
                         statColumn(title: "MAX", value: sharingService.friendMaxHeartRate, scaleFactor: 1.0)
                         statColumn(title: "AVG", value: sharingService.friendAvgHeartRate, scaleFactor: 1.0)
                         
-                        Button {
-                            showDevicePicker = true
-                        } label: {
-                            Image(systemName: "heart.fill")
-                                .font(.system(size: scaledButtonSize))
-                                .foregroundColor(.white)
-                                .padding(scaledButtonPadding)
-                                .background(Color.gray.opacity(0.3))
-                                .clipShape(Circle())
+                        HStack(spacing: 16) {
+                            Button {
+                                showDevicePicker = true
+                            } label: {
+                                Image(systemName: "heart.fill")
+                                    .font(.system(size: scaledButtonSize))
+                                    .foregroundColor(.white)
+                                    .padding(scaledButtonPadding)
+                                    .background(Color.gray.opacity(0.3))
+                                    .clipShape(Circle())
+                            }
+                            
+                            Button {
+                                // Disabled - no action
+                            } label: {
+                                Image(systemName: "antenna.radiowaves.left.and.right")
+                                    .font(.system(size: scaledButtonSize))
+                                    .foregroundColor(.gray)
+                                    .padding(scaledButtonPadding)
+                                    .background(Color.gray.opacity(0.2))
+                                    .clipShape(Circle())
+                            }
+                            .disabled(true)
                         }
                     }
                     .padding(.horizontal, scaledPadding)
@@ -361,6 +377,18 @@ struct HeartRateDisplayView: View {
                                 .background(Color.gray.opacity(0.3))
                                 .clipShape(Circle())
                         }
+                        
+                        Button {
+                            // Disabled - no action
+                        } label: {
+                            Image(systemName: "antenna.radiowaves.left.and.right")
+                                .font(.system(size: scaledButtonSize))
+                                .foregroundColor(.gray)
+                                .padding(scaledButtonPadding)
+                                .background(Color.gray.opacity(0.2))
+                                .clipShape(Circle())
+                        }
+                        .disabled(true)
                     }
                     .padding(.horizontal, scaledPadding)
                     .padding(.vertical, max(12.0, 16.0 * scaleFactor))
