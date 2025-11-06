@@ -137,7 +137,7 @@ struct HeartRateDisplayView: View {
             }
             .overlay(alignment: .bottom) {
                 VStack(spacing: 0) {
-                    statsBar(isLandscape: false, screenWidth: geometry.size.width)
+                    statsBar(isLandscape: true, screenWidth: geometry.size.width, useSplitLayout: true)
                         .padding(.bottom, geometry.safeAreaInsets.bottom)
                 }
                 .background(
@@ -227,7 +227,7 @@ struct HeartRateDisplayView: View {
     }
 
     @ViewBuilder
-    private func statsBar(isLandscape: Bool, screenWidth: CGFloat) -> some View {
+    private func statsBar(isLandscape: Bool, screenWidth: CGFloat, useSplitLayout: Bool = false) -> some View {
         // Scale factor: smaller screens get smaller sizes
         // Base scale on iPhone SE (375pt) = 1.0, scale down proportionally
         let scaleFactor = min(1.0, screenWidth / 375.0)
@@ -235,51 +235,101 @@ struct HeartRateDisplayView: View {
         let scaledPadding = isLandscape ? 40.0 : max(12.0, 20.0 * scaleFactor)
         let scaledButtonSize = isLandscape ? 32.0 : max(20.0, 24.0 * scaleFactor)
         let scaledButtonPadding = isLandscape ? 16.0 : max(8.0, 12.0 * scaleFactor)
+        let splitLayoutSpacing = useSplitLayout ? max(24.0, scaledSpacing * 0.6) : scaledSpacing
         
         if appMode == .myDevice {
                 if isLandscape {
-                    // Landscape mode - vertical stack on the right
-                    VStack(spacing: 20) {
-                        statColumn(title: "MAX", value: bluetoothManager.maxHeartRateLastHour, scaleFactor: 1.0)
-                        statColumn(title: "AVG", value: bluetoothManager.avgHeartRateLastHour, scaleFactor: 1.0)
-                        
-                        HStack(spacing: 16) {
-                            Button {
-                                showDevicePicker = true
-                            } label: {
-                                Image(systemName: "heart.fill")
-                                    .font(.system(size: scaledButtonSize))
-                                    .foregroundColor(.white)
-                                    .padding(scaledButtonPadding)
-                                    .background(Color.gray.opacity(0.3))
-                                    .clipShape(Circle())
+                    if useSplitLayout {
+                        HStack(alignment: .center, spacing: splitLayoutSpacing) {
+                            HStack(spacing: splitLayoutSpacing) {
+                                statColumn(title: "MAX", value: bluetoothManager.maxHeartRateLastHour, scaleFactor: 1.0)
+                                statColumn(title: "AVG", value: bluetoothManager.avgHeartRateLastHour, scaleFactor: 1.0)
                             }
                             
-                            Button {
-                                if sharingService.isSharing {
-                                    sharingService.stopSharing()
-                                } else {
-                                    Task {
-                                        do {
-                                            try await sharingService.startSharing()
-                                        } catch {
-                                            // Error handled by sharingService
+                            Spacer()
+                            
+                            HStack(spacing: 16) {
+                                Button {
+                                    showDevicePicker = true
+                                } label: {
+                                    Image(systemName: "heart.fill")
+                                        .font(.system(size: scaledButtonSize))
+                                        .foregroundColor(.white)
+                                        .padding(scaledButtonPadding)
+                                        .background(Color.gray.opacity(0.3))
+                                        .clipShape(Circle())
+                                }
+                                
+                                Button {
+                                    if sharingService.isSharing {
+                                        sharingService.stopSharing()
+                                    } else {
+                                        Task {
+                                            do {
+                                                try await sharingService.startSharing()
+                                            } catch {
+                                                // Error handled by sharingService
+                                            }
                                         }
                                     }
+                                } label: {
+                                    Image(systemName: "antenna.radiowaves.left.and.right")
+                                        .font(.system(size: scaledButtonSize))
+                                        .foregroundColor(sharingService.isSharing ? .green : .white)
+                                        .padding(scaledButtonPadding)
+                                        .background(Color.gray.opacity(0.3))
+                                        .clipShape(Circle())
                                 }
-                            } label: {
-                                Image(systemName: "antenna.radiowaves.left.and.right")
-                                    .font(.system(size: scaledButtonSize))
-                                    .foregroundColor(sharingService.isSharing ? .green : .white)
-                                    .padding(scaledButtonPadding)
-                                    .background(Color.gray.opacity(0.3))
-                                    .clipShape(Circle())
                             }
                         }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, scaledPadding)
+                        .padding(.vertical, 20)
+                        .background(Color.black.opacity(0.8))
+                    } else {
+                        // Landscape mode - vertical stack on the right
+                        VStack(spacing: 20) {
+                            statColumn(title: "MAX", value: bluetoothManager.maxHeartRateLastHour, scaleFactor: 1.0)
+                            statColumn(title: "AVG", value: bluetoothManager.avgHeartRateLastHour, scaleFactor: 1.0)
+                            
+                            HStack(spacing: 16) {
+                                Button {
+                                    showDevicePicker = true
+                                } label: {
+                                    Image(systemName: "heart.fill")
+                                        .font(.system(size: scaledButtonSize))
+                                        .foregroundColor(.white)
+                                        .padding(scaledButtonPadding)
+                                        .background(Color.gray.opacity(0.3))
+                                        .clipShape(Circle())
+                                }
+                                
+                                Button {
+                                    if sharingService.isSharing {
+                                        sharingService.stopSharing()
+                                    } else {
+                                        Task {
+                                            do {
+                                                try await sharingService.startSharing()
+                                            } catch {
+                                                // Error handled by sharingService
+                                            }
+                                        }
+                                    }
+                                } label: {
+                                    Image(systemName: "antenna.radiowaves.left.and.right")
+                                        .font(.system(size: scaledButtonSize))
+                                        .foregroundColor(sharingService.isSharing ? .green : .white)
+                                        .padding(scaledButtonPadding)
+                                        .background(Color.gray.opacity(0.3))
+                                        .clipShape(Circle())
+                                }
+                            }
+                        }
+                        .padding(.horizontal, scaledPadding)
+                        .padding(.vertical, 20)
+                        .background(Color.black.opacity(0.8))
                     }
-                    .padding(.horizontal, scaledPadding)
-                    .padding(.vertical, 20)
-                    .background(Color.black.opacity(0.8))
                 } else {
                     // Portrait mode - stats and buttons on same line
                     HStack(spacing: scaledSpacing) {
@@ -327,39 +377,79 @@ struct HeartRateDisplayView: View {
             } else {
                 // Friend mode stats
                 if isLandscape {
-                    // Landscape mode - vertical stack on the right
-                    VStack(spacing: 20) {
-                        statColumn(title: "MAX", value: sharingService.friendMaxHeartRate, scaleFactor: 1.0)
-                        statColumn(title: "AVG", value: sharingService.friendAvgHeartRate, scaleFactor: 1.0)
-                        
-                        HStack(spacing: 16) {
-                            Button {
-                                showDevicePicker = true
-                            } label: {
-                                Image(systemName: "heart.fill")
-                                    .font(.system(size: scaledButtonSize))
-                                    .foregroundColor(.white)
-                                    .padding(scaledButtonPadding)
-                                    .background(Color.gray.opacity(0.3))
-                                    .clipShape(Circle())
+                    if useSplitLayout {
+                        HStack(alignment: .center, spacing: splitLayoutSpacing) {
+                            HStack(spacing: splitLayoutSpacing) {
+                                statColumn(title: "MAX", value: sharingService.friendMaxHeartRate, scaleFactor: 1.0)
+                                statColumn(title: "AVG", value: sharingService.friendAvgHeartRate, scaleFactor: 1.0)
                             }
                             
-                            Button {
-                                // Disabled - no action
-                            } label: {
-                                Image(systemName: "antenna.radiowaves.left.and.right")
-                                    .font(.system(size: scaledButtonSize))
-                                    .foregroundColor(.gray)
-                                    .padding(scaledButtonPadding)
-                                    .background(Color.gray.opacity(0.2))
-                                    .clipShape(Circle())
+                            Spacer()
+                            
+                            HStack(spacing: 16) {
+                                Button {
+                                    showDevicePicker = true
+                                } label: {
+                                    Image(systemName: "heart.fill")
+                                        .font(.system(size: scaledButtonSize))
+                                        .foregroundColor(.white)
+                                        .padding(scaledButtonPadding)
+                                        .background(Color.gray.opacity(0.3))
+                                        .clipShape(Circle())
+                                }
+                                
+                                Button {
+                                    // Disabled - no action
+                                } label: {
+                                    Image(systemName: "antenna.radiowaves.left.and.right")
+                                        .font(.system(size: scaledButtonSize))
+                                        .foregroundColor(.gray)
+                                        .padding(scaledButtonPadding)
+                                        .background(Color.gray.opacity(0.2))
+                                        .clipShape(Circle())
+                                }
+                                .disabled(true)
                             }
-                            .disabled(true)
                         }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, scaledPadding)
+                        .padding(.vertical, 20)
+                        .background(Color.black.opacity(0.8))
+                    } else {
+                        // Landscape mode - vertical stack on the right
+                        VStack(spacing: 20) {
+                            statColumn(title: "MAX", value: sharingService.friendMaxHeartRate, scaleFactor: 1.0)
+                            statColumn(title: "AVG", value: sharingService.friendAvgHeartRate, scaleFactor: 1.0)
+                            
+                            HStack(spacing: 16) {
+                                Button {
+                                    showDevicePicker = true
+                                } label: {
+                                    Image(systemName: "heart.fill")
+                                        .font(.system(size: scaledButtonSize))
+                                        .foregroundColor(.white)
+                                        .padding(scaledButtonPadding)
+                                        .background(Color.gray.opacity(0.3))
+                                        .clipShape(Circle())
+                                }
+                                
+                                Button {
+                                    // Disabled - no action
+                                } label: {
+                                    Image(systemName: "antenna.radiowaves.left.and.right")
+                                        .font(.system(size: scaledButtonSize))
+                                        .foregroundColor(.gray)
+                                        .padding(scaledButtonPadding)
+                                        .background(Color.gray.opacity(0.2))
+                                        .clipShape(Circle())
+                                }
+                                .disabled(true)
+                            }
+                        }
+                        .padding(.horizontal, scaledPadding)
+                        .padding(.vertical, 20)
+                        .background(Color.black.opacity(0.8))
                     }
-                    .padding(.horizontal, scaledPadding)
-                    .padding(.vertical, 20)
-                    .background(Color.black.opacity(0.8))
                 } else {
                     // Portrait mode - stats and buttons on same line
                     HStack(spacing: scaledSpacing) {
