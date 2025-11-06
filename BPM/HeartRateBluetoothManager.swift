@@ -22,6 +22,21 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
     private let sharingService = SharingService.shared
     private var lastUpdateTime: Date?
     private let updateThrottleInterval: TimeInterval = 0.5 // 0.5 second minimum (2 Hz)
+    
+    // Simulator test mode
+    private var isSimulator: Bool {
+        #if targetEnvironment(simulator)
+        return true
+        #else
+        // Runtime check as fallback
+        return ProcessInfo.processInfo.environment["SIMULATOR_DEVICE_NAME"] != nil
+        #endif
+    }
+    private var fakeDataTimer: Timer?
+    private var fakeHeartRateBase: Int = 75 // Starting baseline
+    private var fakeHeartRateDirection: Int = 1 // 1 for increasing, -1 for decreasing
+    private let fakeDataUpdateInterval: TimeInterval = 2.0 // Update every 2 seconds
+    private let simulatorDeviceIdentifier = UUID() // Fixed identifier for simulator device
 
     override init() {
         super.init()
@@ -29,7 +44,15 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
         loadDeviceNames()
     }
     
+    deinit {
+        fakeDataTimer?.invalidate()
+    }
+    
     func getDeviceName(for identifier: UUID) -> String? {
+        // In simulator, return a default test device name if not set
+        if isSimulator && identifier == simulatorDeviceIdentifier {
+            return deviceNames[identifier.uuidString] ?? "Simulator Test Device"
+        }
         return deviceNames[identifier.uuidString]
     }
     
@@ -55,6 +78,15 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
     }
 
     func startScanning() {
+        // In simulator, start fake data generation instead of real Bluetooth scanning
+        if isSimulator {
+            guard !isScanning else { return }
+            isScanning = true
+            pendingScanRequest = false
+            startFakeDataGeneration()
+            return
+        }
+        
         guard centralManager != nil else { return }
         guard centralManager.state == .poweredOn else {
             pendingScanRequest = true
@@ -69,6 +101,14 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
     }
 
     func stopScanning() {
+        // Stop fake data generation if in simulator
+        if isSimulator {
+            guard isScanning else { return }
+            isScanning = false
+            stopFakeDataGeneration()
+            return
+        }
+        
         guard centralManager != nil else { return }
         guard isScanning else { return }
 
@@ -83,8 +123,10 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
     }
 
     func disconnect() {
-        if let device = connectedDevice {
-            centralManager.cancelPeripheralConnection(device)
+        if !isSimulator {
+            if let device = connectedDevice {
+                centralManager.cancelPeripheralConnection(device)
+            }
         }
         connectedDevice = nil
         currentHeartRate = nil
@@ -93,25 +135,32 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
     }
 
     private func addHeartRateSample(_ value: Int) {
-        let now = Date()
-        let sample = HeartRateSample(value: value, timestamp: now)
-        heartRateSamples.append(sample)
+        // Ensure @Published properties are updated on main thread
+        if Thread.isMainThread {
+            let now = Date()
+            let sample = HeartRateSample(value: value, timestamp: now)
+            heartRateSamples.append(sample)
 
-        let cutoff = now.addingTimeInterval(-3600)
-        heartRateSamples.removeAll { $0.timestamp < cutoff }
+            let cutoff = now.addingTimeInterval(-3600)
+            heartRateSamples.removeAll { $0.timestamp < cutoff }
 
-        currentHeartRate = value
-        
-        // Update sharing service (throttled to 2 Hz)
-        if let lastUpdate = lastUpdateTime {
-            let timeSinceLastUpdate = now.timeIntervalSince(lastUpdate)
-            if timeSinceLastUpdate >= updateThrottleInterval {
+            currentHeartRate = value
+            
+            // Update sharing service (throttled to 2 Hz)
+            if let lastUpdate = lastUpdateTime {
+                let timeSinceLastUpdate = now.timeIntervalSince(lastUpdate)
+                if timeSinceLastUpdate >= updateThrottleInterval {
+                    sharingService.updateHeartRate(value, max: maxHeartRateLastHour, avg: avgHeartRateLastHour)
+                    lastUpdateTime = now
+                }
+            } else {
                 sharingService.updateHeartRate(value, max: maxHeartRateLastHour, avg: avgHeartRateLastHour)
                 lastUpdateTime = now
             }
         } else {
-            sharingService.updateHeartRate(value, max: maxHeartRateLastHour, avg: avgHeartRateLastHour)
-            lastUpdateTime = now
+            DispatchQueue.main.sync { [weak self] in
+                self?.addHeartRateSample(value)
+            }
         }
     }
 }
@@ -216,6 +265,71 @@ extension HeartRateBluetoothManager: CBPeripheralDelegate {
             guard data.count >= 2 else { return nil }
             return Int(data[1])
         }
+    }
+    
+    // MARK: - Simulator Test Mode
+    
+    private func startFakeDataGeneration() {
+        // Ensure we're on main thread
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            
+            // Stop any existing timer
+            self.stopFakeDataGeneration()
+            
+            // Reset fake data state
+            self.fakeHeartRateBase = 75
+            self.heartRateSamples.removeAll()
+            
+            // Start with an initial heart rate (already on main thread)
+            self.addHeartRateSample(self.fakeHeartRateBase)
+            
+            // Create timer on main thread
+            self.fakeDataTimer = Timer.scheduledTimer(withTimeInterval: self.fakeDataUpdateInterval, repeats: true) { [weak self] timer in
+                self?.generateFakeHeartRate()
+            }
+            
+            // Add timer to common run loop modes so it continues during UI interactions
+            RunLoop.current.add(self.fakeDataTimer!, forMode: .common)
+        }
+    }
+    
+    private func stopFakeDataGeneration() {
+        // Timer invalidation is thread-safe, but ensure it happens on main thread
+        if Thread.isMainThread {
+            fakeDataTimer?.invalidate()
+            fakeDataTimer = nil
+        } else {
+            DispatchQueue.main.sync { [weak self] in
+                self?.fakeDataTimer?.invalidate()
+                self?.fakeDataTimer = nil
+            }
+        }
+    }
+    
+    private func generateFakeHeartRate() {
+        // Generate realistic heart rate variations
+        // Base heart rate oscillates between 60-100 BPM
+        let variation = Int.random(in: -5...5) // Random variation
+        
+        // Update base direction occasionally
+        if Int.random(in: 0...10) < 2 {
+            fakeHeartRateDirection *= -1
+        }
+        
+        // Apply direction change
+        fakeHeartRateBase += fakeHeartRateDirection * Int.random(in: 1...3)
+        
+        // Keep within realistic bounds
+        fakeHeartRateBase = max(60, min(100, fakeHeartRateBase))
+        
+        // Add variation
+        let heartRate = fakeHeartRateBase + variation
+        let clampedHeartRate = max(55, min(105, heartRate))
+        
+        // addHeartRateSample must be called on main thread for @Published properties
+        // Timer callbacks are already on the thread that scheduled them (main thread)
+        addHeartRateSample(clampedHeartRate)
     }
 }
 

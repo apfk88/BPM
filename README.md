@@ -2,7 +2,7 @@ Editor's note: this app is 100% organic, grass-fed vibecode
 
 ## BPM
 
-Minimalist, distraction-free heart rate display for iPad and iPhone (iPad-first design) that connects to Bluetooth LE heart rate straps (GATT Heart Rate Service 0x180D). Built with SwiftUI and CoreBluetooth.
+Minimalist, distraction-free heart rate display for iPad and iPhone that connects to Bluetooth LE heart rate straps (GATT Heart Rate Service 0x180D). Built with SwiftUI and CoreBluetooth.
 
 ### Features
 - **Live BPM**: Large, high-contrast digits designed to be readable at a glance.
@@ -16,7 +16,7 @@ Minimalist, distraction-free heart rate display for iPad and iPhone (iPad-first 
 ### Requirements
 - **Xcode**: 16 or newer.
 - **Devices**: Universal (iPad and iPhone). UI optimized for iPad landscape.
-- **iOS**: Deployment target currently set to 18.5 (adjustable in project settings).
+- **iOS**: Deployment target set to 17.0 (adjustable in project settings).
 - **Hardware**: A real iPhone/iPad with Bluetooth LE (CoreBluetooth does not work in the simulator).
 - **Heart rate strap**: Any BLE device that implements the Heart Rate Service (e.g., Polar H10, Wahoo TICKR, Garmin HRM, etc.).
 
@@ -33,14 +33,13 @@ Minimalist, distraction-free heart rate display for iPad and iPhone (iPad-first 
 4. Build & Run (Cmd+R).
 
 Notes:
-- If your device is on iOS earlier than 18.5, lower the deployment target (Targets → BPM → General → iOS Deployment Target) to match your device, then rebuild.
+- App requires iOS 17.0 or later. If you need to support earlier iOS versions, lower the deployment target (Targets → BPM → General → iOS Deployment Target) to match your device, then rebuild.
 - BLE requires a physical device; discovery/connection will not work in the simulator.
 - App supports landscape orientation on both iPad and iPhone.
 
 ### Permissions
 The app requests Bluetooth access on first launch to scan and connect to your heart rate monitor.
 - `NSBluetoothAlwaysUsageDescription`
-- `NSBluetoothPeripheralUsageDescription`
 
 You can change permission later in iOS Settings → Privacy & Security → Bluetooth → BPM.
 

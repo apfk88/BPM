@@ -5,6 +5,7 @@ struct DevicePickerView: View {
     @EnvironmentObject private var bluetoothManager: HeartRateBluetoothManager
     @EnvironmentObject private var sharingService: SharingService
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.openURL) private var openURL
     @State private var friendCodeInput: String = ""
 
     var body: some View {
@@ -14,6 +15,7 @@ struct DevicePickerView: View {
                 deviceList
                 connectionInfo
                 actionButtons
+                privacyPolicyLink
             }
             .navigationTitle("Select Device")
             .navigationBarTitleDisplayMode(.inline)
@@ -150,6 +152,20 @@ struct DevicePickerView: View {
             .buttonStyle(.borderedProminent)
         }
         .padding()
+    }
+    
+    private var privacyPolicyLink: some View {
+        Button {
+            // Update this URL to point to your hosted privacy policy
+            if let url = URL(string: "https://yourdomain.com/bpm-privacy") {
+                openURL(url)
+            }
+        } label: {
+            Text("Privacy Policy")
+                .font(.caption)
+                .foregroundColor(.secondary)
+        }
+        .padding(.bottom, 8)
     }
 }
 
