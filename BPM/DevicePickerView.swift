@@ -156,8 +156,7 @@ struct DevicePickerView: View {
     
     private var privacyPolicyLink: some View {
         Button {
-            // Update this URL to point to your hosted privacy policy
-            if let url = URL(string: "https://yourdomain.com/bpm-privacy") {
+            if let url = URL(string: "https://apfk88.github.io/BPM/") {
                 openURL(url)
             }
         } label: {
