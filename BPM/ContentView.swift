@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import UIKit
 
 enum AppMode {
     case myDevice
@@ -17,6 +18,12 @@ struct HeartRateDisplayView: View {
     @StateObject private var sharingService = SharingService.shared
     @State private var showDevicePicker = false
     @State private var appMode: AppMode = .myDevice
+    @State private var portraitBottomContentHeight: CGFloat = 0
+    @State private var landscapeBottomContentHeight: CGFloat = 0
+
+    private var isPad: Bool {
+        UIDevice.current.userInterfaceIdiom == .pad
+    }
 
     var body: some View {
         GeometryReader { geometry in
@@ -26,7 +33,7 @@ struct HeartRateDisplayView: View {
                 Color.black.ignoresSafeArea()
 
                 if isLandscape {
-                    landscapeLayout(geometry: geometry)
+                    landscapeLayout(geometry: geometry, useSideLayout: !isPad)
                 } else {
                     portraitLayout(geometry: geometry)
                 }
@@ -75,27 +82,69 @@ struct HeartRateDisplayView: View {
     
     @ViewBuilder
     private func portraitLayout(geometry: GeometryProxy) -> some View {
-        VStack(spacing: 0) {
+        ZStack {
             heartRateDisplay(size: geometry.size, isLandscape: false)
-            statsBar(isLandscape: false)
-            sharingStatus
+                .offset(y: -portraitBottomContentHeight / 2)
         }
+        .overlay(alignment: .bottom) {
+            VStack(spacing: 0) {
+                statsBar(isLandscape: false, screenWidth: geometry.size.width)
+                    .padding(.bottom, geometry.safeAreaInsets.bottom)
+                sharingStatus
+            }
+            .background(
+                GeometryReader { proxy in
+                    Color.clear.preference(key: BottomContentHeightKey.self, value: proxy.size.height)
+                }
+            )
+        }
+        .onPreferenceChange(BottomContentHeightKey.self) { portraitBottomContentHeight = $0 }
         .overlay(alignment: .top) {
             sharingCodeDisplay
         }
     }
     
     @ViewBuilder
-    private func landscapeLayout(geometry: GeometryProxy) -> some View {
-        VStack(spacing: 0) {
-            heartRateDisplay(size: geometry.size, isLandscape: true)
-            
-            statsBar(isLandscape: true)
-            
-            sharingStatus
-        }
-        .overlay(alignment: .top) {
-            sharingCodeDisplay
+    private func landscapeLayout(geometry: GeometryProxy, useSideLayout: Bool) -> some View {
+        if useSideLayout {
+            HStack(spacing: 0) {
+                // BPM display on the left, taking most of the space
+                heartRateDisplay(size: geometry.size, isLandscape: true)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                
+                // Stats/buttons bar on the right side, vertically arranged
+                VStack(spacing: 0) {
+                    Spacer()
+                    statsBar(isLandscape: true, screenWidth: geometry.size.width)
+                        .padding(.trailing, geometry.safeAreaInsets.trailing)
+                    Spacer()
+                    sharingStatus
+                }
+            }
+            .overlay(alignment: .top) {
+                sharingCodeDisplay
+            }
+        } else {
+            ZStack {
+                heartRateDisplay(size: geometry.size, isLandscape: true)
+                    .offset(y: -landscapeBottomContentHeight / 2)
+            }
+            .overlay(alignment: .bottom) {
+                VStack(spacing: 0) {
+                    statsBar(isLandscape: false, screenWidth: geometry.size.width)
+                        .padding(.bottom, geometry.safeAreaInsets.bottom)
+                    sharingStatus
+                }
+                .background(
+                    GeometryReader { proxy in
+                        Color.clear.preference(key: BottomContentHeightKey.self, value: proxy.size.height)
+                    }
+                )
+            }
+            .onPreferenceChange(BottomContentHeightKey.self) { landscapeBottomContentHeight = $0 }
+            .overlay(alignment: .top) {
+                sharingCodeDisplay
+            }
         }
     }
     
@@ -112,27 +161,32 @@ struct HeartRateDisplayView: View {
 
     @ViewBuilder
     private func heartRateDisplay(size: CGSize, isLandscape: Bool) -> some View {
-        let fontSize = isLandscape ? min(size.width * 0.4, size.height * 0.8) : size.height * 0.65
-        Group {
-            if appMode == .myDevice {
-                if let heartRate = bluetoothManager.currentHeartRate {
-                    Text("\(heartRate)")
-                } else {
-                    Text("---")
-                }
-            } else {
-                if let heartRate = sharingService.friendHeartRate {
-                    Text("\(heartRate)")
-                } else {
-                    Text("---")
-                }
-            }
-        }
-        .font(.system(size: fontSize, weight: .bold, design: .rounded))
-        .foregroundColor(displayedHeartRate == nil ? .gray : .white)
-        .minimumScaleFactor(0.1)
-        .lineLimit(1)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // Base font size anchored to screen height, but cap by width to fit 3 digits comfortably
+        let baseFontSize = isLandscape
+            ? min(size.width * 0.35, size.height * 0.8)
+            : size.height * 0.65
+
+        // Measure width of the widest expected value (three digits) at the base font size
+        let referenceText = "888"
+        let baseUIFont = UIFont.systemFont(ofSize: baseFontSize, weight: .bold)
+        let baseWidth = referenceText.size(withAttributes: [.font: baseUIFont]).width
+
+        // Leave some horizontal padding so the number never abuts the edges
+        let horizontalAllowance = isLandscape ? size.width * 0.55 : size.width * 0.9
+        let fittedFontSize = baseWidth > 0
+            ? min(baseFontSize, horizontalAllowance / baseWidth * baseFontSize)
+            : baseFontSize
+
+        let value = displayedHeartRate
+        let text = value.map(String.init) ?? "---"
+        let color: Color = value == nil ? .gray : .white
+
+        Text(text)
+            .font(.system(size: fittedFontSize, weight: .bold, design: .rounded))
+            .monospacedDigit()
+            .foregroundColor(color)
+            .lineLimit(1)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
     
     private var displayedHeartRate: Int? {
@@ -161,75 +215,82 @@ struct HeartRateDisplayView: View {
     }
 
     @ViewBuilder
-    private func statsBar(isLandscape: Bool) -> some View {
+    private func statsBar(isLandscape: Bool, screenWidth: CGFloat) -> some View {
+        // Scale factor: smaller screens get smaller sizes
+        // Base scale on iPhone SE (375pt) = 1.0, scale down proportionally
+        let scaleFactor = min(1.0, screenWidth / 375.0)
+        let scaledSpacing = isLandscape ? 40.0 : max(8.0, 20.0 * scaleFactor)
+        let scaledPadding = isLandscape ? 40.0 : max(12.0, 20.0 * scaleFactor)
+        let scaledButtonSize = isLandscape ? 32.0 : max(20.0, 24.0 * scaleFactor)
+        let scaledButtonPadding = isLandscape ? 16.0 : max(8.0, 12.0 * scaleFactor)
+        
         if appMode == .myDevice {
-            if isLandscape {
-                HStack(spacing: 40) {
-                    if let connectedDevice = bluetoothManager.connectedDevice,
-                       let deviceName = bluetoothManager.getDeviceName(for: connectedDevice.identifier) {
-                        statColumn(title: "NAME", value: nil, customText: deviceName)
-                        Spacer()
-                    }
-                    statColumn(title: "MAX", value: bluetoothManager.maxHeartRateLastHour)
-                    Spacer()
-                    statColumn(title: "AVG", value: bluetoothManager.avgHeartRateLastHour)
-                    Spacer()
-                    Button {
-                        showDevicePicker = true
-                    } label: {
-                        Image(systemName: "heart.fill")
-                            .font(.system(size: 32))
-                            .foregroundColor(.white)
-                            .padding()
-                            .background(Color.gray.opacity(0.3))
-                            .clipShape(Circle())
-                    }
-                    
-                    Button {
-                        if sharingService.isSharing {
-                            sharingService.stopSharing()
-                        } else {
-                            Task {
-                                do {
-                                    try await sharingService.startSharing()
-                                } catch {
-                                    // Error handled by sharingService
-                                }
-                            }
-                        }
-                    } label: {
-                        Image(systemName: "antenna.radiowaves.left.and.right")
-                            .font(.system(size: 32))
-                            .foregroundColor(sharingService.isSharing ? .green : .white)
-                            .padding()
-                            .background(Color.gray.opacity(0.3))
-                            .clipShape(Circle())
-                    }
-                }
-                .padding(.horizontal, 40)
-                .padding(.vertical, 20)
-                .background(Color.black.opacity(0.8))
-            } else {
-                // Portrait mode - stack stats and buttons vertically
-                VStack(spacing: 12) {
-                    HStack(spacing: 30) {
+                if isLandscape {
+                    // Landscape mode - vertical stack on the right
+                    VStack(spacing: 20) {
                         if let connectedDevice = bluetoothManager.connectedDevice,
                            let deviceName = bluetoothManager.getDeviceName(for: connectedDevice.identifier) {
-                            statColumn(title: "NAME", value: nil, customText: deviceName)
+                            statColumn(title: "NAME", value: nil, customText: deviceName, scaleFactor: 1.0)
                         }
-                        statColumn(title: "MAX", value: bluetoothManager.maxHeartRateLastHour)
-                        statColumn(title: "AVG", value: bluetoothManager.avgHeartRateLastHour)
+                        statColumn(title: "MAX", value: bluetoothManager.maxHeartRateLastHour, scaleFactor: 1.0)
+                        statColumn(title: "AVG", value: bluetoothManager.avgHeartRateLastHour, scaleFactor: 1.0)
+                        
+                        HStack(spacing: 16) {
+                            Button {
+                                showDevicePicker = true
+                            } label: {
+                                Image(systemName: "heart.fill")
+                                    .font(.system(size: scaledButtonSize))
+                                    .foregroundColor(.white)
+                                    .padding(scaledButtonPadding)
+                                    .background(Color.gray.opacity(0.3))
+                                    .clipShape(Circle())
+                            }
+                            
+                            Button {
+                                if sharingService.isSharing {
+                                    sharingService.stopSharing()
+                                } else {
+                                    Task {
+                                        do {
+                                            try await sharingService.startSharing()
+                                        } catch {
+                                            // Error handled by sharingService
+                                        }
+                                    }
+                                }
+                            } label: {
+                                Image(systemName: "antenna.radiowaves.left.and.right")
+                                    .font(.system(size: scaledButtonSize))
+                                    .foregroundColor(sharingService.isSharing ? .green : .white)
+                                    .padding(scaledButtonPadding)
+                                    .background(Color.gray.opacity(0.3))
+                                    .clipShape(Circle())
+                            }
+                        }
                     }
-                    
-                    HStack(spacing: 40) {
+                    .padding(.horizontal, scaledPadding)
+                    .padding(.vertical, 20)
+                    .background(Color.black.opacity(0.8))
+                } else {
+                    // Portrait mode - stats and buttons on same line
+                    HStack(spacing: scaledSpacing) {
+                        if let connectedDevice = bluetoothManager.connectedDevice,
+                           let deviceName = bluetoothManager.getDeviceName(for: connectedDevice.identifier) {
+                            statColumn(title: "NAME", value: nil, customText: deviceName, scaleFactor: scaleFactor)
+                        }
+                        statColumn(title: "MAX", value: bluetoothManager.maxHeartRateLastHour, scaleFactor: scaleFactor)
+                        statColumn(title: "AVG", value: bluetoothManager.avgHeartRateLastHour, scaleFactor: scaleFactor)
+                        
                         Spacer()
+                        
                         Button {
                             showDevicePicker = true
                         } label: {
                             Image(systemName: "heart.fill")
-                                .font(.system(size: 28))
+                                .font(.system(size: scaledButtonSize))
                                 .foregroundColor(.white)
-                                .padding()
+                                .padding(scaledButtonPadding)
                                 .background(Color.gray.opacity(0.3))
                                 .clipShape(Circle())
                         }
@@ -248,83 +309,81 @@ struct HeartRateDisplayView: View {
                             }
                         } label: {
                             Image(systemName: "antenna.radiowaves.left.and.right")
-                                .font(.system(size: 28))
+                                .font(.system(size: scaledButtonSize))
                                 .foregroundColor(sharingService.isSharing ? .green : .white)
-                                .padding()
+                                .padding(scaledButtonPadding)
                                 .background(Color.gray.opacity(0.3))
                                 .clipShape(Circle())
                         }
-                        Spacer()
                     }
+                    .padding(.horizontal, scaledPadding)
+                    .padding(.vertical, max(12.0, 16.0 * scaleFactor))
+                    .background(Color.black.opacity(0.8))
                 }
-                .padding(.horizontal, 40)
-                .padding(.vertical, 20)
-                .background(Color.black.opacity(0.8))
-            }
-        } else {
-            // Friend mode stats
-            if isLandscape {
-                HStack(spacing: 40) {
-                    Spacer()
-                    statColumn(title: "MAX", value: sharingService.friendMaxHeartRate)
-                    Spacer()
-                    statColumn(title: "AVG", value: sharingService.friendAvgHeartRate)
-                    Spacer()
-                    Button {
-                        showDevicePicker = true
-                    } label: {
-                        Image(systemName: "heart.fill")
-                            .font(.system(size: 32))
-                            .foregroundColor(.white)
-                            .padding()
-                            .background(Color.gray.opacity(0.3))
-                            .clipShape(Circle())
-                    }
-                }
-                .padding(.horizontal, 40)
-                .padding(.vertical, 20)
-                .background(Color.black.opacity(0.8))
             } else {
-                // Portrait mode - stack stats and buttons vertically
-                VStack(spacing: 12) {
-                    HStack(spacing: 40) {
-                        Spacer()
-                        statColumn(title: "MAX", value: sharingService.friendMaxHeartRate)
-                        Spacer()
-                        statColumn(title: "AVG", value: sharingService.friendAvgHeartRate)
-                        Spacer()
-                    }
-                    
-                    HStack {
-                        Spacer()
+                // Friend mode stats
+                if isLandscape {
+                    // Landscape mode - vertical stack on the right
+                    VStack(spacing: 20) {
+                        statColumn(title: "MAX", value: sharingService.friendMaxHeartRate, scaleFactor: 1.0)
+                        statColumn(title: "AVG", value: sharingService.friendAvgHeartRate, scaleFactor: 1.0)
+                        
                         Button {
                             showDevicePicker = true
                         } label: {
                             Image(systemName: "heart.fill")
-                                .font(.system(size: 28))
+                                .font(.system(size: scaledButtonSize))
                                 .foregroundColor(.white)
-                                .padding()
+                                .padding(scaledButtonPadding)
                                 .background(Color.gray.opacity(0.3))
                                 .clipShape(Circle())
                         }
-                        Spacer()
                     }
+                    .padding(.horizontal, scaledPadding)
+                    .padding(.vertical, 20)
+                    .background(Color.black.opacity(0.8))
+                } else {
+                    // Portrait mode - stats and buttons on same line
+                    HStack(spacing: scaledSpacing) {
+                        Spacer()
+                        statColumn(title: "MAX", value: sharingService.friendMaxHeartRate, scaleFactor: scaleFactor)
+                        statColumn(title: "AVG", value: sharingService.friendAvgHeartRate, scaleFactor: scaleFactor)
+                        
+                        Spacer()
+                        
+                        Button {
+                            showDevicePicker = true
+                        } label: {
+                            Image(systemName: "heart.fill")
+                                .font(.system(size: scaledButtonSize))
+                                .foregroundColor(.white)
+                                .padding(scaledButtonPadding)
+                                .background(Color.gray.opacity(0.3))
+                                .clipShape(Circle())
+                        }
+                    }
+                    .padding(.horizontal, scaledPadding)
+                    .padding(.vertical, max(12.0, 16.0 * scaleFactor))
+                    .background(Color.black.opacity(0.8))
                 }
-                .padding(.horizontal, 40)
-                .padding(.vertical, 20)
-                .background(Color.black.opacity(0.8))
             }
+    }
+
+    private func statColumn(title: String, value: Int?, customText: String? = nil, scaleFactor: Double = 1.0) -> some View {
+        VStack(spacing: 4 * scaleFactor) {
+            Text(title)
+                .font(.system(size: 20 * scaleFactor, weight: .semibold))
+                .foregroundColor(.gray)
+            Text(customText ?? value.map(String.init) ?? "---")
+                .font(.system(size: 36 * scaleFactor, weight: .bold))
+                .foregroundColor((value == nil && customText == nil) ? .gray : .white)
         }
     }
 
-    private func statColumn(title: String, value: Int?, customText: String? = nil) -> some View {
-        VStack(spacing: 4) {
-            Text(title)
-                .font(.system(size: 20, weight: .semibold))
-                .foregroundColor(.gray)
-            Text(customText ?? value.map(String.init) ?? "---")
-                .font(.system(size: 36, weight: .bold))
-                .foregroundColor((value == nil && customText == nil) ? .gray : .white)
+    private struct BottomContentHeightKey: PreferenceKey {
+        static var defaultValue: CGFloat = 0
+        static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+            value = nextValue()
         }
     }
 }
