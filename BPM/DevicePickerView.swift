@@ -114,14 +114,12 @@ struct DevicePickerView: View {
 
     @ViewBuilder
     private var connectionInfo: some View {
-        if let connectedDevice = bluetoothManager.connectedDevice {
+        if bluetoothManager.connectedDevice != nil {
             VStack(spacing: 8) {
                 Divider()
                 HStack {
-                    Text("Connected:")
+                    Text("Connected")
                         .foregroundColor(.secondary)
-                    Text(connectedDevice.name ?? "Unknown Device")
-                        .fontWeight(.semibold)
                     Spacer()
                     Button("Disconnect") {
                         bluetoothManager.disconnect()
@@ -173,61 +171,41 @@ private struct DeviceRow: View {
     @EnvironmentObject private var sharingService: SharingService
     @Environment(\.dismiss) private var dismiss
     let device: CBPeripheral
-    @State private var deviceName: String = ""
 
     private var isConnected: Bool {
         bluetoothManager.connectedDevice?.identifier == device.identifier
     }
 
     var body: some View {
-        HStack(spacing: 12) {
-            Button {
-                if isConnected {
-                    bluetoothManager.disconnect()
-                } else {
-                    sharingService.stopViewing()
-                    bluetoothManager.connect(to: device)
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                        dismiss()
-                    }
+        Button {
+            if isConnected {
+                bluetoothManager.disconnect()
+            } else {
+                sharingService.stopViewing()
+                bluetoothManager.connect(to: device)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    dismiss()
                 }
-            } label: {
-                HStack {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(device.name ?? "Unknown Device")
-                            .font(.headline)
-                            .foregroundColor(.primary)
-                        Text(device.identifier.uuidString)
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-
-                    Spacer()
-
-                    if isConnected {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundColor(.green)
-                            .font(.title2)
-                    }
-                }
-                .padding(.vertical, 8)
             }
-            .buttonStyle(.plain)
-            
-            TextField("Name", text: $deviceName)
-                .textFieldStyle(.roundedBorder)
-                .frame(width: 80)
-                .onAppear {
-                    deviceName = bluetoothManager.getDeviceName(for: device.identifier) ?? ""
+        } label: {
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(device.identifier.uuidString)
+                        .font(.headline)
+                        .foregroundColor(.primary)
                 }
-                .onChange(of: deviceName) {
-                    let limited = String(deviceName.prefix(10))
-                    if limited != deviceName {
-                        deviceName = limited
-                    }
-                    bluetoothManager.setDeviceName(limited, for: device.identifier)
+
+                Spacer()
+
+                if isConnected {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundColor(.green)
+                        .font(.title2)
                 }
+            }
+            .padding(.vertical, 8)
         }
+        .buttonStyle(.plain)
     }
 }
 

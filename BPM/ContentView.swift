@@ -230,10 +230,6 @@ struct HeartRateDisplayView: View {
                 if isLandscape {
                     // Landscape mode - vertical stack on the right
                     VStack(spacing: 20) {
-                        if let connectedDevice = bluetoothManager.connectedDevice,
-                           let deviceName = bluetoothManager.getDeviceName(for: connectedDevice.identifier) {
-                            statColumn(title: "NAME", value: nil, customText: String(deviceName.prefix(4)), scaleFactor: 1.0)
-                        }
                         statColumn(title: "MAX", value: bluetoothManager.maxHeartRateLastHour, scaleFactor: 1.0)
                         statColumn(title: "AVG", value: bluetoothManager.avgHeartRateLastHour, scaleFactor: 1.0)
                         
@@ -277,10 +273,6 @@ struct HeartRateDisplayView: View {
                 } else {
                     // Portrait mode - stats and buttons on same line
                     HStack(spacing: scaledSpacing) {
-                        if let connectedDevice = bluetoothManager.connectedDevice,
-                           let deviceName = bluetoothManager.getDeviceName(for: connectedDevice.identifier) {
-                            statColumn(title: "NAME", value: nil, customText: String(deviceName.prefix(4)), scaleFactor: scaleFactor)
-                        }
                         statColumn(title: "MAX", value: bluetoothManager.maxHeartRateLastHour, scaleFactor: scaleFactor)
                         statColumn(title: "AVG", value: bluetoothManager.avgHeartRateLastHour, scaleFactor: scaleFactor)
                         
