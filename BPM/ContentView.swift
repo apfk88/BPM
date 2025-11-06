@@ -92,7 +92,6 @@ struct HeartRateDisplayView: View {
             VStack(spacing: 0) {
                 statsBar(isLandscape: false, screenWidth: geometry.size.width)
                     .padding(.bottom, geometry.safeAreaInsets.bottom)
-                sharingStatus
             }
             .background(
                 GeometryReader { proxy in
@@ -102,7 +101,10 @@ struct HeartRateDisplayView: View {
         }
         .onPreferenceChange(BottomContentHeightKey.self) { portraitBottomContentHeight = $0 }
         .overlay(alignment: .top) {
-            sharingCodeDisplay
+            VStack(spacing: 8) {
+                errorMessageDisplay
+                sharingCodeDisplay
+            }
         }
     }
     
@@ -120,11 +122,13 @@ struct HeartRateDisplayView: View {
                     statsBar(isLandscape: true, screenWidth: geometry.size.width)
                         .padding(.trailing, geometry.safeAreaInsets.trailing)
                     Spacer()
-                    sharingStatus
                 }
             }
             .overlay(alignment: .top) {
-                sharingCodeDisplay
+                VStack(spacing: 8) {
+                    errorMessageDisplay
+                    sharingCodeDisplay
+                }
             }
         } else {
             ZStack {
@@ -135,7 +139,6 @@ struct HeartRateDisplayView: View {
                 VStack(spacing: 0) {
                     statsBar(isLandscape: false, screenWidth: geometry.size.width)
                         .padding(.bottom, geometry.safeAreaInsets.bottom)
-                    sharingStatus
                 }
                 .background(
                     GeometryReader { proxy in
@@ -145,7 +148,10 @@ struct HeartRateDisplayView: View {
             }
             .onPreferenceChange(BottomContentHeightKey.self) { landscapeBottomContentHeight = $0 }
             .overlay(alignment: .top) {
-                sharingCodeDisplay
+                VStack(spacing: 8) {
+                    errorMessageDisplay
+                    sharingCodeDisplay
+                }
             }
         }
     }
@@ -200,19 +206,23 @@ struct HeartRateDisplayView: View {
     }
     
     @ViewBuilder
-    private var sharingStatus: some View {
-        if appMode == .friendCode {
-            if let error = sharingService.errorMessage {
-                HStack {
-                    Text(error)
-                        .font(.system(size: 12))
-                        .foregroundColor(.red)
-                    Spacer()
-                }
-                .padding(.horizontal, 40)
-                .padding(.vertical, 12)
-                .background(Color.black.opacity(0.8))
-            }
+    private var errorMessageDisplay: some View {
+        if appMode == .friendCode, let error = sharingService.errorMessage {
+            Text(error)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundColor(.red.opacity(0.9))
+                .multilineTextAlignment(.center)
+                .lineLimit(2)
+                .padding(.horizontal, 20)
+                .padding(.top, 20)
+        } else if appMode == .myDevice, let error = sharingService.errorMessage {
+            Text(error)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundColor(.red.opacity(0.9))
+                .multilineTextAlignment(.center)
+                .lineLimit(2)
+                .padding(.horizontal, 20)
+                .padding(.top, 20)
         }
     }
 

@@ -2,7 +2,7 @@ import { NextApiRequest, NextApiResponse } from 'next';
 import { kv } from '@vercel/kv';
 
 const SHARE_CODE_LENGTH = 6;
-const TOKEN_EXPIRY_SECONDS = 24 * 60 * 60; // 24 hours
+const TOKEN_EXPIRY_SECONDS = 2 * 60 * 60; // 2 hours
 const MAX_CODE_GENERATION_RETRIES = 100; // Prevent infinite loops
 
 function generateShareCode(): string {

@@ -39,6 +39,9 @@ class SharingService: ObservableObject {
     
     private var updateTimer: Timer?
     private var pollTimer: Timer?
+    private var expirationTimer: Timer?
+    
+    private let shareExpirationInterval: TimeInterval = 2 * 60 * 60 // 2 hours
     
     private let shareCodeKey = "BPM_ShareCode"
     private let shareTokenKey = "BPM_ShareToken"
@@ -95,6 +98,7 @@ class SharingService: ObservableObject {
                 UserDefaults.standard.set(shareResponse.token, forKey: self.shareTokenKey)
                 
                 self.startUpdatingHeartRate()
+                self.startExpirationTimer()
             }
         } catch {
             await MainActor.run {
@@ -110,6 +114,8 @@ class SharingService: ObservableObject {
         shareToken = nil
         updateTimer?.invalidate()
         updateTimer = nil
+        expirationTimer?.invalidate()
+        expirationTimer = nil
         
         UserDefaults.standard.removeObject(forKey: shareCodeKey)
         UserDefaults.standard.removeObject(forKey: shareTokenKey)
@@ -163,7 +169,7 @@ class SharingService: ObservableObject {
                     await MainActor.run {
                         if httpResponse.statusCode == 401 {
                             self.stopSharing()
-                            self.errorMessage = "Sharing session expired"
+                            self.errorMessage = "Sharing session expired. To keep sharing, start a new session."
                         }
                     }
                 }
@@ -176,6 +182,17 @@ class SharingService: ObservableObject {
     private func startUpdatingHeartRate() {
         // Updates will be triggered externally when heart rate changes
         // This just ensures we're ready
+    }
+    
+    private func startExpirationTimer() {
+        expirationTimer?.invalidate()
+        
+        expirationTimer = Timer.scheduledTimer(withTimeInterval: shareExpirationInterval, repeats: false) { [weak self] _ in
+            Task { @MainActor in
+                self?.stopSharing()
+                self?.errorMessage = "Sharing session expired after 2 hours. To keep sharing, start a new session."
+            }
+        }
     }
     
     private func startPollingFriendHeartRate() {
@@ -195,7 +212,7 @@ class SharingService: ObservableObject {
         Task {
             guard let url = URL(string: "\(baseURL)/api/share/\(code)") else {
                 await MainActor.run {
-                    self.errorMessage = "Invalid URL"
+                    self.errorMessage = "Invalid share code. Please check the code and try again."
                 }
                 return
             }
@@ -208,14 +225,14 @@ class SharingService: ObservableObject {
                 
                 guard let httpResponse = response as? HTTPURLResponse else {
                     await MainActor.run {
-                        self.errorMessage = "Invalid response"
+                        self.errorMessage = "Connection error. Please check your internet connection."
                     }
                     return
                 }
                 
                 if httpResponse.statusCode == 404 {
                     await MainActor.run {
-                        self.errorMessage = "Share code not found"
+                        self.errorMessage = "Sharing session expired or ended. Ask the sharer to start a new session."
                         self.stopViewing()
                     }
                     return
@@ -223,7 +240,7 @@ class SharingService: ObservableObject {
                 
                 guard httpResponse.statusCode == 200 else {
                     await MainActor.run {
-                        self.errorMessage = "Server error"
+                        self.errorMessage = "Unable to connect to sharing session. Please try again."
                     }
                     return
                 }
@@ -238,7 +255,16 @@ class SharingService: ObservableObject {
                 }
             } catch {
                 await MainActor.run {
-                    self.errorMessage = "Failed to fetch: \(error.localizedDescription)"
+                    if let urlError = error as? URLError {
+                        switch urlError.code {
+                        case .notConnectedToInternet, .networkConnectionLost, .timedOut:
+                            self.errorMessage = "Connection lost. Check your internet and try again."
+                        default:
+                            self.errorMessage = "Unable to connect. The sharing session may have ended."
+                        }
+                    } else {
+                        self.errorMessage = "Unable to connect. The sharing session may have ended."
+                    }
                 }
             }
         }
