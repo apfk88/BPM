@@ -1,8 +1,20 @@
 Editor's note: this app is 100% organic, grass-fed vibecode
 
+**Marketing site:** [https://bpmtracker.app](https://bpmtracker.app)
+
 ## BPM
 
 Minimalist, distraction-free heart rate display for iPad and iPhone that connects to Bluetooth LE heart rate straps (GATT Heart Rate Service 0x180D). Built with SwiftUI and CoreBluetooth.
+
+### Repository Structure
+
+This repository contains three main components:
+
+- **iOS App** (`BPM/`): The SwiftUI iOS application for iPhone and iPad
+- **Static Marketing Site** (`backend/public/`): Landing page and privacy policy hosted on Vercel
+- **Backend API** (`backend/pages/api/`): Next.js API routes for heart rate sharing functionality
+
+The marketing site and backend are deployed together on Vercel, with the static files served from `backend/public/` and API routes at `/api/*`.
 
 ### Features
 - **Live BPM**: Large, high-contrast digits designed to be readable at a glance.
