@@ -1,4 +1,6 @@
 {
-  "buildCommand": "cd backend && npm install && npm run build",
-  "installCommand": "cd backend && npm install"
+  "buildCommand": "npm install && npm run build",
+  "installCommand": "npm install",
+  "framework": "nextjs",
+  "rootDirectory": "backend"
 }

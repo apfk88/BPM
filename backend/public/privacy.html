@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="BPM Privacy Policy - Learn how we handle your heart rate data and protect your privacy.">
+  <title>Privacy Policy - BPM</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@100..900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
+  <link rel="icon" href="/icon-light-32x32.png" media="(prefers-color-scheme: light)">
+  <link rel="icon" href="/icon-dark-32x32.png" media="(prefers-color-scheme: dark)">
+  <link rel="apple-touch-icon" href="/apple-icon.png">
+</head>
+<body>
+  <main class="min-h-screen flex flex-col">
+    <section class="hero-section">
+      <div class="container">
+        <div class="header-group">
+          <a href="/" class="app-icon-link">
+            <img src="/app-icon.png" alt="BPM app icon" class="app-icon" />
+          </a>
+          <h1 class="title">BPM</h1>
+        </div>
+
+        <div class="privacy-content">
+          <h2 class="privacy-title">Privacy Policy</h2>
+          <p class="privacy-date"><strong>Effective date: November 6, 2025</strong></p>
+
+          <p class="privacy-intro">
+            BPM is a minimalist heart rate display app. We respect your privacy and are committed to protecting it. This policy explains what data we handle and why.
+          </p>
+
+          <h3 class="privacy-heading">Summary</h3>
+          <ul class="privacy-list">
+            <li>We do not collect personal information.</li>
+            <li>Heart rate data stays on your device unless you explicitly choose to share it.</li>
+            <li>If you enable sharing, your heart rate is sent to your own backend and retained briefly so others with your code can view it.</li>
+          </ul>
+
+          <h3 class="privacy-heading">Data We Handle</h3>
+          <h4 class="privacy-subheading">Heart Rate (BPM), Max, and Average (last hour)</h4>
+          <ul class="privacy-list">
+            <li><strong>Source</strong>: Your Bluetooth LE heart rate strap via CoreBluetooth.</li>
+            <li><strong>On-device use</strong>: Display and simple stats.</li>
+            <li><strong>Optional sharing</strong>: When you enable sharing, BPM/max/avg and a timestamp are sent to your backend service and associated only with a random 6-character code and a session token.</li>
+          </ul>
+
+          <h3 class="privacy-heading">Sharing and Retention</h3>
+          <ul class="privacy-list">
+            <li><strong>When sharing is ON</strong>:
+              <ul class="privacy-list">
+                <li>Data is transmitted over HTTPS to your backend (by default a Vercel deployment using KV/Upstash).</li>
+                <li>The backend stores the latest values for up to 24 hours to allow real-time viewing by someone who knows your code.</li>
+              </ul>
+            </li>
+            <li><strong>When sharing is OFF</strong>:
+              <ul class="privacy-list">
+                <li>No heart rate data is transmitted off-device.</li>
+                <li>The app does not upload analytics.</li>
+              </ul>
+            </li>
+          </ul>
+
+          <h3 class="privacy-heading">Identifiers and Tracking</h3>
+          <ul class="privacy-list">
+            <li>We do not use advertising identifiers and do not track users.</li>
+            <li>The share code and token are random and not linked to your identity.</li>
+            <li>Standard web server/host logs (e.g., IP address) may be recorded by your hosting provider (e.g., Vercel) for security/operations.</li>
+          </ul>
+
+          <h3 class="privacy-heading">Device Permissions</h3>
+          <ul class="privacy-list">
+            <li><strong>Bluetooth</strong>: Used to discover and connect to your heart rate strap.</li>
+          </ul>
+
+          <h3 class="privacy-heading">Security</h3>
+          <ul class="privacy-list">
+            <li>Data in transit uses HTTPS.</li>
+            <li>The backend stores minimal, ephemeral data required to provide sharing functionality.</li>
+          </ul>
+
+          <h3 class="privacy-heading">Your Choices</h3>
+          <ul class="privacy-list">
+            <li>Do not enable sharing if you don't want any data transmitted.</li>
+            <li>You can stop sharing at any time in the app.</li>
+          </ul>
+
+          <h3 class="privacy-heading">Contact</h3>
+          <p class="privacy-contact">
+            For questions or requests about this privacy policy, please contact: <a href="mailto:vibecodeinc@proton.me" class="footer-link">vibecodeinc@proton.me</a>
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <footer class="footer">
+      <div class="container">
+        <nav class="footer-nav">
+          <a href="/privacy.html" class="footer-link">Privacy Policy</a>
+          <a href="mailto:vibecodeinc@proton.me" class="footer-link">Support</a>
+          <a
+            href="https://github.com/apfk88/BPM"
+            class="footer-link"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            GitHub
+          </a>
+        </nav>
+      </div>
+    </footer>
+  </main>
+</body>
+</html>
+
