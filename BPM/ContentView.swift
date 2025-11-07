@@ -86,7 +86,7 @@ struct HeartRateDisplayView: View {
     private func portraitLayout(geometry: GeometryProxy) -> some View {
         ZStack {
             heartRateDisplay(size: geometry.size, isLandscape: false)
-                .offset(y: -portraitBottomContentHeight / 2)
+                .offset(y: -portraitBottomContentHeight / 2 - geometry.size.height * 0.1)
         }
         .overlay(alignment: .bottom) {
             VStack(spacing: 0) {
