@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Simple heart rate monitoring app for iPhone and iPad. See and share your heart rate in big, clear numbers.">
+  <title>BPM - Your Heart Rate in Big Numbers</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@100..900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
+  <link rel="icon" href="/icon-light-32x32.png" media="(prefers-color-scheme: light)">
+  <link rel="icon" href="/icon-dark-32x32.png" media="(prefers-color-scheme: dark)">
+  <link rel="apple-touch-icon" href="/apple-icon.png">
+</head>
+<body>
+  <main class="min-h-screen flex flex-col">
+    <!-- Hero Section -->
+    <section class="hero-section">
+      <div class="container">
+        <div class="header-group">
+          <img src="/app-icon.png" alt="BPM app icon" class="app-icon" />
+          <h1 class="title">BPM</h1>
+        </div>
+
+        <!-- Tagline -->
+        <p class="tagline">
+          Your heart rate in big numbers. That's it.
+        </p>
+
+        <p class="subtitle">
+          ...ok you can also share your live heart rate with someone else...who can see it in big numbers
+        </p>
+
+        <div class="app-store-container">
+          <a href="#" aria-label="Download on the App Store">
+            <img src="/app-store-badge.svg" alt="Download on the App Store" class="app-store-badge" />
+          </a>
+        </div>
+
+        <div class="screenshot-container">
+          <img
+            src="/bpm-screenshot.png"
+            alt="BPM app screenshot showing heart rate of 65"
+            class="screenshot"
+          />
+        </div>
+
+        <div class="steps">
+          <p>Step 1: Download and open app</p>
+          <p>Step 2: Connect any BLE heart rate monitor (like a Polar H10)</p>
+          <p>Step 3: Connect to the monitor in the app</p>
+          <p>Step 4: Look at your heart rate. Do great things.</p>
+          <p>
+            Step 5: Optionally share your live heart rate with someone else like a trainer or a very close friend.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <footer class="footer">
+      <div class="container">
+        <nav class="footer-nav">
+          <a href="#" class="footer-link">Privacy Policy</a>
+          <a href="mailto:vibecodeinc@proton.me" class="footer-link">Support</a>
+          <a
+            href="https://github.com/apfk88/BPM"
+            class="footer-link"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            GitHub
+          </a>
+        </nav>
+      </div>
+    </footer>
+  </main>
+</body>
+</html>
+
