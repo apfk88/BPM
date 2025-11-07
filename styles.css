@@ -222,6 +222,78 @@ body {
   color: var(--foreground);
 }
 
+/* Privacy Policy Page Styles */
+.app-icon-link {
+  display: inline-block;
+  text-decoration: none;
+}
+
+.privacy-content {
+  max-width: 48rem;
+  margin-left: auto;
+  margin-right: auto;
+  text-align: left;
+  padding: 2rem 1rem;
+}
+
+.privacy-title {
+  font-size: 2.5rem;
+  font-weight: 700;
+  margin-bottom: 0.5rem;
+  color: var(--foreground);
+}
+
+.privacy-date {
+  color: var(--muted-foreground);
+  margin-bottom: 2rem;
+  font-size: 0.875rem;
+}
+
+.privacy-intro {
+  font-size: 1rem;
+  line-height: 1.75;
+  margin-bottom: 2rem;
+  color: var(--foreground);
+}
+
+.privacy-heading {
+  font-size: 1.5rem;
+  font-weight: 600;
+  margin-top: 2rem;
+  margin-bottom: 1rem;
+  color: var(--foreground);
+}
+
+.privacy-subheading {
+  font-size: 1.125rem;
+  font-weight: 600;
+  margin-top: 1.5rem;
+  margin-bottom: 0.75rem;
+  color: var(--foreground);
+}
+
+.privacy-list {
+  margin-left: 1.5rem;
+  margin-bottom: 1.5rem;
+  color: var(--foreground);
+  line-height: 1.75;
+}
+
+.privacy-list li {
+  margin-bottom: 0.75rem;
+}
+
+.privacy-list ul {
+  margin-top: 0.5rem;
+  margin-left: 1.5rem;
+}
+
+.privacy-contact {
+  margin-top: 2rem;
+  color: var(--foreground);
+  line-height: 1.75;
+}
+
 /* Responsive design */
 @media (min-width: 768px) {
   .hero-section {
@@ -257,6 +329,18 @@ body {
   .steps {
     padding-left: 6rem;
     font-size: 1.125rem;
+  }
+
+  .privacy-content {
+    padding: 3rem 2rem;
+  }
+
+  .privacy-title {
+    font-size: 3rem;
+  }
+
+  .privacy-heading {
+    font-size: 1.75rem;
   }
 }
 
