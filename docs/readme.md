@@ -49,5 +49,5 @@ BPM is a minimalist heart rate display app. We respect your privacy and are comm
 
 ## Contact
 
-For questions or requests about this privacy policy, please contact: bpm-support@proton.me
+For questions or requests about this privacy policy, please contact: vibecodeinc@proton.me
 

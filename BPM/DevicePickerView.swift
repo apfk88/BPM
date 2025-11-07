@@ -104,7 +104,7 @@ struct DevicePickerView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
-            List(bluetoothManager.availableDevices, id: \.identifier) { device in
+            List(bluetoothManager.availableDevices) { device in
                 DeviceRow(device: device)
                     .environmentObject(bluetoothManager)
                     .environmentObject(sharingService)
@@ -170,10 +170,10 @@ private struct DeviceRow: View {
     @EnvironmentObject private var bluetoothManager: HeartRateBluetoothManager
     @EnvironmentObject private var sharingService: SharingService
     @Environment(\.dismiss) private var dismiss
-    let device: CBPeripheral
+    let device: DiscoveredPeripheral
 
     private var isConnected: Bool {
-        bluetoothManager.connectedDevice?.identifier == device.identifier
+        bluetoothManager.connectedDevice?.identifier == device.peripheral.identifier
     }
 
     var body: some View {
@@ -182,7 +182,7 @@ private struct DeviceRow: View {
                 bluetoothManager.disconnect()
             } else {
                 sharingService.stopViewing()
-                bluetoothManager.connect(to: device)
+                bluetoothManager.connect(to: device.peripheral)
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                     dismiss()
                 }
@@ -190,9 +190,15 @@ private struct DeviceRow: View {
         } label: {
             HStack {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(device.identifier.uuidString)
+                    Text(device.displayName)
                         .font(.headline)
                         .foregroundColor(.primary)
+                    
+                    if let detail = device.detailText {
+                        Text(detail)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
                 }
 
                 Spacer()

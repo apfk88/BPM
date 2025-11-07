@@ -2,8 +2,64 @@ import Foundation
 import CoreBluetooth
 import Combine
 
+struct DiscoveredPeripheral: Identifiable, Equatable {
+    let peripheral: CBPeripheral
+    let advertisedName: String?
+    let manufacturerIdentifier: UInt16?
+    let rssi: NSNumber?
+    
+    init(peripheral: CBPeripheral, advertisedName: String?, manufacturerIdentifier: UInt16?, rssi: NSNumber?) {
+        self.peripheral = peripheral
+        self.advertisedName = DiscoveredPeripheral.clean(advertisedName)
+        self.manufacturerIdentifier = manufacturerIdentifier
+        self.rssi = rssi
+    }
+    
+    var id: UUID { peripheral.identifier }
+    
+    var displayName: String {
+        if let advertisedName {
+            return advertisedName
+        }
+        
+        if let peripheralName = DiscoveredPeripheral.clean(peripheral.name) {
+            return peripheralName
+        }
+        
+        return peripheral.identifier.uuidString
+    }
+    
+    var detailText: String? {
+        if displayName != peripheral.identifier.uuidString {
+            return peripheral.identifier.uuidString
+        }
+        
+        if let rssi {
+            return "RSSI \(rssi.intValue) dBm"
+        }
+        
+        return nil
+    }
+    
+    func merging(peripheral newPeripheral: CBPeripheral, advertisedName newName: String?, manufacturerIdentifier newIdentifier: UInt16?, rssi newRSSI: NSNumber?) -> DiscoveredPeripheral {
+        DiscoveredPeripheral(
+            peripheral: newPeripheral,
+            advertisedName: newName ?? advertisedName,
+            manufacturerIdentifier: newIdentifier ?? manufacturerIdentifier,
+            rssi: newRSSI ?? rssi
+        )
+    }
+    
+    private static func clean(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmed.isEmpty else {
+            return nil
+        }
+        return trimmed
+    }
+}
+
 final class HeartRateBluetoothManager: NSObject, ObservableObject {
-    @Published var availableDevices: [CBPeripheral] = []
+    @Published var availableDevices: [DiscoveredPeripheral] = []
     @Published var connectedDevice: CBPeripheral?
     @Published var isScanning = false
     @Published var currentHeartRate: Int?
@@ -159,8 +215,25 @@ extension HeartRateBluetoothManager: CBCentralManagerDelegate {
     }
 
     func centralManager(_ central: CBCentralManager, didDiscover peripheral: CBPeripheral, advertisementData: [String: Any], rssi RSSI: NSNumber) {
-        if !availableDevices.contains(where: { $0.identifier == peripheral.identifier }) {
-            availableDevices.append(peripheral)
+        let localName = advertisementData[CBAdvertisementDataLocalNameKey] as? String
+        let manufacturerIdentifier = manufacturerIdentifier(from: advertisementData[CBAdvertisementDataManufacturerDataKey] as? Data)
+        
+        if let index = availableDevices.firstIndex(where: { $0.id == peripheral.identifier }) {
+            availableDevices[index] = availableDevices[index]
+                .merging(
+                    peripheral: peripheral,
+                    advertisedName: localName,
+                    manufacturerIdentifier: manufacturerIdentifier,
+                    rssi: RSSI
+                )
+        } else {
+            let discoveredPeripheral = DiscoveredPeripheral(
+                peripheral: peripheral,
+                advertisedName: localName,
+                manufacturerIdentifier: manufacturerIdentifier,
+                rssi: RSSI
+            )
+            availableDevices.append(discoveredPeripheral)
         }
     }
 
@@ -296,6 +369,14 @@ extension HeartRateBluetoothManager: CBPeripheralDelegate {
         // addHeartRateSample must be called on main thread for @Published properties
         // Timer callbacks are already on the thread that scheduled them (main thread)
         addHeartRateSample(clampedHeartRate)
+    }
+    
+    private func manufacturerIdentifier(from data: Data?) -> UInt16? {
+        guard let data, data.count >= 2 else {
+            return nil
+        }
+        
+        return UInt16(data[1]) << 8 | UInt16(data[0])
     }
 }
 
