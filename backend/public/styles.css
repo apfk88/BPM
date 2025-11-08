@@ -150,6 +150,14 @@ body {
   margin-bottom: 3rem;
 }
 
+.app-store-container a {
+  display: inline-block;
+  line-height: 0;
+  text-decoration: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
 .hero-section {
   flex: 1;
   display: flex;
@@ -167,6 +175,10 @@ body {
 .app-store-badge {
   height: 3rem;
   width: auto;
+  display: block;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .screenshot-container {
