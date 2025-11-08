@@ -261,6 +261,19 @@ body {
   margin-bottom: 0;
 }
 
+.faq-answer a {
+  color: var(--foreground);
+  text-decoration: underline;
+  text-decoration-color: var(--muted-foreground);
+  text-underline-offset: 2px;
+  transition: color 0.2s, text-decoration-color 0.2s;
+}
+
+.faq-answer a:hover {
+  color: var(--foreground);
+  text-decoration-color: var(--foreground);
+}
+
 .footer {
   border-top: 1px solid var(--border);
   padding: 2rem 1rem;
@@ -282,6 +295,14 @@ body {
 
 .footer-link:hover {
   color: var(--foreground);
+}
+
+.footer-tagline {
+  margin-top: 1.5rem;
+  text-align: center;
+  color: var(--muted-foreground);
+  font-size: 0.875rem;
+  font-style: italic;
 }
 
 /* Privacy Policy Page Styles */
