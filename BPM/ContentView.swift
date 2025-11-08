@@ -163,6 +163,15 @@ struct HeartRateDisplayView: View {
                     .font(.system(size: 20, weight: .bold, design: .monospaced))
                     .foregroundColor(.green)
                     .padding(.top, 20)
+            } else if appMode == .friendCode && sharingService.isViewing, let code = sharingService.friendCode {
+                Button {
+                    showDevicePicker = true
+                } label: {
+                    Text("Viewing: \(code)")
+                        .font(.system(size: 20, weight: .bold, design: .monospaced))
+                        .foregroundColor(.green)
+                        .padding(.top, 20)
+                }
             }
         }
     }

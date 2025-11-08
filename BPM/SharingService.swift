@@ -46,8 +46,12 @@ class SharingService: ObservableObject {
     private var updateTimer: Timer?
     private var pollTimer: Timer?
     private var expirationTimer: Timer?
+    private var timeoutTimer: Timer?
+    private var lastHeartRateTimestamp: Date?
+    private var viewingStartTime: Date?
     
     private let shareExpirationInterval: TimeInterval = 2 * 60 * 60 // 2 hours
+    private let viewingTimeoutInterval: TimeInterval = 10.0 // 10 seconds
     
     private let shareCodeKey = "BPM_ShareCode"
     private let shareTokenKey = "BPM_ShareToken"
@@ -64,7 +68,9 @@ class SharingService: ObservableObject {
         
         if friendCode != nil {
             isViewing = true
+            viewingStartTime = Date()
             startPollingFriendHeartRate()
+            startTimeoutTimer()
         }
         
         // Clear any old sharing state that might be lingering
@@ -138,10 +144,13 @@ class SharingService: ObservableObject {
         isViewing = true
         errorMessage = nil
         errorContext = nil
+        lastHeartRateTimestamp = nil
+        viewingStartTime = Date()
         
         UserDefaults.standard.set(friendCode, forKey: friendCodeKey)
         
         startPollingFriendHeartRate()
+        startTimeoutTimer()
     }
     
     func stopViewing(clearError: Bool = true) {
@@ -152,6 +161,10 @@ class SharingService: ObservableObject {
         friendAvgHeartRate = nil
         pollTimer?.invalidate()
         pollTimer = nil
+        timeoutTimer?.invalidate()
+        timeoutTimer = nil
+        lastHeartRateTimestamp = nil
+        viewingStartTime = nil
         
         if clearError {
             errorMessage = nil
@@ -226,6 +239,46 @@ class SharingService: ObservableObject {
         pollFriendHeartRate()
     }
     
+    private func startTimeoutTimer() {
+        timeoutTimer?.invalidate()
+        
+        timeoutTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+            guard let self = self else { return }
+            
+            DispatchQueue.main.async {
+                guard self.isViewing else { return }
+                
+                let now = Date()
+                
+                if let lastUpdate = self.lastHeartRateTimestamp {
+                    // We've received at least one update - check if it's been too long since the last one
+                    let timeSinceLastUpdate = now.timeIntervalSince(lastUpdate)
+                    if timeSinceLastUpdate >= self.viewingTimeoutInterval {
+                        // Only show timeout error if we don't already have an error message
+                        if self.errorMessage == nil {
+                            self.errorMessage = "Shared connection lost. You might need to start a new session."
+                            self.errorContext = .viewing
+                        }
+                    }
+                } else if let startTime = self.viewingStartTime {
+                    // We've never received an update - check if enough time has passed since we started viewing
+                    let timeSinceStart = now.timeIntervalSince(startTime)
+                    if timeSinceStart >= self.viewingTimeoutInterval {
+                        if self.errorMessage == nil {
+                            self.errorMessage = "Shared connection lost. You might need to start a new session."
+                            self.errorContext = .viewing
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Ensure timer runs on main RunLoop
+        if let timer = timeoutTimer {
+            RunLoop.main.add(timer, forMode: .common)
+        }
+    }
+    
     private func pollFriendHeartRate() {
         guard let code = friendCode else { return }
         
@@ -272,11 +325,19 @@ class SharingService: ObservableObject {
                 let heartRateResponse = try JSONDecoder().decode(HeartRateResponse.self, from: data)
                 
                 await MainActor.run {
+                    // Only update timestamp if we actually received heart rate data
+                    // This ensures timeout works correctly - if we get responses but no data, timeout should still trigger
+                    if heartRateResponse.bpm != nil {
+                        self.lastHeartRateTimestamp = Date()
+                    }
                     self.friendHeartRate = heartRateResponse.bpm
                     self.friendMaxHeartRate = heartRateResponse.max
                     self.friendAvgHeartRate = heartRateResponse.avg
-                    self.errorMessage = nil
-                    self.errorContext = nil
+                    // Clear error message only if we got actual data
+                    if heartRateResponse.bpm != nil {
+                        self.errorMessage = nil
+                        self.errorContext = nil
+                    }
                 }
             } catch {
                 await MainActor.run {
