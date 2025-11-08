@@ -207,15 +207,7 @@ struct HeartRateDisplayView: View {
     
     @ViewBuilder
     private var errorMessageDisplay: some View {
-        if appMode == .friendCode, let error = sharingService.errorMessage {
-            Text(error)
-                .font(.system(size: 11, weight: .medium))
-                .foregroundColor(.red.opacity(0.9))
-                .multilineTextAlignment(.center)
-                .lineLimit(2)
-                .padding(.horizontal, 20)
-                .padding(.top, 20)
-        } else if appMode == .myDevice, let error = sharingService.errorMessage {
+        if let error = sharingService.errorMessage, shouldShowError(for: appMode) {
             Text(error)
                 .font(.system(size: 11, weight: .medium))
                 .foregroundColor(.red.opacity(0.9))
@@ -370,6 +362,7 @@ struct HeartRateDisplayView: View {
                                 .clipShape(Circle())
                         }
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, scaledPadding)
                     .padding(.vertical, max(12.0, 16.0 * scaleFactor))
                     .background(Color.black.opacity(0.8))
@@ -453,7 +446,6 @@ struct HeartRateDisplayView: View {
                 } else {
                     // Portrait mode - stats and buttons on same line
                     HStack(spacing: scaledSpacing) {
-                        Spacer()
                         statColumn(title: "MAX", value: sharingService.friendMaxHeartRate, scaleFactor: scaleFactor)
                         statColumn(title: "AVG", value: sharingService.friendAvgHeartRate, scaleFactor: scaleFactor)
                         
@@ -482,6 +474,7 @@ struct HeartRateDisplayView: View {
                         }
                         .disabled(true)
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, scaledPadding)
                     .padding(.vertical, max(12.0, 16.0 * scaleFactor))
                     .background(Color.black.opacity(0.8))
@@ -497,6 +490,19 @@ struct HeartRateDisplayView: View {
             Text(customText ?? value.map(String.init) ?? "---")
                 .font(.system(size: 36 * scaleFactor, weight: .bold))
                 .foregroundColor((value == nil && customText == nil) ? .gray : .white)
+        }
+    }
+    
+    private func shouldShowError(for mode: AppMode) -> Bool {
+        guard let context = sharingService.errorContext else {
+            return true
+        }
+        
+        switch (mode, context) {
+        case (.myDevice, .sharing), (.friendCode, .viewing):
+            return true
+        default:
+            return false
         }
     }
 

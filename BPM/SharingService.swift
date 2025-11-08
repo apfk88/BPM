@@ -23,6 +23,11 @@ enum SharingError: Error {
 class SharingService: ObservableObject {
     static let shared = SharingService()
     
+    enum ErrorContext {
+        case sharing
+        case viewing
+    }
+    
     @Published var shareCode: String?
     @Published var shareToken: String?
     @Published var friendCode: String?
@@ -32,6 +37,7 @@ class SharingService: ObservableObject {
     @Published var isSharing = false
     @Published var isViewing = false
     @Published var errorMessage: String?
+    @Published var errorContext: ErrorContext?
     
     private var baseURL: String {
         UserDefaults.standard.string(forKey: "BPM_API_BASE_URL") ?? "https://bpm-chi.vercel.app"
@@ -64,6 +70,8 @@ class SharingService: ObservableObject {
         // Clear any old sharing state that might be lingering
         UserDefaults.standard.removeObject(forKey: shareCodeKey)
         UserDefaults.standard.removeObject(forKey: shareTokenKey)
+        errorMessage = nil
+        errorContext = nil
     }
     
     func startSharing() async throws {
@@ -93,6 +101,7 @@ class SharingService: ObservableObject {
                 self.shareToken = shareResponse.token
                 self.isSharing = true
                 self.errorMessage = nil
+                self.errorContext = nil
                 
                 UserDefaults.standard.set(shareResponse.code, forKey: self.shareCodeKey)
                 UserDefaults.standard.set(shareResponse.token, forKey: self.shareTokenKey)
@@ -103,6 +112,7 @@ class SharingService: ObservableObject {
         } catch {
             await MainActor.run {
                 self.errorMessage = "Failed to start sharing: \(error.localizedDescription)"
+                self.errorContext = .sharing
             }
             throw error
         }
@@ -116,6 +126,8 @@ class SharingService: ObservableObject {
         updateTimer = nil
         expirationTimer?.invalidate()
         expirationTimer = nil
+        errorMessage = nil
+        errorContext = nil
         
         UserDefaults.standard.removeObject(forKey: shareCodeKey)
         UserDefaults.standard.removeObject(forKey: shareTokenKey)
@@ -125,13 +137,14 @@ class SharingService: ObservableObject {
         friendCode = code.uppercased().trimmingCharacters(in: .whitespacesAndNewlines)
         isViewing = true
         errorMessage = nil
+        errorContext = nil
         
         UserDefaults.standard.set(friendCode, forKey: friendCodeKey)
         
         startPollingFriendHeartRate()
     }
     
-    func stopViewing() {
+    func stopViewing(clearError: Bool = true) {
         isViewing = false
         friendCode = nil
         friendHeartRate = nil
@@ -139,6 +152,11 @@ class SharingService: ObservableObject {
         friendAvgHeartRate = nil
         pollTimer?.invalidate()
         pollTimer = nil
+        
+        if clearError {
+            errorMessage = nil
+            errorContext = nil
+        }
         
         UserDefaults.standard.removeObject(forKey: friendCodeKey)
     }
@@ -170,6 +188,7 @@ class SharingService: ObservableObject {
                         if httpResponse.statusCode == 401 {
                             self.stopSharing()
                             self.errorMessage = "Sharing session expired. To keep sharing, start a new session."
+                            self.errorContext = .sharing
                         }
                     }
                 }
@@ -191,6 +210,7 @@ class SharingService: ObservableObject {
             Task { @MainActor in
                 self?.stopSharing()
                 self?.errorMessage = "Sharing session expired after 2 hours. To keep sharing, start a new session."
+                self?.errorContext = .sharing
             }
         }
     }
@@ -213,6 +233,7 @@ class SharingService: ObservableObject {
             guard let url = URL(string: "\(baseURL)/api/share/\(code)") else {
                 await MainActor.run {
                     self.errorMessage = "Invalid share code. Please check the code and try again."
+                    self.errorContext = .viewing
                 }
                 return
             }
@@ -226,6 +247,7 @@ class SharingService: ObservableObject {
                 guard let httpResponse = response as? HTTPURLResponse else {
                     await MainActor.run {
                         self.errorMessage = "Connection error. Please check your internet connection."
+                        self.errorContext = .viewing
                     }
                     return
                 }
@@ -233,7 +255,8 @@ class SharingService: ObservableObject {
                 if httpResponse.statusCode == 404 {
                     await MainActor.run {
                         self.errorMessage = "Sharing session expired or ended. Ask the sharer to start a new session."
-                        self.stopViewing()
+                        self.errorContext = .viewing
+                        self.stopViewing(clearError: false)
                     }
                     return
                 }
@@ -241,6 +264,7 @@ class SharingService: ObservableObject {
                 guard httpResponse.statusCode == 200 else {
                     await MainActor.run {
                         self.errorMessage = "Unable to connect to sharing session. Please try again."
+                        self.errorContext = .viewing
                     }
                     return
                 }
@@ -252,6 +276,7 @@ class SharingService: ObservableObject {
                     self.friendMaxHeartRate = heartRateResponse.max
                     self.friendAvgHeartRate = heartRateResponse.avg
                     self.errorMessage = nil
+                    self.errorContext = nil
                 }
             } catch {
                 await MainActor.run {
@@ -259,11 +284,14 @@ class SharingService: ObservableObject {
                         switch urlError.code {
                         case .notConnectedToInternet, .networkConnectionLost, .timedOut:
                             self.errorMessage = "Connection lost. Check your internet and try again."
+                            self.errorContext = .viewing
                         default:
                             self.errorMessage = "Unable to connect. The sharing session may have ended."
+                            self.errorContext = .viewing
                         }
                     } else {
                         self.errorMessage = "Unable to connect. The sharing session may have ended."
+                        self.errorContext = .viewing
                     }
                 }
             }
