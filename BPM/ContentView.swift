@@ -102,6 +102,7 @@ struct HeartRateDisplayView: View {
         .onPreferenceChange(BottomContentHeightKey.self) { portraitBottomContentHeight = $0 }
         .overlay(alignment: .top) {
             VStack(spacing: 8) {
+                connectionPrompt
                 errorMessageDisplay
                 sharingCodeDisplay
             }
@@ -126,6 +127,7 @@ struct HeartRateDisplayView: View {
             }
             .overlay(alignment: .top) {
                 VStack(spacing: 8) {
+                    connectionPrompt
                     errorMessageDisplay
                     sharingCodeDisplay
                 }
@@ -149,13 +151,14 @@ struct HeartRateDisplayView: View {
             .onPreferenceChange(BottomContentHeightKey.self) { landscapeBottomContentHeight = $0 }
             .overlay(alignment: .top) {
                 VStack(spacing: 8) {
+                    connectionPrompt
                     errorMessageDisplay
                     sharingCodeDisplay
                 }
             }
         }
     }
-    
+
     private var sharingCodeDisplay: some View {
         Group {
             if appMode == .myDevice && sharingService.isSharing, let code = sharingService.shareCode {
@@ -228,6 +231,25 @@ struct HeartRateDisplayView: View {
     }
 
     @ViewBuilder
+    private var connectionPrompt: some View {
+        if shouldShowConnectionPrompt {
+            Text("Tap the heart to connect your strap or enter a friend's share code.")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundColor(.gray)
+                .multilineTextAlignment(.center)
+                .lineLimit(2)
+                .padding(.horizontal, 20)
+                .padding(.top, 20)
+        }
+    }
+
+    private var shouldShowConnectionPrompt: Bool {
+        let hasDeviceConnection = bluetoothManager.connectedDevice != nil
+        let hasFriendConnection = sharingService.isViewing && sharingService.friendCode != nil
+        return !hasDeviceConnection && !hasFriendConnection
+    }
+
+    @ViewBuilder
     private func statsBar(isLandscape: Bool, screenWidth: CGFloat, useSplitLayout: Bool = false) -> some View {
         // Scale factor: smaller screens get smaller sizes
         // Base scale on iPhone SE (375pt) = 1.0, scale down proportionally
@@ -265,11 +287,16 @@ struct HeartRateDisplayView: View {
                                     if sharingService.isSharing {
                                         sharingService.stopSharing()
                                     } else {
-                                        Task {
-                                            do {
-                                                try await sharingService.startSharing()
-                                            } catch {
-                                                // Error handled by sharingService
+                                        if bluetoothManager.connectedDevice == nil {
+                                            sharingService.errorMessage = "Please connect a heart rate device before sharing."
+                                            sharingService.errorContext = .sharing
+                                        } else {
+                                            Task {
+                                                do {
+                                                    try await sharingService.startSharing()
+                                                } catch {
+                                                    // Error handled by sharingService
+                                                }
                                             }
                                         }
                                     }
@@ -309,11 +336,16 @@ struct HeartRateDisplayView: View {
                                     if sharingService.isSharing {
                                         sharingService.stopSharing()
                                     } else {
-                                        Task {
-                                            do {
-                                                try await sharingService.startSharing()
-                                            } catch {
-                                                // Error handled by sharingService
+                                        if bluetoothManager.connectedDevice == nil {
+                                            sharingService.errorMessage = "Please connect a heart rate device before sharing."
+                                            sharingService.errorContext = .sharing
+                                        } else {
+                                            Task {
+                                                do {
+                                                    try await sharingService.startSharing()
+                                                } catch {
+                                                    // Error handled by sharingService
+                                                }
                                             }
                                         }
                                     }
@@ -354,11 +386,16 @@ struct HeartRateDisplayView: View {
                             if sharingService.isSharing {
                                 sharingService.stopSharing()
                             } else {
-                                Task {
-                                    do {
-                                        try await sharingService.startSharing()
-                                    } catch {
-                                        // Error handled by sharingService
+                                if bluetoothManager.connectedDevice == nil {
+                                    sharingService.errorMessage = "Please connect a heart rate device before sharing."
+                                    sharingService.errorContext = .sharing
+                                } else {
+                                    Task {
+                                        do {
+                                            try await sharingService.startSharing()
+                                        } catch {
+                                            // Error handled by sharingService
+                                        }
                                     }
                                 }
                             }
