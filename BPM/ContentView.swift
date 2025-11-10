@@ -16,8 +16,12 @@ enum AppMode {
 struct HeartRateDisplayView: View {
     @EnvironmentObject var bluetoothManager: HeartRateBluetoothManager
     @StateObject private var sharingService = SharingService.shared
+    @StateObject private var timerViewModel = TimerViewModel()
     @State private var showDevicePicker = false
     @State private var appMode: AppMode = .myDevice
+    @State private var isTimerMode = false
+    @State private var showClearAlert = false
+    @State private var showStartNewWorkoutAlert = false
     @State private var portraitBottomContentHeight: CGFloat = 0
     @State private var landscapeBottomContentHeight: CGFloat = 0
 
@@ -56,6 +60,11 @@ struct HeartRateDisplayView: View {
                 bluetoothManager.startScanning()
                 IdleTimer.disable()
             }
+            
+            // Set up timer heart rate callback
+            timerViewModel.currentHeartRate = { [weak bluetoothManager] in
+                bluetoothManager?.currentHeartRate
+            }
         }
         .onChange(of: appMode) { oldMode, newMode in
             if newMode == .myDevice {
@@ -84,34 +93,40 @@ struct HeartRateDisplayView: View {
     
     @ViewBuilder
     private func portraitLayout(geometry: GeometryProxy) -> some View {
-        ZStack {
-            heartRateDisplay(size: geometry.size, isLandscape: false)
-                .offset(y: -portraitBottomContentHeight / 2 - geometry.size.height * 0.1)
-        }
-        .overlay(alignment: .bottom) {
-            VStack(spacing: 0) {
-                statsBar(isLandscape: false, screenWidth: geometry.size.width)
-                    .padding(.bottom, geometry.safeAreaInsets.bottom)
+        if isTimerMode && appMode == .myDevice {
+            timerModeLayout(geometry: geometry, isLandscape: false)
+        } else {
+            ZStack {
+                heartRateDisplay(size: geometry.size, isLandscape: false)
+                    .offset(y: -portraitBottomContentHeight / 2 - geometry.size.height * 0.1)
             }
-            .background(
-                GeometryReader { proxy in
-                    Color.clear.preference(key: BottomContentHeightKey.self, value: proxy.size.height)
+            .overlay(alignment: .bottom) {
+                VStack(spacing: 0) {
+                    statsBar(isLandscape: false, screenWidth: geometry.size.width)
+                        .padding(.bottom, geometry.safeAreaInsets.bottom)
                 }
-            )
-        }
-        .onPreferenceChange(BottomContentHeightKey.self) { portraitBottomContentHeight = $0 }
-        .overlay(alignment: .top) {
-            VStack(spacing: 8) {
-                connectionPrompt
-                errorMessageDisplay
-                sharingCodeDisplay
+                .background(
+                    GeometryReader { proxy in
+                        Color.clear.preference(key: BottomContentHeightKey.self, value: proxy.size.height)
+                    }
+                )
+            }
+            .onPreferenceChange(BottomContentHeightKey.self) { portraitBottomContentHeight = $0 }
+            .overlay(alignment: .top) {
+                VStack(spacing: 8) {
+                    connectionPrompt
+                    errorMessageDisplay
+                    sharingCodeDisplay
+                }
             }
         }
     }
     
     @ViewBuilder
     private func landscapeLayout(geometry: GeometryProxy, useSideLayout: Bool) -> some View {
-        if useSideLayout {
+        if isTimerMode && appMode == .myDevice {
+            timerModeLayout(geometry: geometry, isLandscape: true)
+        } else if useSideLayout {
             HStack(spacing: 0) {
                 // BPM display on the left, taking most of the space
                 heartRateDisplay(size: geometry.size, isLandscape: true)
@@ -202,8 +217,7 @@ struct HeartRateDisplayView: View {
         let color: Color = value == nil ? .gray : .white
 
         Text(text)
-            .font(.system(size: fittedFontSize, weight: .bold, design: .rounded))
-            .monospacedDigit()
+            .font(.system(size: fittedFontSize, weight: .bold, design: .monospaced))
             .foregroundColor(color)
             .lineLimit(1)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -308,6 +322,23 @@ struct HeartRateDisplayView: View {
                                         .background(Color.gray.opacity(0.3))
                                         .clipShape(Circle())
                                 }
+                                
+                                Button {
+                                    if appMode == .myDevice {
+                                        isTimerMode.toggle()
+                                        if !isTimerMode {
+                                            timerViewModel.reset()
+                                        }
+                                    }
+                                } label: {
+                                    Image(systemName: "timer")
+                                        .font(.system(size: scaledButtonSize))
+                                        .foregroundColor(isTimerMode ? .green : .white)
+                                        .padding(scaledButtonPadding)
+                                        .background(Color.gray.opacity(0.3))
+                                        .clipShape(Circle())
+                                }
+                                .disabled(appMode != .myDevice)
                             }
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -357,6 +388,23 @@ struct HeartRateDisplayView: View {
                                         .background(Color.gray.opacity(0.3))
                                         .clipShape(Circle())
                                 }
+                                
+                                Button {
+                                    if appMode == .myDevice {
+                                        isTimerMode.toggle()
+                                        if !isTimerMode {
+                                            timerViewModel.reset()
+                                        }
+                                    }
+                                } label: {
+                                    Image(systemName: "timer")
+                                        .font(.system(size: scaledButtonSize))
+                                        .foregroundColor(isTimerMode ? .green : .white)
+                                        .padding(scaledButtonPadding)
+                                        .background(Color.gray.opacity(0.3))
+                                        .clipShape(Circle())
+                                }
+                                .disabled(appMode != .myDevice)
                             }
                         }
                         .padding(.horizontal, scaledPadding)
@@ -407,6 +455,23 @@ struct HeartRateDisplayView: View {
                                 .background(Color.gray.opacity(0.3))
                                 .clipShape(Circle())
                         }
+                        
+                        Button {
+                            if appMode == .myDevice {
+                                isTimerMode.toggle()
+                                if !isTimerMode {
+                                    timerViewModel.reset()
+                                }
+                            }
+                        } label: {
+                            Image(systemName: "timer")
+                                .font(.system(size: scaledButtonSize))
+                                .foregroundColor(isTimerMode ? .green : .white)
+                                .padding(scaledButtonPadding)
+                                .background(Color.gray.opacity(0.3))
+                                .clipShape(Circle())
+                        }
+                        .disabled(appMode != .myDevice)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, scaledPadding)
@@ -534,8 +599,10 @@ struct HeartRateDisplayView: View {
                 .font(.system(size: 20 * scaleFactor, weight: .semibold))
                 .foregroundColor(.gray)
             Text(customText ?? value.map(String.init) ?? "---")
-                .font(.system(size: 36 * scaleFactor, weight: .bold))
+                .font(.system(size: 36 * scaleFactor, weight: .bold, design: .monospaced))
                 .foregroundColor((value == nil && customText == nil) ? .gray : .white)
+                .frame(minWidth: 60 * scaleFactor) // Ensure enough width for triple digits
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
     
@@ -558,4 +625,458 @@ struct HeartRateDisplayView: View {
             value = nextValue()
         }
     }
+    
+    // MARK: - Timer Mode UI
+    
+    @ViewBuilder
+    private func timerModeLayout(geometry: GeometryProxy, isLandscape: Bool) -> some View {
+        VStack(spacing: 0) {
+            // Top bar with device picker, End, and clear button
+            HStack(spacing: 16) {
+                Button {
+                    showDevicePicker = true
+                } label: {
+                    Image(systemName: "heart.fill")
+                        .font(.system(size: 20))
+                        .foregroundColor(.white)
+                        .padding(12)
+                        .background(Color.gray.opacity(0.3))
+                        .clipShape(Circle())
+                }
+                
+                Spacer()
+                
+                if timerViewModel.state != .idle || !timerViewModel.sets.isEmpty {
+                    Button {
+                        // End timer and calculate avgs
+                        if timerViewModel.state == .cooldown || timerViewModel.state == .cooldownPaused {
+                            // If in cooldown, just stop it and mark as completed
+                            timerViewModel.stopCooldownAndComplete()
+                        } else {
+                            // If no sets captured yet, capture the current set first
+                            if timerViewModel.sets.filter({ !$0.isRestSet }).isEmpty && timerViewModel.state == .running {
+                                timerViewModel.captureSet()
+                            }
+                            // Then stop timer and mark as completed
+                            timerViewModel.stopAndComplete()
+                        }
+                    } label: {
+                        Text("End")
+                            .font(.system(size: 16, weight: .medium))
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 8)
+                            .background(Color.gray.opacity(0.3))
+                            .cornerRadius(8)
+                    }
+                    .disabled(timerViewModel.state == .idle)
+                }
+                
+                Button {
+                    // Only show alert if there's workout data to lose
+                    if !timerViewModel.sets.isEmpty || timerViewModel.state != .idle {
+                        showClearAlert = true
+                    } else {
+                        timerViewModel.reset()
+                        isTimerMode = false
+                    }
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 20))
+                        .foregroundColor(.white)
+                        .padding(12)
+                        .background(Color.gray.opacity(0.3))
+                        .clipShape(Circle())
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 4)
+            .alert("Clear Timer", isPresented: $showClearAlert) {
+                Button("Cancel", role: .cancel) { }
+                Button("Clear", role: .destructive) {
+                    timerViewModel.reset()
+                    isTimerMode = false
+                }
+            } message: {
+                Text("Are you sure you want to clear all timer data? This cannot be undone.")
+            }
+            .alert("Start New Workout", isPresented: $showStartNewWorkoutAlert) {
+                Button("Cancel", role: .cancel) { }
+                Button("Start", role: .destructive) {
+                    timerViewModel.reset()
+                    timerViewModel.start()
+                }
+            } message: {
+                Text("Starting a new workout will clear all current timer data. This cannot be undone.")
+            }
+            
+            // Stopwatch display with BPM (or completion stats when done)
+            stopwatchDisplay(isLandscape: isLandscape)
+                .padding(.top, 12)
+            
+            // Set tracking table
+            if !timerViewModel.sets.isEmpty || timerViewModel.state == .running || timerViewModel.state == .paused || timerViewModel.state == .cooldown || timerViewModel.state == .cooldownPaused {
+                setsTable(isLandscape: isLandscape, screenWidth: geometry.size.width)
+                    .padding(.horizontal, isLandscape ? 40 : 20)
+                    .padding(.top, 8)
+            }
+            
+            Spacer(minLength: 0)
+            
+            // Timer control buttons at bottom
+            timerControlButtons(isLandscape: isLandscape, screenWidth: geometry.size.width)
+                .padding(.bottom, geometry.safeAreaInsets.bottom)
+        }
+    }
+    
+    @ViewBuilder
+    private func stopwatchDisplay(isLandscape: Bool) -> some View {
+        if timerViewModel.isCompleted {
+            // Show completion stats in place of stopwatch
+            VStack(spacing: 12) {
+                HStack(spacing: 20) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Total Time")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(.gray)
+                        Text(formatTime(timerViewModel.frozenElapsedTime))
+                            .font(.system(size: isLandscape ? 28 : 32, weight: .bold, design: .monospaced))
+                            .foregroundColor(.white)
+                    }
+                    
+                    Spacer()
+                    
+                    VStack(alignment: .center, spacing: 4) {
+                        Text("Avg Set Time")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(.gray)
+                        Text(timerViewModel.avgSetTime.map(formatTime) ?? "---")
+                            .font(.system(size: isLandscape ? 28 : 32, weight: .bold, design: .monospaced))
+                            .foregroundColor(.white)
+                    }
+                    
+                    Spacer()
+                    
+                    VStack(alignment: .trailing, spacing: 4) {
+                        Text("Avg BPM")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(.gray)
+                        Text(timerViewModel.avgHeartRate.map(String.init) ?? "---")
+                            .font(.system(size: isLandscape ? 28 : 32, weight: .bold, design: .monospaced))
+                            .foregroundColor(.white)
+                    }
+                }
+                .padding(.horizontal, 20)
+            }
+        } else {
+            // Normal stopwatch display
+            let isCooldown = timerViewModel.state == .cooldown || timerViewModel.state == .cooldownPaused
+            let totalTime = isCooldown ? timerViewModel.frozenElapsedTime : timerViewModel.elapsedTime
+            let setLabel = isCooldown ? "Cooldown" : "Set"
+            let currentBPM = displayedHeartRate
+            
+            // For cooldown, calculate countdown from 2 minutes
+            let cooldownTotal = 120.0 // 2 minutes
+            let displaySetTime = isCooldown ? max(0, cooldownTotal - timerViewModel.currentSetTime) : timerViewModel.currentSetTime
+            
+            VStack(spacing: 12) {
+                HStack(spacing: 20) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Total")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(.gray)
+                        Text(formatTime(totalTime))
+                            .font(.system(size: isLandscape ? 28 : 32, weight: .bold, design: .monospaced))
+                            .foregroundColor(.white)
+                    }
+                    
+                    Spacer()
+                    
+                    VStack(alignment: .center, spacing: 4) {
+                        Text(setLabel)
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(.gray)
+                        Text(formatTime(displaySetTime))
+                            .font(.system(size: isLandscape ? 28 : 32, weight: .bold, design: .monospaced))
+                            .foregroundColor(.white)
+                    }
+                    
+                    Spacer()
+                    
+                    VStack(alignment: .trailing, spacing: 4) {
+                        Text("BPM")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(.gray)
+                        Text(currentBPM.map(String.init) ?? "---")
+                            .font(.system(size: isLandscape ? 28 : 32, weight: .bold, design: .monospaced))
+                            .foregroundColor(.white)
+                    }
+                }
+                .padding(.horizontal, 20)
+            }
+        }
+    }
+    
+    @ViewBuilder
+    private func setsTable(isLandscape: Bool, screenWidth: CGFloat) -> some View {
+        let scaleFactor = min(1.0, screenWidth / 375.0)
+        let fontSize = isLandscape ? 18.0 : max(16.0, 18.0 * scaleFactor)
+        let columnWidth = (screenWidth - (isLandscape ? 80 : 40) - 24) / 4 // Equal width columns
+        
+        ScrollViewReader { proxy in
+            ZStack(alignment: .top) {
+                ScrollView {
+                    VStack(spacing: 0) {
+                        // Spacer to account for pinned header
+                        HStack(spacing: 0) {
+                            Text("Set")
+                                .font(.system(size: fontSize, weight: .semibold))
+                                .foregroundColor(.clear)
+                                .frame(width: columnWidth, alignment: .leading)
+                            
+                            Text("Set Time")
+                                .font(.system(size: fontSize, weight: .semibold))
+                                .foregroundColor(.clear)
+                                .frame(width: columnWidth, alignment: .leading)
+                            
+                            Text("HR")
+                                .font(.system(size: fontSize, weight: .semibold))
+                                .foregroundColor(.clear)
+                                .frame(width: columnWidth, alignment: .trailing)
+                            
+                            Text("Total")
+                                .font(.system(size: fontSize, weight: .semibold))
+                                .foregroundColor(.clear)
+                                .frame(width: columnWidth, alignment: .trailing)
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .id("header")
+                        
+                        // Data rows
+                        ForEach(timerViewModel.sets) { set in
+                            HStack(spacing: 0) {
+                                Text(set.isRestSet ? "R\(set.setNumber)" : "\(set.setNumber)")
+                                    .font(.system(size: fontSize, weight: .medium))
+                                    .foregroundColor(.white)
+                                    .frame(width: columnWidth, alignment: .leading)
+                                
+                                Text(formatTime(set.setTime))
+                                    .font(.system(size: fontSize, weight: .medium, design: .monospaced))
+                                    .foregroundColor(.white)
+                                    .frame(width: columnWidth, alignment: .leading)
+                                
+                                Text(set.heartRate.map(String.init) ?? "---")
+                                    .font(.system(size: fontSize, weight: .medium, design: .monospaced))
+                                    .foregroundColor(.white)
+                                    .frame(width: columnWidth, alignment: .trailing)
+                                
+                                Text(formatTime(set.totalTime))
+                                    .font(.system(size: fontSize, weight: .medium, design: .monospaced))
+                                    .foregroundColor(.white)
+                                    .frame(width: columnWidth, alignment: .trailing)
+                            }
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .id(set.id)
+                        }
+                        
+                        // Active set row (if timer is running or paused)
+                        if timerViewModel.state == .running || timerViewModel.state == .paused {
+                            let nextSetNumber = timerViewModel.sets.count + 1
+                            let currentHR = displayedHeartRate
+                            
+                            HStack(spacing: 0) {
+                                Text("\(nextSetNumber)")
+                                    .font(.system(size: fontSize, weight: .medium))
+                                    .foregroundColor(.white.opacity(0.6))
+                                    .frame(width: columnWidth, alignment: .leading)
+                                
+                                Text(formatTime(timerViewModel.currentSetTime))
+                                    .font(.system(size: fontSize, weight: .medium, design: .monospaced))
+                                    .foregroundColor(.white.opacity(0.6))
+                                    .frame(width: columnWidth, alignment: .leading)
+                                
+                                Text(currentHR.map(String.init) ?? "---")
+                                    .font(.system(size: fontSize, weight: .medium, design: .monospaced))
+                                    .foregroundColor(.white.opacity(0.6))
+                                    .frame(width: columnWidth, alignment: .trailing)
+                                
+                                Text(formatTime(timerViewModel.elapsedTime))
+                                    .font(.system(size: fontSize, weight: .medium, design: .monospaced))
+                                    .foregroundColor(.white.opacity(0.6))
+                                    .frame(width: columnWidth, alignment: .trailing)
+                            }
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .id("active")
+                        }
+                        
+                        // Active rest row (if in cooldown)
+                        if timerViewModel.state == .cooldown || timerViewModel.state == .cooldownPaused {
+                            let restSets = timerViewModel.sets.filter { $0.isRestSet }
+                            let nextRestNumber = restSets.count + 1
+                            let currentHR = displayedHeartRate
+                            let workoutTime = timerViewModel.frozenElapsedTime
+                            let totalTime = workoutTime + timerViewModel.currentSetTime
+                            
+                            HStack(spacing: 0) {
+                                Text("R\(nextRestNumber)")
+                                    .font(.system(size: fontSize, weight: .medium))
+                                    .foregroundColor(.white.opacity(0.6))
+                                    .frame(width: columnWidth, alignment: .leading)
+                                
+                                Text(formatTime(timerViewModel.currentSetTime))
+                                    .font(.system(size: fontSize, weight: .medium, design: .monospaced))
+                                    .foregroundColor(.white.opacity(0.6))
+                                    .frame(width: columnWidth, alignment: .leading)
+                                
+                                Text(currentHR.map(String.init) ?? "---")
+                                    .font(.system(size: fontSize, weight: .medium, design: .monospaced))
+                                    .foregroundColor(.white.opacity(0.6))
+                                    .frame(width: columnWidth, alignment: .trailing)
+                                
+                                Text(formatTime(totalTime))
+                                    .font(.system(size: fontSize, weight: .medium, design: .monospaced))
+                                    .foregroundColor(.white.opacity(0.6))
+                                    .frame(width: columnWidth, alignment: .trailing)
+                            }
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .id("activeRest")
+                        }
+                    }
+                }
+                
+                // Pinned header
+                HStack(spacing: 0) {
+                    Text("Set")
+                        .font(.system(size: fontSize, weight: .semibold))
+                        .foregroundColor(.gray)
+                        .frame(width: columnWidth, alignment: .leading)
+                    
+                    Text("Set Time")
+                        .font(.system(size: fontSize, weight: .semibold))
+                        .foregroundColor(.gray)
+                        .frame(width: columnWidth, alignment: .leading)
+                    
+                    Text("HR")
+                        .font(.system(size: fontSize, weight: .semibold))
+                        .foregroundColor(.gray)
+                        .frame(width: columnWidth, alignment: .trailing)
+                    
+                    Text("Total")
+                        .font(.system(size: fontSize, weight: .semibold))
+                        .foregroundColor(.gray)
+                        .frame(width: columnWidth, alignment: .trailing)
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(Color.black.opacity(0.9))
+            }
+            .onChange(of: timerViewModel.sets.count) { _, _ in
+                // Auto-scroll to most recent set
+                if let lastSet = timerViewModel.sets.last {
+                    withAnimation {
+                        proxy.scrollTo(lastSet.id, anchor: .bottom)
+                    }
+                }
+            }
+            .onChange(of: timerViewModel.state) { _, _ in
+                // Scroll to active row when state changes
+                if timerViewModel.state == .running {
+                    withAnimation {
+                        proxy.scrollTo("active", anchor: .bottom)
+                    }
+                } else if timerViewModel.state == .cooldown {
+                    withAnimation {
+                        proxy.scrollTo("activeRest", anchor: .bottom)
+                    }
+                }
+            }
+        }
+        .frame(maxHeight: isLandscape ? 600 : 700)
+    }
+    
+    @ViewBuilder
+    private func timerControlButtons(isLandscape: Bool, screenWidth: CGFloat) -> some View {
+        let scaleFactor = min(1.0, screenWidth / 375.0)
+        let buttonSpacing = isLandscape ? 20.0 : max(12.0, 16.0 * scaleFactor)
+        let buttonPadding = isLandscape ? 40.0 : max(20.0, 24.0 * scaleFactor)
+        let buttonFontSize = isLandscape ? 18.0 : max(16.0, 18.0 * scaleFactor)
+        let buttonSize = isLandscape ? 32.0 : max(24.0, 28.0 * scaleFactor)
+        let buttonPaddingSize = isLandscape ? 16.0 : max(12.0, 16.0 * scaleFactor)
+        let isCooldownDisabled = timerViewModel.state == .idle || timerViewModel.sets.filter { !$0.isRestSet }.isEmpty
+        
+        HStack(spacing: buttonSpacing) {
+            // Start/Pause button
+            Button {
+                if timerViewModel.state == .running {
+                    timerViewModel.stop()
+                } else {
+                    // If workout is completed, show alert before starting new one
+                    if timerViewModel.isCompleted {
+                        showStartNewWorkoutAlert = true
+                    } else {
+                        timerViewModel.start()
+                    }
+                }
+            } label: {
+                Image(systemName: timerViewModel.state == .running ? "pause.fill" : "play.fill")
+                    .font(.system(size: buttonSize))
+                    .foregroundColor(.white)
+                    .padding(buttonPaddingSize)
+                    .background(Color.gray.opacity(0.3))
+                    .clipShape(Circle())
+            }
+            .disabled(timerViewModel.state == .cooldown || timerViewModel.state == .cooldownPaused)
+            
+            // Cooldown button (was End) - same width as Split Set
+            Button {
+                if timerViewModel.state == .cooldown || timerViewModel.state == .cooldownPaused {
+                    timerViewModel.toggleCooldown()
+                } else {
+                    timerViewModel.end()
+                }
+            } label: {
+                Text("Cooldown")
+                    .font(.system(size: buttonFontSize, weight: .semibold))
+                    .foregroundColor(isCooldownDisabled ? .gray : .white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.horizontal, buttonPaddingSize * 2)
+                    .padding(.vertical, buttonPaddingSize)
+                    .background(isCooldownDisabled ? Color.gray.opacity(0.15) : Color.gray.opacity(0.3))
+                    .cornerRadius(buttonPaddingSize)
+            }
+            .disabled(isCooldownDisabled)
+            .frame(maxWidth: .infinity)
+            
+            // Split Set button - double width
+            Button {
+                timerViewModel.captureSet()
+            } label: {
+                Text("Split Set")
+                    .font(.system(size: buttonFontSize, weight: .semibold))
+                    .foregroundColor(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.horizontal, buttonPaddingSize * 2)
+                    .padding(.vertical, buttonPaddingSize)
+                    .background(Color.gray.opacity(0.3))
+                    .cornerRadius(buttonPaddingSize)
+            }
+            .disabled(timerViewModel.state != .running)
+            .frame(maxWidth: .infinity)
+        }
+        .padding(.horizontal, buttonPadding)
+        .padding(.vertical, 20)
+        .background(Color.black.opacity(0.8))
+    }
+    
+    private func formatTime(_ time: TimeInterval) -> String {
+        let minutes = Int(time) / 60
+        let seconds = Int(time) % 60
+        let milliseconds = Int((time.truncatingRemainder(dividingBy: 1)) * 10)
+        return String(format: "%d:%02d.%d", minutes, seconds, milliseconds)
+    }
 }
+

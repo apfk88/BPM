@@ -81,18 +81,17 @@ struct DevicePickerView: View {
                                 .fontWeight(.semibold)
                                 .foregroundColor(.green)
                         }
-                        Button {
-                            sharingService.stopViewing()
-                        } label: {
-                            Text("Disconnect")
-                                .font(.body)
-                                .fontWeight(.medium)
-                                .foregroundColor(.white)
-                                .padding(.horizontal, 20)
-                                .padding(.vertical, 10)
-                                .background(Color.red)
-                                .cornerRadius(8)
-                        }
+                    Button {
+                        sharingService.stopViewing()
+                    } label: {
+                        Text("Disconnect")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(.secondary)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                            .background(Color.gray.opacity(0.2))
+                            .cornerRadius(6)
+                    }
                     }
                     .padding(.horizontal)
                     .padding(.top, 8)
@@ -179,13 +178,12 @@ struct DevicePickerView: View {
                         bluetoothManager.disconnect()
                     } label: {
                         Text("Disconnect")
-                            .font(.body)
-                            .fontWeight(.medium)
-                            .foregroundColor(.white)
-                            .padding(.horizontal, 20)
-                            .padding(.vertical, 10)
-                            .background(Color.red)
-                            .cornerRadius(8)
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(.secondary)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                            .background(Color.gray.opacity(0.2))
+                            .cornerRadius(6)
                     }
                 }
                 .padding(.horizontal)
