@@ -10,6 +10,7 @@ struct HeartRateResponse: Codable {
     let bpm: Int?
     let max: Int?
     let avg: Int?
+    let min: Int?
     let timestamp: Int64
 }
 
@@ -34,6 +35,7 @@ class SharingService: ObservableObject {
     @Published var friendHeartRate: Int?
     @Published var friendMaxHeartRate: Int?
     @Published var friendAvgHeartRate: Int?
+    @Published var friendMinHeartRate: Int?
     @Published var isSharing = false
     @Published var isViewing = false
     @Published var errorMessage: String?
@@ -64,7 +66,14 @@ class SharingService: ObservableObject {
     private func loadSavedState() {
         // Only restore friend code viewing state, not sharing state
         // Sharing should be explicitly started by the user
-        friendCode = UserDefaults.standard.string(forKey: friendCodeKey)
+        if let savedCode = UserDefaults.standard.string(forKey: friendCodeKey) {
+            let sanitized = sanitizeFriendCode(savedCode)
+            if sanitized.count == 6 {
+                friendCode = sanitized
+            } else {
+                UserDefaults.standard.removeObject(forKey: friendCodeKey)
+            }
+        }
         
         if friendCode != nil {
             isViewing = true
@@ -140,25 +149,32 @@ class SharingService: ObservableObject {
     }
     
     func startViewing(code: String) {
-        friendCode = code.uppercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        let sanitized = sanitizeFriendCode(code)
+        guard sanitized.count == 6 else {
+            return
+        }
+
+        friendCode = sanitized
         isViewing = true
         errorMessage = nil
         errorContext = nil
         lastHeartRateTimestamp = nil
         viewingStartTime = Date()
-        
+        friendMinHeartRate = nil
+
         UserDefaults.standard.set(friendCode, forKey: friendCodeKey)
-        
+
         startPollingFriendHeartRate()
         startTimeoutTimer()
     }
-    
+
     func stopViewing(clearError: Bool = true) {
         isViewing = false
         friendCode = nil
         friendHeartRate = nil
         friendMaxHeartRate = nil
         friendAvgHeartRate = nil
+        friendMinHeartRate = nil
         pollTimer?.invalidate()
         pollTimer = nil
         timeoutTimer?.invalidate()
@@ -174,22 +190,25 @@ class SharingService: ObservableObject {
         UserDefaults.standard.removeObject(forKey: friendCodeKey)
     }
     
-    func updateHeartRate(_ bpm: Int, max: Int?, avg: Int?) {
+    func updateHeartRate(_ bpm: Int, max: Int?, avg: Int?, min: Int?) {
         guard isSharing, let token = shareToken else { return }
-        
+
         Task {
             guard let url = URL(string: "\(baseURL)/api/share/beat") else { return }
-            
+
             var request = URLRequest(url: url)
             request.httpMethod = "POST"
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            
+
             var body: [String: Any] = ["token": token, "bpm": bpm]
             if let max = max {
                 body["max"] = max
             }
             if let avg = avg {
                 body["avg"] = avg
+            }
+            if let min = min {
+                body["min"] = min
             }
             request.httpBody = try? JSONSerialization.data(withJSONObject: body)
             
@@ -333,6 +352,7 @@ class SharingService: ObservableObject {
                     self.friendHeartRate = heartRateResponse.bpm
                     self.friendMaxHeartRate = heartRateResponse.max
                     self.friendAvgHeartRate = heartRateResponse.avg
+                    self.friendMinHeartRate = heartRateResponse.min
                     // Clear error message only if we got actual data
                     if heartRateResponse.bpm != nil {
                         self.errorMessage = nil
@@ -357,6 +377,11 @@ class SharingService: ObservableObject {
                 }
             }
         }
+    }
+
+    private func sanitizeFriendCode(_ code: String) -> String {
+        let digits = code.filter { $0.isNumber }
+        return String(digits.prefix(6))
     }
 }
 

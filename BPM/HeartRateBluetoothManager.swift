@@ -169,14 +169,18 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
             currentHeartRate = value
             
             // Update sharing service (throttled to 1 Hz)
+            let max = maxHeartRateLastHour
+            let avg = avgHeartRateLastHour
+            let min = minHeartRateLastHour
+
             if let lastUpdate = lastUpdateTime {
                 let timeSinceLastUpdate = now.timeIntervalSince(lastUpdate)
                 if timeSinceLastUpdate >= updateThrottleInterval {
-                    sharingService.updateHeartRate(value, max: maxHeartRateLastHour, avg: avgHeartRateLastHour)
+                    sharingService.updateHeartRate(value, max: max, avg: avg, min: min)
                     lastUpdateTime = now
                 }
             } else {
-                sharingService.updateHeartRate(value, max: maxHeartRateLastHour, avg: avgHeartRateLastHour)
+                sharingService.updateHeartRate(value, max: max, avg: avg, min: min)
                 lastUpdateTime = now
             }
         } else {
@@ -197,6 +201,11 @@ extension HeartRateBluetoothManager {
         guard !heartRateSamples.isEmpty else { return nil }
         let total = heartRateSamples.reduce(0) { $0 + $1.value }
         return Int((Double(total) / Double(heartRateSamples.count)).rounded())
+    }
+
+    var minHeartRateLastHour: Int? {
+        guard !heartRateSamples.isEmpty else { return nil }
+        return heartRateSamples.map { $0.value }.min()
     }
 }
 

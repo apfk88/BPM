@@ -13,6 +13,24 @@ enum AppMode {
     case friendCode
 }
 
+private enum HeartRateExtremumDisplay {
+    case max
+    case min
+
+    var title: String {
+        switch self {
+        case .max:
+            return "MAX"
+        case .min:
+            return "MIN"
+        }
+    }
+
+    mutating func cycle() {
+        self = self == .max ? .min : .max
+    }
+}
+
 struct HeartRateDisplayView: View {
     @EnvironmentObject var bluetoothManager: HeartRateBluetoothManager
     @StateObject private var sharingService = SharingService.shared
@@ -24,6 +42,7 @@ struct HeartRateDisplayView: View {
     @State private var showStartNewWorkoutAlert = false
     @State private var portraitBottomContentHeight: CGFloat = 0
     @State private var landscapeBottomContentHeight: CGFloat = 0
+    @State private var heartRateExtremumDisplay: HeartRateExtremumDisplay = .max
 
     private var isPad: Bool {
         UIDevice.current.userInterfaceIdiom == .pad
@@ -75,6 +94,7 @@ struct HeartRateDisplayView: View {
                 bluetoothManager.stopScanning()
                 IdleTimer.disable() // Keep screen on when viewing friend's heart rate
             }
+            heartRateExtremumDisplay = .max
         }
         .onChange(of: sharingService.isViewing) { oldValue, newValue in
             if newValue && appMode == .myDevice && !oldValue {
@@ -177,7 +197,7 @@ struct HeartRateDisplayView: View {
     private var sharingCodeDisplay: some View {
         Group {
             if appMode == .myDevice && sharingService.isSharing, let code = sharingService.shareCode {
-                Text(code)
+                Text(formattedShareCode(code))
                     .font(.system(size: 20, weight: .bold, design: .monospaced))
                     .foregroundColor(.green)
                     .padding(.top, 20)
@@ -185,7 +205,7 @@ struct HeartRateDisplayView: View {
                 Button {
                     showDevicePicker = true
                 } label: {
-                    Text("Viewing: \(code)")
+                    Text("Viewing: \(formattedShareCode(code))")
                         .font(.system(size: 20, weight: .bold, design: .monospaced))
                         .foregroundColor(.green)
                         .padding(.top, 20)
@@ -229,6 +249,36 @@ struct HeartRateDisplayView: View {
         } else {
             return sharingService.friendHeartRate
         }
+    }
+
+    private var heartButtonColor: Color {
+        (appMode == .friendCode && sharingService.isViewing) ? .green : .white
+    }
+
+    private func formattedShareCode(_ code: String) -> String {
+        code.map(String.init).joined(separator: " ")
+    }
+
+    private func myDeviceExtremumValue(for display: HeartRateExtremumDisplay) -> Int? {
+        switch display {
+        case .max:
+            return bluetoothManager.maxHeartRateLastHour
+        case .min:
+            return bluetoothManager.minHeartRateLastHour
+        }
+    }
+
+    private func friendExtremumValue(for display: HeartRateExtremumDisplay) -> Int? {
+        switch display {
+        case .max:
+            return sharingService.friendMaxHeartRate
+        case .min:
+            return sharingService.friendMinHeartRate
+        }
+    }
+
+    private func cycleHeartRateExtremumDisplay() {
+        heartRateExtremumDisplay.cycle()
     }
     
     @ViewBuilder
@@ -279,7 +329,12 @@ struct HeartRateDisplayView: View {
                     if useSplitLayout {
                         HStack(alignment: .center, spacing: splitLayoutSpacing) {
                             HStack(spacing: splitLayoutSpacing) {
-                                statColumn(title: "MAX", value: bluetoothManager.maxHeartRateLastHour, scaleFactor: 1.0)
+                                statColumn(
+                                    title: heartRateExtremumDisplay.title,
+                                    value: myDeviceExtremumValue(for: heartRateExtremumDisplay),
+                                    scaleFactor: 1.0,
+                                    onTap: cycleHeartRateExtremumDisplay
+                                )
                                 statColumn(title: "AVG", value: bluetoothManager.avgHeartRateLastHour, scaleFactor: 1.0)
                             }
                             
@@ -291,7 +346,7 @@ struct HeartRateDisplayView: View {
                                 } label: {
                                     Image(systemName: "heart.fill")
                                         .font(.system(size: scaledButtonSize))
-                                        .foregroundColor(.white)
+                                        .foregroundColor(heartButtonColor)
                                         .padding(scaledButtonPadding)
                                         .background(Color.gray.opacity(0.3))
                                         .clipShape(Circle())
@@ -348,16 +403,21 @@ struct HeartRateDisplayView: View {
                     } else {
                         // Landscape mode - vertical stack on the right
                         VStack(spacing: 20) {
-                            statColumn(title: "MAX", value: bluetoothManager.maxHeartRateLastHour, scaleFactor: 1.0)
+                            statColumn(
+                                title: heartRateExtremumDisplay.title,
+                                value: myDeviceExtremumValue(for: heartRateExtremumDisplay),
+                                scaleFactor: 1.0,
+                                onTap: cycleHeartRateExtremumDisplay
+                            )
                             statColumn(title: "AVG", value: bluetoothManager.avgHeartRateLastHour, scaleFactor: 1.0)
-                            
+
                             HStack(spacing: 16) {
                                 Button {
                                     showDevicePicker = true
                                 } label: {
                                     Image(systemName: "heart.fill")
                                         .font(.system(size: scaledButtonSize))
-                                        .foregroundColor(.white)
+                                        .foregroundColor(heartButtonColor)
                                         .padding(scaledButtonPadding)
                                         .background(Color.gray.opacity(0.3))
                                         .clipShape(Circle())
@@ -414,17 +474,22 @@ struct HeartRateDisplayView: View {
                 } else {
                     // Portrait mode - stats and buttons on same line
                     HStack(spacing: scaledSpacing) {
-                        statColumn(title: "MAX", value: bluetoothManager.maxHeartRateLastHour, scaleFactor: scaleFactor)
+                        statColumn(
+                            title: heartRateExtremumDisplay.title,
+                            value: myDeviceExtremumValue(for: heartRateExtremumDisplay),
+                            scaleFactor: scaleFactor,
+                            onTap: cycleHeartRateExtremumDisplay
+                        )
                         statColumn(title: "AVG", value: bluetoothManager.avgHeartRateLastHour, scaleFactor: scaleFactor)
-                        
+
                         Spacer()
-                        
+
                         Button {
                             showDevicePicker = true
                         } label: {
                             Image(systemName: "heart.fill")
                                 .font(.system(size: scaledButtonSize))
-                                .foregroundColor(.white)
+                                .foregroundColor(heartButtonColor)
                                 .padding(scaledButtonPadding)
                                 .background(Color.gray.opacity(0.3))
                                 .clipShape(Circle())
@@ -484,7 +549,12 @@ struct HeartRateDisplayView: View {
                     if useSplitLayout {
                         HStack(alignment: .center, spacing: splitLayoutSpacing) {
                             HStack(spacing: splitLayoutSpacing) {
-                                statColumn(title: "MAX", value: sharingService.friendMaxHeartRate, scaleFactor: 1.0)
+                                statColumn(
+                                    title: heartRateExtremumDisplay.title,
+                                    value: friendExtremumValue(for: heartRateExtremumDisplay),
+                                    scaleFactor: 1.0,
+                                    onTap: cycleHeartRateExtremumDisplay
+                                )
                                 statColumn(title: "AVG", value: sharingService.friendAvgHeartRate, scaleFactor: 1.0)
                             }
                             
@@ -496,7 +566,7 @@ struct HeartRateDisplayView: View {
                                 } label: {
                                     Image(systemName: "heart.fill")
                                         .font(.system(size: scaledButtonSize))
-                                        .foregroundColor(.white)
+                                        .foregroundColor(heartButtonColor)
                                         .padding(scaledButtonPadding)
                                         .background(Color.gray.opacity(0.3))
                                         .clipShape(Circle())
@@ -522,16 +592,21 @@ struct HeartRateDisplayView: View {
                     } else {
                         // Landscape mode - vertical stack on the right
                         VStack(spacing: 20) {
-                            statColumn(title: "MAX", value: sharingService.friendMaxHeartRate, scaleFactor: 1.0)
+                            statColumn(
+                                title: heartRateExtremumDisplay.title,
+                                value: friendExtremumValue(for: heartRateExtremumDisplay),
+                                scaleFactor: 1.0,
+                                onTap: cycleHeartRateExtremumDisplay
+                            )
                             statColumn(title: "AVG", value: sharingService.friendAvgHeartRate, scaleFactor: 1.0)
-                            
+
                             HStack(spacing: 16) {
                                 Button {
                                     showDevicePicker = true
                                 } label: {
                                     Image(systemName: "heart.fill")
                                         .font(.system(size: scaledButtonSize))
-                                        .foregroundColor(.white)
+                                        .foregroundColor(heartButtonColor)
                                         .padding(scaledButtonPadding)
                                         .background(Color.gray.opacity(0.3))
                                         .clipShape(Circle())
@@ -557,17 +632,22 @@ struct HeartRateDisplayView: View {
                 } else {
                     // Portrait mode - stats and buttons on same line
                     HStack(spacing: scaledSpacing) {
-                        statColumn(title: "MAX", value: sharingService.friendMaxHeartRate, scaleFactor: scaleFactor)
+                        statColumn(
+                            title: heartRateExtremumDisplay.title,
+                            value: friendExtremumValue(for: heartRateExtremumDisplay),
+                            scaleFactor: scaleFactor,
+                            onTap: cycleHeartRateExtremumDisplay
+                        )
                         statColumn(title: "AVG", value: sharingService.friendAvgHeartRate, scaleFactor: scaleFactor)
-                        
+
                         Spacer()
-                        
+
                         Button {
                             showDevicePicker = true
                         } label: {
                             Image(systemName: "heart.fill")
                                 .font(.system(size: scaledButtonSize))
-                                .foregroundColor(.white)
+                                .foregroundColor(heartButtonColor)
                                 .padding(scaledButtonPadding)
                                 .background(Color.gray.opacity(0.3))
                                 .clipShape(Circle())
@@ -593,7 +673,7 @@ struct HeartRateDisplayView: View {
             }
     }
 
-    private func statColumn(title: String, value: Int?, customText: String? = nil, scaleFactor: Double = 1.0) -> some View {
+    private func statColumn(title: String, value: Int?, customText: String? = nil, scaleFactor: Double = 1.0, onTap: (() -> Void)? = nil) -> some View {
         VStack(spacing: 4 * scaleFactor) {
             Text(title)
                 .font(.system(size: 20 * scaleFactor, weight: .semibold))
@@ -603,6 +683,21 @@ struct HeartRateDisplayView: View {
                 .foregroundColor((value == nil && customText == nil) ? .gray : .white)
                 .frame(minWidth: 60 * scaleFactor) // Ensure enough width for triple digits
                 .fixedSize(horizontal: false, vertical: true)
+        }
+        .modifier(OptionalTapModifier(onTap: onTap))
+    }
+
+    private struct OptionalTapModifier: ViewModifier {
+        let onTap: (() -> Void)?
+
+        func body(content: Content) -> some View {
+            if let onTap {
+                content
+                    .contentShape(Rectangle())
+                    .onTapGesture(perform: onTap)
+            } else {
+                content
+            }
         }
     }
     
@@ -638,7 +733,7 @@ struct HeartRateDisplayView: View {
                 } label: {
                     Image(systemName: "heart.fill")
                         .font(.system(size: 20))
-                        .foregroundColor(.white)
+                        .foregroundColor(heartButtonColor)
                         .padding(12)
                         .background(Color.gray.opacity(0.3))
                         .clipShape(Circle())
@@ -839,7 +934,7 @@ struct HeartRateDisplayView: View {
                                 .foregroundColor(.clear)
                                 .frame(width: columnWidth, alignment: .leading)
                             
-                            Text("HR")
+                            Text("BPM")
                                 .font(.system(size: fontSize, weight: .semibold))
                                 .foregroundColor(.clear)
                                 .frame(width: columnWidth, alignment: .trailing)
@@ -960,7 +1055,7 @@ struct HeartRateDisplayView: View {
                         .foregroundColor(.gray)
                         .frame(width: columnWidth, alignment: .leading)
                     
-                    Text("HR")
+                    Text("BPM")
                         .font(.system(size: fontSize, weight: .semibold))
                         .foregroundColor(.gray)
                         .frame(width: columnWidth, alignment: .trailing)

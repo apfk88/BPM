@@ -6,10 +6,10 @@ const TOKEN_EXPIRY_SECONDS = 2 * 60 * 60; // 2 hours
 const MAX_CODE_GENERATION_RETRIES = 100; // Prevent infinite loops
 
 function generateShareCode(): string {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // Excludes confusing chars
+  const digits = '0123456789';
   let code = '';
   for (let i = 0; i < SHARE_CODE_LENGTH; i++) {
-    code += chars.charAt(Math.floor(Math.random() * chars.length));
+    code += digits.charAt(Math.floor(Math.random() * digits.length));
   }
   return code;
 }
@@ -26,6 +26,7 @@ interface ShareSession {
   bpm: number | null;
   max: number | null;
   avg: number | null;
+  min: number | null;
   timestamp: number;
 }
 
@@ -53,6 +54,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         bpm: null,
         max: null,
         avg: null,
+        min: null,
         timestamp: Date.now(),
       };
 

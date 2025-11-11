@@ -7,6 +7,7 @@ interface ShareSession {
   bpm: number | null;
   max: number | null;
   avg: number | null;
+  min: number | null;
   timestamp: number;
 }
 
@@ -32,6 +33,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       bpm: session.bpm,
       max: session.max,
       avg: session.avg,
+      min: session.min,
       timestamp: session.timestamp,
     });
   } else {

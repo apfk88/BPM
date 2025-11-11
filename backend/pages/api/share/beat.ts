@@ -7,12 +7,13 @@ interface ShareSession {
   bpm: number | null;
   max: number | null;
   avg: number | null;
+  min: number | null;
   timestamp: number;
 }
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method === 'POST') {
-    const { token, bpm, max, avg } = req.body;
+    const { token, bpm, max, avg, min } = req.body;
 
     if (!token || typeof bpm !== 'number') {
       return res.status(400).json({ error: 'Missing token or bpm' });
@@ -35,6 +36,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     session.bpm = bpm;
     if (typeof max === 'number') session.max = max;
     if (typeof avg === 'number') session.avg = avg;
+    if (typeof min === 'number') session.min = min;
     session.timestamp = Date.now();
 
     const ttl = await kv.ttl(`share:${code}`);

@@ -7,6 +7,7 @@ struct DevicePickerView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
     @State private var friendCodeInput: String = ""
+    @FocusState private var isFriendCodeFieldFocused: Bool
 
     var body: some View {
         NavigationView {
@@ -44,17 +45,14 @@ struct DevicePickerView: View {
                     .padding(.horizontal)
                 
                 HStack(spacing: 12) {
-                    TextField("Enter 6-character code", text: $friendCodeInput)
-                        .textFieldStyle(.roundedBorder)
-                        .textInputAutocapitalization(.characters)
-                        .autocorrectionDisabled()
-                        .frame(maxWidth: .infinity)
-                    
+                    NumericCodeInputField(code: $friendCodeInput, length: 6, focusBinding: $isFriendCodeFieldFocused)
+
                     Button {
-                        let code = friendCodeInput.uppercased().trimmingCharacters(in: .whitespacesAndNewlines)
-                        if !code.isEmpty && code.count == 6 {
+                        let code = friendCodeInput
+                        if code.count == 6 {
                             sharingService.startViewing(code: code)
                             friendCodeInput = ""
+                            isFriendCodeFieldFocused = false
                             dismiss()
                         }
                     } label: {
@@ -63,20 +61,20 @@ struct DevicePickerView: View {
                             .foregroundColor(.white)
                             .padding(.horizontal, 16)
                             .padding(.vertical, 8)
-                            .background(friendCodeInput.trimmingCharacters(in: .whitespacesAndNewlines).count == 6 ? Color.blue : Color.gray)
+                            .background(friendCodeInput.count == 6 ? Color.blue : Color.gray)
                             .cornerRadius(8)
                     }
-                    .disabled(friendCodeInput.trimmingCharacters(in: .whitespacesAndNewlines).count != 6)
+                    .disabled(friendCodeInput.count != 6)
                 }
                 .padding(.horizontal)
-                
+
                 if let friendCode = sharingService.friendCode {
                     VStack(spacing: 8) {
                         HStack {
                             Text("Currently viewing:")
                                 .font(.body)
                                 .foregroundColor(.primary)
-                            Text(friendCode)
+                            Text(formattedCode(friendCode))
                                 .font(.body)
                                 .fontWeight(.semibold)
                                 .foregroundColor(.green)
@@ -223,6 +221,83 @@ struct DevicePickerView: View {
                 .foregroundColor(.secondary)
         }
         .padding(.bottom, 8)
+    }
+}
+
+private extension DevicePickerView {
+    func formattedCode(_ code: String) -> String {
+        code.map(String.init).joined(separator: " ")
+    }
+}
+
+private struct NumericCodeInputField: View {
+    @Binding var code: String
+    let length: Int
+    var focusBinding: FocusState<Bool>.Binding
+
+    var body: some View {
+        ZStack {
+            HStack(spacing: 12) {
+                ForEach(0..<length, id: \.self) { index in
+                    let character = character(at: index)
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(focusBinding.wrappedValue ? Color.accentColor : Color.gray.opacity(0.4), lineWidth: focusBinding.wrappedValue ? 2 : 1)
+                            .background(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .fill(Color(.secondarySystemBackground))
+                            )
+                            .frame(width: 44, height: 56)
+
+                        Text(character)
+                            .font(.system(size: 24, weight: .semibold, design: .monospaced))
+                            .foregroundColor(character.isEmpty ? Color.secondary : Color.primary)
+                    }
+                }
+            }
+
+            TextField("Friend code", text: Binding(
+                get: { code },
+                set: { newValue in
+                    let digits = newValue.filter { $0.isNumber }
+                    if digits.count > length {
+                        code = String(digits.prefix(length))
+                    } else {
+                        code = digits
+                    }
+                }
+            ))
+            .keyboardType(.numberPad)
+            .textContentType(.oneTimeCode)
+            .focused(focusBinding)
+            .frame(width: 0, height: 0)
+            .opacity(0.01)
+            .labelsHidden()
+            .accessibilityHidden(true)
+        }
+        .padding(.vertical, 4)
+        .frame(maxWidth: .infinity)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            focusBinding.wrappedValue = true
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Friend code")
+        .accessibilityValue(accessibilityValue)
+        .accessibilityHint("Enter a 6-digit code")
+    }
+
+    private func character(at index: Int) -> String {
+        guard index < code.count else { return "" }
+        let stringIndex = code.index(code.startIndex, offsetBy: index)
+        return String(code[stringIndex])
+    }
+
+    private var accessibilityValue: String {
+        if code.isEmpty {
+            return "No digits entered"
+        }
+        return code.map(String.init).joined(separator: " ")
     }
 }
 
