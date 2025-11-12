@@ -22,12 +22,18 @@ struct DevicePickerView: View {
                     .padding(.bottom, 8)
                 
                 friendCodeSection
-                deviceSection
+                
+                if !sharingService.isViewing {
+                    deviceSection
+                }
             }
             .navigationTitle("Select Device")
             .navigationBarTitleDisplayMode(.inline)
             .onAppear {
                 bluetoothManager.startScanning()
+                if let existingCode = sharingService.friendCode {
+                    friendCodeInput = existingCode
+                }
             }
         }
     }
@@ -44,56 +50,55 @@ struct DevicePickerView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal)
                 
-                HStack(spacing: 12) {
-                    NumericCodeInputField(code: $friendCodeInput, length: 6, focusBinding: $isFriendCodeFieldFocused)
+                VStack(spacing: 12) {
+                    NumericCodeInputField(
+                        code: Binding(
+                            get: { sharingService.friendCode ?? friendCodeInput },
+                            set: { newValue in
+                                if !sharingService.isViewing {
+                                    friendCodeInput = newValue
+                                }
+                            }
+                        ),
+                        length: 6,
+                        focusBinding: $isFriendCodeFieldFocused
+                    )
+                    .disabled(sharingService.isViewing)
 
-                    Button {
-                        let code = friendCodeInput
-                        if code.count == 6 {
-                            sharingService.startViewing(code: code)
+                    if sharingService.isViewing {
+                        Button {
+                            sharingService.stopViewing()
                             friendCodeInput = ""
-                            isFriendCodeFieldFocused = false
-                            dismiss()
+                        } label: {
+                            Text("Disconnect")
+                                .font(.system(size: 14, weight: .medium))
+                                .foregroundColor(.secondary)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 6)
+                                .background(Color.gray.opacity(0.2))
+                                .cornerRadius(6)
                         }
-                    } label: {
-                        Text("Connect")
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundColor(.white)
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 8)
-                            .background(friendCodeInput.count == 6 ? Color.blue : Color.gray)
-                            .cornerRadius(8)
+                    } else {
+                        Button {
+                            let code = friendCodeInput
+                            if code.count == 6 {
+                                sharingService.startViewing(code: code)
+                                isFriendCodeFieldFocused = false
+                                dismiss()
+                            }
+                        } label: {
+                            Text("Connect")
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundColor(.white)
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 8)
+                                .background(friendCodeInput.count == 6 ? Color.blue : Color.gray)
+                                .cornerRadius(8)
+                        }
+                        .disabled(friendCodeInput.count != 6)
                     }
-                    .disabled(friendCodeInput.count != 6)
                 }
                 .padding(.horizontal)
-
-                if let friendCode = sharingService.friendCode {
-                    VStack(spacing: 8) {
-                        HStack {
-                            Text("Currently viewing:")
-                                .font(.body)
-                                .foregroundColor(.primary)
-                            Text(formattedCode(friendCode))
-                                .font(.body)
-                                .fontWeight(.semibold)
-                                .foregroundColor(.green)
-                        }
-                    Button {
-                        sharingService.stopViewing()
-                    } label: {
-                        Text("Disconnect")
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundColor(.secondary)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 6)
-                            .background(Color.gray.opacity(0.2))
-                            .cornerRadius(6)
-                    }
-                    }
-                    .padding(.horizontal)
-                    .padding(.top, 8)
-                }
             }
             .padding(.vertical, 16)
             
@@ -114,7 +119,6 @@ struct DevicePickerView: View {
                     .padding(.top, 16)
                 
                 deviceList
-                connectionInfo
                 actionButtons
                 privacyPolicyLink
             }
@@ -154,42 +158,6 @@ struct DevicePickerView: View {
         }
     }
 
-    @ViewBuilder
-    private var connectionInfo: some View {
-        if let connectedDevice = bluetoothManager.connectedDevice {
-            // Find the matching discovered device to get the display name
-            let deviceName = bluetoothManager.availableDevices.first(where: { $0.peripheral.identifier == connectedDevice.identifier })?.displayName ?? connectedDevice.name ?? "Unknown Device"
-            
-            VStack(spacing: 12) {
-                Divider()
-                VStack(spacing: 8) {
-                    HStack {
-                        Text("Connected to:")
-                            .font(.body)
-                            .foregroundColor(.primary)
-                        Text(deviceName)
-                            .font(.body)
-                            .fontWeight(.semibold)
-                            .foregroundColor(.green)
-                    }
-                    Button {
-                        bluetoothManager.disconnect()
-                    } label: {
-                        Text("Disconnect")
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundColor(.secondary)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 6)
-                            .background(Color.gray.opacity(0.2))
-                            .cornerRadius(6)
-                    }
-                }
-                .padding(.horizontal)
-                .padding(.vertical, 12)
-            }
-        }
-    }
-
     private var actionButtons: some View {
         HStack {
             Button("Rescan") {
@@ -202,10 +170,19 @@ struct DevicePickerView: View {
 
             Spacer()
 
+            if bluetoothManager.connectedDevice != nil {
+                Button("Disconnect") {
+                    bluetoothManager.disconnect()
+                }
+                .buttonStyle(.bordered)
+            }
+
+            Spacer()
+
             Button("Done") {
                 dismiss()
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(.bordered)
         }
         .padding()
     }

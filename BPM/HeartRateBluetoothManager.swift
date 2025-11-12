@@ -118,7 +118,14 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
 
         isScanning = true
         pendingScanRequest = false
-        availableDevices = []
+        
+        // Preserve connected device in the list when starting a new scan
+        if let connected = connectedDevice {
+            availableDevices = availableDevices.filter { $0.id == connected.identifier }
+        } else {
+            availableDevices = []
+        }
+        
         centralManager.scanForPeripherals(withServices: [heartRateServiceUUID], options: [CBCentralManagerScanOptionAllowDuplicatesKey: false])
     }
 
@@ -141,6 +148,18 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
     func connect(to device: CBPeripheral) {
         stopScanning()
         connectedDevice = device
+        
+        // Ensure connected device is in the available devices list
+        if !availableDevices.contains(where: { $0.id == device.identifier }) {
+            let discoveredPeripheral = DiscoveredPeripheral(
+                peripheral: device,
+                advertisedName: device.name,
+                manufacturerIdentifier: nil,
+                rssi: nil
+            )
+            availableDevices.append(discoveredPeripheral)
+        }
+        
         centralManager.connect(device, options: nil)
     }
 
