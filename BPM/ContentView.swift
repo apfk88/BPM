@@ -388,8 +388,9 @@ struct HeartRateDisplayView: View {
                                         .font(.system(size: scaledButtonSize))
                                         .foregroundColor(heartButtonColor)
                                         .padding(scaledButtonPadding)
-                                        .background(Color.gray.opacity(0.3))
-                                        .clipShape(Circle())
+                                        .background(
+                                            Circle().fill(Color.gray.opacity(0.3))
+                                        )
                                 }
                                 
                                 Button {
@@ -414,8 +415,9 @@ struct HeartRateDisplayView: View {
                                         .font(.system(size: scaledButtonSize))
                                         .foregroundColor(sharingService.isSharing ? .green : .white)
                                         .padding(scaledButtonPadding)
-                                        .background(Color.gray.opacity(0.3))
-                                        .clipShape(Circle())
+                                        .background(
+                                            Circle().fill(Color.gray.opacity(0.3))
+                                        )
                                 }
                                 
                                 Button {
@@ -424,12 +426,14 @@ struct HeartRateDisplayView: View {
                                         timerViewModel.reset()
                                     }
                                 } label: {
-                                    Image(systemName: "timer")
+                                    Image(systemName: "stopwatch")
+                                        .renderingMode(.template)
                                         .font(.system(size: scaledButtonSize))
                                         .foregroundColor(isTimerMode ? .green : .white)
                                         .padding(scaledButtonPadding)
-                                        .background(Color.gray.opacity(0.3))
-                                        .clipShape(Circle())
+                                        .background(
+                                            Circle().fill(Color.gray.opacity(0.3))
+                                        )
                                 }
                             }
                         }
@@ -456,8 +460,9 @@ struct HeartRateDisplayView: View {
                                         .font(.system(size: scaledButtonSize))
                                         .foregroundColor(heartButtonColor)
                                         .padding(scaledButtonPadding)
-                                        .background(Color.gray.opacity(0.3))
-                                        .clipShape(Circle())
+                                        .background(
+                                            Circle().fill(Color.gray.opacity(0.3))
+                                        )
                                 }
                                 
                                 Button {
@@ -482,8 +487,9 @@ struct HeartRateDisplayView: View {
                                         .font(.system(size: scaledButtonSize))
                                         .foregroundColor(sharingService.isSharing ? .green : .white)
                                         .padding(scaledButtonPadding)
-                                        .background(Color.gray.opacity(0.3))
-                                        .clipShape(Circle())
+                                        .background(
+                                            Circle().fill(Color.gray.opacity(0.3))
+                                        )
                                 }
                                 
                                 Button {
@@ -492,12 +498,14 @@ struct HeartRateDisplayView: View {
                                         timerViewModel.reset()
                                     }
                                 } label: {
-                                    Image(systemName: "timer")
+                                    Image(systemName: "stopwatch")
+                                        .renderingMode(.template)
                                         .font(.system(size: scaledButtonSize))
                                         .foregroundColor(isTimerMode ? .green : .white)
                                         .padding(scaledButtonPadding)
-                                        .background(Color.gray.opacity(0.3))
-                                        .clipShape(Circle())
+                                        .background(
+                                            Circle().fill(Color.gray.opacity(0.3))
+                                        )
                                 }
                             }
                         }
@@ -525,8 +533,9 @@ struct HeartRateDisplayView: View {
                                 .font(.system(size: scaledButtonSize))
                                 .foregroundColor(heartButtonColor)
                                 .padding(scaledButtonPadding)
-                                .background(Color.gray.opacity(0.3))
-                                .clipShape(Circle())
+                                .background(
+                                    Circle().fill(Color.gray.opacity(0.3))
+                                )
                         }
                         
                         Button {
@@ -561,7 +570,8 @@ struct HeartRateDisplayView: View {
                                 timerViewModel.reset()
                             }
                         } label: {
-                            Image(systemName: "timer")
+                            Image(systemName: "stopwatch")
+                                .renderingMode(.template)
                                 .font(.system(size: scaledButtonSize))
                                 .foregroundColor(isTimerMode ? .green : .white)
                                 .padding(scaledButtonPadding)
@@ -621,12 +631,14 @@ struct HeartRateDisplayView: View {
                                         timerViewModel.reset()
                                     }
                                 } label: {
-                                    Image(systemName: "timer")
+                                    Image(systemName: "stopwatch")
+                                        .renderingMode(.template)
                                         .font(.system(size: scaledButtonSize))
                                         .foregroundColor(isTimerMode ? .green : .white)
                                         .padding(scaledButtonPadding)
-                                        .background(Color.gray.opacity(0.3))
-                                        .clipShape(Circle())
+                                        .background(
+                                            Circle().fill(Color.gray.opacity(0.3))
+                                        )
                                 }
                             }
                         }
@@ -675,7 +687,8 @@ struct HeartRateDisplayView: View {
                                         timerViewModel.reset()
                                     }
                                 } label: {
-                                    Image(systemName: "timer")
+                                    Image(systemName: "stopwatch")
+                                        .renderingMode(.template)
                                         .font(.system(size: scaledButtonSize))
                                         .foregroundColor(isTimerMode ? .green : .white)
                                         .padding(scaledButtonPadding)
@@ -730,7 +743,8 @@ struct HeartRateDisplayView: View {
                                 timerViewModel.reset()
                             }
                         } label: {
-                            Image(systemName: "timer")
+                            Image(systemName: "stopwatch")
+                                .renderingMode(.template)
                                 .font(.system(size: scaledButtonSize))
                                 .foregroundColor(isTimerMode ? .green : .white)
                                 .padding(scaledButtonPadding)
