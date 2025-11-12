@@ -23,6 +23,8 @@ struct SetRecord: Identifiable {
     let heartRate: Int?
     let totalTime: TimeInterval
     let isRestSet: Bool
+    let isCooldownSet: Bool // True for cooldown sets (C1, C2), false for regular rest sets (2R, 3R, etc.)
+    let associatedWorkSetNumber: Int? // For rest sets, the work set number they're associated with (e.g., 2R means rest after set 2)
 }
 
 final class TimerViewModel: ObservableObject {
@@ -32,6 +34,7 @@ final class TimerViewModel: ObservableObject {
     @Published var sets: [SetRecord] = []
     @Published var cooldownTime: TimeInterval = 0
     @Published var frozenElapsedTime: TimeInterval = 0 // Total time frozen at cooldown start
+    @Published var isTimingRestSet: Bool = false // True when currently timing a rest set
     
     private var startTime: Date?
     private var pauseStartTime: Date?
@@ -42,6 +45,7 @@ final class TimerViewModel: ObservableObject {
     private var setCounter = 0
     private var restSetCounter = 0
     private var lastSetEndTime: TimeInterval = 0
+    private var currentRestAssociatedWorkSetNumber: Int?
     private var restStartTime: Date? // Start time for rest period
     private var cooldownOneMinuteTimer: Timer?
     private var cooldownTwoMinuteTimer: Timer?
@@ -51,10 +55,18 @@ final class TimerViewModel: ObservableObject {
     var currentHeartRate: (() -> Int?)?
     
     var avgSetTime: TimeInterval? {
-        let workoutSets = sets.filter { !$0.isRestSet }
+        let workoutSets = sets.filter { !$0.isRestSet && !$0.isCooldownSet }
         guard !workoutSets.isEmpty else { return nil }
         let total = workoutSets.reduce(0) { $0 + $1.setTime }
         return total / Double(workoutSets.count)
+    }
+    
+    var avgRestTime: TimeInterval? {
+        // Only include completed rest sets (exclude active rest sets with 0 time)
+        let restSets = sets.filter { $0.isRestSet && !$0.isCooldownSet && $0.setTime > 0 }
+        guard !restSets.isEmpty else { return nil }
+        let total = restSets.reduce(0) { $0 + $1.setTime }
+        return total / Double(restSets.count)
     }
     
     var avgHeartRate: Int? {
@@ -86,6 +98,58 @@ final class TimerViewModel: ObservableObject {
     
     var isCompleted: Bool {
         state == .idle && !sets.isEmpty
+    }
+    
+    var isInCooldownMode: Bool {
+        state == .cooldown || state == .cooldownPaused
+    }
+    
+    // Get display label for a set (e.g., "1", "2R", "C1", "C2")
+    func displayLabel(for set: SetRecord) -> String {
+        if set.isCooldownSet {
+            return "C\(set.setNumber)"
+        } else if set.isRestSet {
+            if let workSetNumber = set.associatedWorkSetNumber {
+                return "\(workSetNumber)R"
+            }
+            return "R\(set.setNumber)"
+        } else {
+            return "\(set.setNumber)"
+        }
+    }
+    
+    func isActiveRestSet(_ set: SetRecord) -> Bool {
+        guard isTimingRestSet else { return false }
+        guard set.isRestSet && !set.isCooldownSet else { return false }
+        return set.associatedWorkSetNumber == currentRestAssociatedWorkSetNumber
+    }
+    
+    func displaySetTime(for set: SetRecord) -> TimeInterval {
+        if isActiveRestSet(set) {
+            return max(0, currentSetTime)
+        }
+        return set.setTime
+    }
+    
+    func displayTotalTime(for set: SetRecord) -> TimeInterval {
+        if isActiveRestSet(set) {
+            return elapsedTime
+        }
+        return set.totalTime
+    }
+    
+    func displayAvgBPM(for set: SetRecord) -> Int? {
+        if isActiveRestSet(set) {
+            return avgBPMForCurrentSet()
+        }
+        return avgBPMForSet(set)
+    }
+    
+    func displayMaxBPM(for set: SetRecord) -> Int? {
+        if isActiveRestSet(set) {
+            return maxBPMForCurrentSet()
+        }
+        return maxBPMForSet(set)
     }
     
     // Calculate average BPM for a specific set based on heart rate samples during that set's time period
@@ -166,6 +230,8 @@ final class TimerViewModel: ObservableObject {
             setCounter = 0
             restSetCounter = 0
             lastSetEndTime = 0
+            isTimingRestSet = false // Start with work set
+            currentRestAssociatedWorkSetNumber = nil
             sets.removeAll()
             heartRateSamples.removeAll()
             startHeartRateSampling()
@@ -196,30 +262,106 @@ final class TimerViewModel: ObservableObject {
     func captureSet() {
         guard (state == .running || state == .paused), let startTime = startTime else { return }
         
-        // When paused, use frozen elapsedTime; when running, calculate from startTime
         let currentTotalTime = state == .paused ? elapsedTime : Date().timeIntervalSince(startTime)
-        let setTime = currentTotalTime - lastSetEndTime
-        
-        setCounter += 1
-        lastSetEndTime = currentTotalTime
+        let segmentTime = max(0, currentTotalTime - lastSetEndTime)
         let heartRate = currentHeartRate?()
         
-        let setRecord = SetRecord(
-            setNumber: setCounter,
-            setTime: setTime,
+        if isTimingRestSet {
+            // Update the existing rest set record (it was created with 0 time when Rest Set was pressed)
+            if let lastRestSetIndex = sets.lastIndex(where: { $0.isRestSet && !$0.isCooldownSet && $0.setNumber == currentRestAssociatedWorkSetNumber }) {
+                let associatedNumber = currentRestAssociatedWorkSetNumber ?? setCounter
+                let updatedRestSet = SetRecord(
+                    setNumber: associatedNumber,
+                    setTime: segmentTime,
+                    heartRate: heartRate,
+                    totalTime: currentTotalTime,
+                    isRestSet: true,
+                    isCooldownSet: false,
+                    associatedWorkSetNumber: associatedNumber
+                )
+                sets[lastRestSetIndex] = updatedRestSet
+            }
+            isTimingRestSet = false
+            currentRestAssociatedWorkSetNumber = nil
+        } else {
+            setCounter += 1
+            let workSetRecord = SetRecord(
+                setNumber: setCounter,
+                setTime: segmentTime,
+                heartRate: heartRate,
+                totalTime: currentTotalTime,
+                isRestSet: false,
+                isCooldownSet: false,
+                associatedWorkSetNumber: nil
+            )
+            
+            sets.append(workSetRecord)
+            currentRestAssociatedWorkSetNumber = nil
+        }
+        
+        lastSetEndTime = currentTotalTime
+        currentSetTime = 0
+    }
+    
+    func captureRestSet() {
+        guard (state == .running || state == .paused), !isTimingRestSet, let startTime = startTime else { return }
+        
+        let currentTotalTime = state == .paused ? elapsedTime : Date().timeIntervalSince(startTime)
+        let segmentTime = max(0, currentTotalTime - lastSetEndTime)
+        let heartRate = currentHeartRate?()
+        let workSets = sets.filter { !$0.isRestSet && !$0.isCooldownSet }
+        let tolerance: TimeInterval = 0.01
+        
+        let workSetNumber: Int
+        
+        if let lastWorkSet = workSets.last,
+           abs(lastWorkSet.totalTime - currentTotalTime) <= tolerance {
+            // Work set already captured (e.g., via Work Set button)
+            workSetNumber = lastWorkSet.setNumber
+        } else {
+            // Finalize the current work segment as a new work set
+            setCounter += 1
+            workSetNumber = setCounter
+            
+            let workSetRecord = SetRecord(
+                setNumber: workSetNumber,
+                setTime: segmentTime,
+                heartRate: heartRate,
+                totalTime: currentTotalTime,
+                isRestSet: false,
+                isCooldownSet: false,
+                associatedWorkSetNumber: nil
+            )
+            
+            sets.append(workSetRecord)
+        }
+        
+        lastSetEndTime = currentTotalTime
+        
+        // Immediately create the rest set record with 0 time - it will be updated when Work Set is pressed
+        let restSetRecord = SetRecord(
+            setNumber: workSetNumber,
+            setTime: 0,
             heartRate: heartRate,
             totalTime: currentTotalTime,
-            isRestSet: false
+            isRestSet: true,
+            isCooldownSet: false,
+            associatedWorkSetNumber: workSetNumber
         )
         
-        sets.append(setRecord)
+        sets.append(restSetRecord)
         currentSetTime = 0
+        
+        isTimingRestSet = true
+        currentRestAssociatedWorkSetNumber = workSetNumber
     }
     
     func end() {
         guard state == .running || state == .paused else { return }
         
         stopTimer()
+        isTimingRestSet = false
+        currentRestAssociatedWorkSetNumber = nil
         // Freeze the total elapsed time
         frozenElapsedTime = elapsedTime
         // Start tracking rest time
@@ -264,16 +406,45 @@ final class TimerViewModel: ObservableObject {
         stopTimer()
         stopHeartRateSampling()
         frozenElapsedTime = elapsedTime
+        isTimingRestSet = false
+        currentRestAssociatedWorkSetNumber = nil
         state = .idle
     }
     
     func stopCooldownAndComplete() {
         guard state == .cooldown || state == .cooldownPaused else { return }
         
+        let cooldownElapsed = currentSetTime
+        if cooldownElapsed > 0 {
+            let nextCooldownNumber = restSetCounter + 1
+            let totalTime = frozenElapsedTime + cooldownElapsed
+            let heartRate = currentHeartRate?()
+            
+            let cooldownRecord = SetRecord(
+                setNumber: nextCooldownNumber,
+                setTime: cooldownElapsed,
+                heartRate: heartRate,
+                totalTime: totalTime,
+                isRestSet: true,
+                isCooldownSet: true,
+                associatedWorkSetNumber: nil
+            )
+            
+            restSetCounter = nextCooldownNumber
+            sets.append(cooldownRecord)
+        }
+        
         stopCooldownTimer()
         stopHeartRateSampling()
         // If we're ending during cooldown, capture the current rest time if needed
         // But don't add it as a set - just end
+        restStartTime = nil
+        cooldownStartTime = nil
+        cooldownPauseStartTime = nil
+        currentSetTime = 0
+        cooldownTime = 0
+        currentRestAssociatedWorkSetNumber = nil
+        isTimingRestSet = false
         state = .idle
     }
     
@@ -294,6 +465,8 @@ final class TimerViewModel: ObservableObject {
         restSetCounter = 0
         lastSetEndTime = 0
         frozenElapsedTime = 0
+        isTimingRestSet = false
+        currentRestAssociatedWorkSetNumber = nil
         sets.removeAll()
         heartRateSamples.removeAll()
     }
@@ -411,7 +584,9 @@ final class TimerViewModel: ObservableObject {
             setTime: cooldownElapsed,
             heartRate: heartRate,
             totalTime: totalTime,
-            isRestSet: true
+            isRestSet: true,
+            isCooldownSet: true,
+            associatedWorkSetNumber: nil
         )
         
         DispatchQueue.main.async {
