@@ -152,6 +152,13 @@ final class TimerViewModel: ObservableObject {
         return maxBPMForSet(set)
     }
     
+    func displayMinBPM(for set: SetRecord) -> Int? {
+        if isActiveRestSet(set) {
+            return minBPMForCurrentSet()
+        }
+        return minBPMForSet(set)
+    }
+    
     // Calculate average BPM for a specific set based on heart rate samples during that set's time period
     func avgBPMForSet(_ set: SetRecord) -> Int? {
         guard let startTime = startTime else { return nil }
@@ -219,6 +226,45 @@ final class TimerViewModel: ObservableObject {
         }
         
         return maxFromSamples
+    }
+    
+    // Calculate min BPM for a specific set based on heart rate samples during that set's time period
+    func minBPMForSet(_ set: SetRecord) -> Int? {
+        guard let startTime = startTime else { return nil }
+        let setStartTime = startTime.addingTimeInterval(set.totalTime - set.setTime)
+        let setEndTime = startTime.addingTimeInterval(set.totalTime)
+        
+        let samplesInSet = heartRateSamples.filter { sample in
+            sample.timestamp >= setStartTime && sample.timestamp <= setEndTime
+        }
+        
+        guard !samplesInSet.isEmpty else { return set.heartRate }
+        return samplesInSet.map { $0.value }.min()
+    }
+    
+    // Calculate min BPM for the current set being timed
+    func minBPMForCurrentSet() -> Int? {
+        guard let startTime = startTime else { return nil }
+        let currentSetStartTime = startTime.addingTimeInterval(lastSetEndTime)
+        let now = Date()
+        
+        let samplesInCurrentSet = heartRateSamples.filter { sample in
+            sample.timestamp >= currentSetStartTime && sample.timestamp <= now
+        }
+        
+        guard !samplesInCurrentSet.isEmpty else { return currentHeartRate?() }
+        let minFromSamples = samplesInCurrentSet.map { $0.value }.min()
+        
+        // Also consider current heart rate
+        if let currentHR = currentHeartRate?() {
+            if let minFromSamples = minFromSamples {
+                return min(minFromSamples, currentHR)
+            } else {
+                return currentHR
+            }
+        }
+        
+        return minFromSamples
     }
     
     func start() {
