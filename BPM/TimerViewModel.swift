@@ -51,6 +51,8 @@ final class TimerViewModel: ObservableObject {
     private var cooldownTwoMinuteTimer: Timer?
     private var heartRateSamples: [HeartRateSample] = [] // Track all heart rate samples during workout
     private var heartRateSampleTimer: Timer? // Timer to sample heart rate periodically
+    private var cooldownStartHeartRate: Int? // Heart rate at start of cooldown
+    private var cooldownEndHeartRate: Int? // Heart rate at end of cooldown (2 minutes)
     
     var currentHeartRate: (() -> Int?)?
     
@@ -70,10 +72,25 @@ final class TimerViewModel: ObservableObject {
     }
     
     var avgHeartRate: Int? {
-        // Calculate average from all heart rate samples during the workout (excluding paused time)
-        guard !heartRateSamples.isEmpty else { return nil }
-        let total = heartRateSamples.reduce(0) { $0 + $1.value }
-        return Int((Double(total) / Double(heartRateSamples.count)).rounded())
+        // Calculate average from heart rate samples during the workout only (exclude cooldown samples)
+        guard !heartRateSamples.isEmpty, let startTime = startTime else { return nil }
+        
+        // Filter samples to only include those from the workout period (before cooldown started)
+        // If frozenElapsedTime is 0, include all samples (no cooldown yet)
+        let workoutSamples: [HeartRateSample]
+        if frozenElapsedTime > 0 {
+            // Only include samples from before cooldown started
+            workoutSamples = heartRateSamples.filter { sample in
+                sample.timestamp.timeIntervalSince(startTime) <= frozenElapsedTime
+            }
+        } else {
+            // No cooldown yet, include all samples
+            workoutSamples = heartRateSamples
+        }
+        
+        guard !workoutSamples.isEmpty else { return nil }
+        let total = workoutSamples.reduce(0) { $0 + $1.value }
+        return Int((Double(total) / Double(workoutSamples.count)).rounded())
     }
     
     var maxHeartRate: Int? {
@@ -94,6 +111,14 @@ final class TimerViewModel: ObservableObject {
         }
         
         return maxFromSamples
+    }
+    
+    var heartRateRecovery: Int? {
+        // HRR = heart rate at start of cooldown - heart rate at end of cooldown
+        guard let startHR = cooldownStartHeartRate, let endHR = cooldownEndHeartRate else {
+            return nil
+        }
+        return startHR - endHR
     }
     
     var isCompleted: Bool {
@@ -410,6 +435,8 @@ final class TimerViewModel: ObservableObject {
         currentRestAssociatedWorkSetNumber = nil
         // Freeze the total elapsed time
         frozenElapsedTime = elapsedTime
+        // Capture heart rate at start of cooldown
+        cooldownStartHeartRate = currentHeartRate?()
         // Start tracking rest time
         restStartTime = Date()
         state = .cooldown
@@ -459,6 +486,11 @@ final class TimerViewModel: ObservableObject {
     
     func stopCooldownAndComplete() {
         guard state == .cooldown || state == .cooldownPaused else { return }
+        
+        // Capture heart rate at end of cooldown if not already captured
+        if cooldownEndHeartRate == nil {
+            cooldownEndHeartRate = currentHeartRate?()
+        }
         
         let cooldownElapsed = currentSetTime
         if cooldownElapsed > 0 {
@@ -513,6 +545,8 @@ final class TimerViewModel: ObservableObject {
         frozenElapsedTime = 0
         isTimingRestSet = false
         currentRestAssociatedWorkSetNumber = nil
+        cooldownStartHeartRate = nil
+        cooldownEndHeartRate = nil
         sets.removeAll()
         heartRateSamples.removeAll()
     }
@@ -582,7 +616,11 @@ final class TimerViewModel: ObservableObject {
             cooldownTwoMinuteTimer = Timer.scheduledTimer(withTimeInterval: remaining2Min, repeats: false) { [weak self] _ in
                 guard let self = self else { return }
                 if self.state == .cooldown {
+                    // Capture heart rate at end of cooldown
+                    self.cooldownEndHeartRate = self.currentHeartRate?()
                     self.captureCooldownHeartRate(minute: 2)
+                    // Stop heart rate sampling and end workout
+                    self.stopHeartRateSampling()
                     self.stopCooldownTimer()
                     DispatchQueue.main.async {
                         self.state = .idle

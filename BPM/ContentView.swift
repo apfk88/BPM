@@ -34,9 +34,17 @@ private enum HeartRateExtremumDisplay {
 private enum TimerBPMDisplay {
     case avg
     case max
+    case hrr
 
     mutating func cycle() {
-        self = self == .avg ? .max : .avg
+        switch self {
+        case .avg:
+            self = .max
+        case .max:
+            self = .hrr
+        case .hrr:
+            self = .avg
+        }
     }
 }
 
@@ -789,6 +797,41 @@ struct HeartRateDisplayView: View {
     // MARK: - Timer Mode UI
     
     @ViewBuilder
+    private func landscapeStatColumn(title: String, value: String, alignment: HorizontalAlignment) -> some View {
+        VStack(alignment: alignment, spacing: 4) {
+            Text(title)
+                .font(.system(size: 14, weight: .medium))
+                .foregroundColor(.gray)
+            Text(value)
+                .font(.system(size: 24, weight: .bold, design: .monospaced))
+                .foregroundColor(.white)
+        }
+    }
+    
+    @ViewBuilder
+    private func landscapeBPMOrHRRColumn(isCompleted: Bool) -> some View {
+        if isCompleted {
+            VStack(alignment: .center, spacing: 4) {
+                Text("HRR")
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(.gray)
+                Text(timerViewModel.heartRateRecovery.map(String.init) ?? "---")
+                    .font(.system(size: 24, weight: .bold, design: .monospaced))
+                    .foregroundColor(.white)
+            }
+        } else {
+            VStack(alignment: .center, spacing: 4) {
+                Text("BPM")
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(.gray)
+                Text(displayedHeartRate.map(String.init) ?? "---")
+                    .font(.system(size: 24, weight: .bold, design: .monospaced))
+                    .foregroundColor(.white)
+            }
+        }
+    }
+    
+    @ViewBuilder
     private func timerModeLayout(geometry: GeometryProxy, isLandscape: Bool) -> some View {
         VStack(spacing: 0) {
             // Top bar with device picker and clear button
@@ -865,6 +908,15 @@ struct HeartRateDisplayView: View {
     
     @ViewBuilder
     private func stopwatchDisplay(isLandscape: Bool) -> some View {
+        if isLandscape {
+            landscapeStopwatchDisplay()
+        } else {
+            portraitStopwatchDisplay()
+        }
+    }
+    
+    @ViewBuilder
+    private func landscapeStopwatchDisplay() -> some View {
         // Always show stats - don't hide them when completed
         let isCooldown = timerViewModel.state == .cooldown || timerViewModel.state == .cooldownPaused
         let totalTime = isCooldown ? timerViewModel.frozenElapsedTime : (timerViewModel.isCompleted ? timerViewModel.frozenElapsedTime : timerViewModel.elapsedTime)
@@ -876,134 +928,157 @@ struct HeartRateDisplayView: View {
             ? max(0, cooldownTotal - timerViewModel.currentSetTime)
             : (timerViewModel.isCompleted ? (timerViewModel.avgSetTime ?? 0) : timerViewModel.currentSetTime)
         
-        if isLandscape {
-            // Landscape: show Total, Set, Avg Rest, Current BPM, Max BPM, Avg BPM
-            VStack(spacing: 12) {
-                HStack(spacing: 16) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(timerViewModel.isCompleted ? "Total Time" : "Total")
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundColor(.gray)
-                        Text(formatTime(totalTime))
-                            .font(.system(size: 24, weight: .bold, design: .monospaced))
-                            .foregroundColor(.white)
-                    }
-                    
-                    Spacer()
-                    
-                    VStack(alignment: .center, spacing: 4) {
-                        Text(setLabel)
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundColor(.gray)
-                        Text(timerViewModel.isCompleted 
-                             ? (timerViewModel.avgSetTime.map(formatTime) ?? "---")
-                             : formatTime(displaySetTime))
-                            .font(.system(size: 24, weight: .bold, design: .monospaced))
-                            .foregroundColor(.white)
-                    }
-                    
-                    Spacer()
-                    
-                    VStack(alignment: .center, spacing: 4) {
-                        Text("Avg Rest")
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundColor(.gray)
-                        Text(timerViewModel.avgRestTime.map(formatTime) ?? "---")
-                            .font(.system(size: 24, weight: .bold, design: .monospaced))
-                            .foregroundColor(.white)
-                    }
-                    
-                    Spacer()
-                    
-                    VStack(alignment: .center, spacing: 4) {
-                        Text("BPM")
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundColor(.gray)
-                        Text(displayedHeartRate.map(String.init) ?? "---")
-                            .font(.system(size: 24, weight: .bold, design: .monospaced))
-                            .foregroundColor(.white)
-                    }
-                    
-                    Spacer()
-                    
-                    VStack(alignment: .center, spacing: 4) {
-                        Text("Max BPM")
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundColor(.gray)
-                        Text(timerViewModel.maxHeartRate.map(String.init) ?? "---")
-                            .font(.system(size: 24, weight: .bold, design: .monospaced))
-                            .foregroundColor(.white)
-                    }
-                    
-                    Spacer()
-                    
-                    VStack(alignment: .trailing, spacing: 4) {
-                        Text("Avg BPM")
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundColor(.gray)
-                        Text(timerViewModel.avgHeartRate.map(String.init) ?? "---")
-                            .font(.system(size: 24, weight: .bold, design: .monospaced))
-                            .foregroundColor(.white)
+        // Pre-calculate complex values to help compiler type-checking
+        let totalTimeTitle = timerViewModel.isCompleted ? "Total Time" : "Total"
+        let setTimeValue: String = {
+            if timerViewModel.isCompleted {
+                return timerViewModel.avgSetTime.map(formatTime) ?? "---"
+            } else {
+                return formatTime(displaySetTime)
+            }
+        }()
+        let avgRestValue = timerViewModel.avgRestTime.map(formatTime) ?? "---"
+        let maxBPMValue = timerViewModel.maxHeartRate.map(String.init) ?? "---"
+        let avgBPMValue = timerViewModel.avgHeartRate.map(String.init) ?? "---"
+        
+        // Landscape: show Total, Set, Avg Rest, Current BPM/HRR, Max BPM, Avg BPM
+        VStack(spacing: 12) {
+            HStack(spacing: 16) {
+                landscapeStatColumn(
+                    title: totalTimeTitle,
+                    value: formatTime(totalTime),
+                    alignment: .leading
+                )
+                
+                Spacer()
+                
+                landscapeStatColumn(
+                    title: setLabel,
+                    value: setTimeValue,
+                    alignment: .center
+                )
+                
+                Spacer()
+                
+                landscapeStatColumn(
+                    title: "Avg Rest",
+                    value: avgRestValue,
+                    alignment: .center
+                )
+                
+                Spacer()
+                
+                landscapeBPMOrHRRColumn(isCompleted: timerViewModel.isCompleted)
+                
+                Spacer()
+                
+                landscapeStatColumn(
+                    title: "Max BPM",
+                    value: maxBPMValue,
+                    alignment: .center
+                )
+                
+                Spacer()
+                
+                landscapeStatColumn(
+                    title: "Avg BPM",
+                    value: avgBPMValue,
+                    alignment: .trailing
+                )
+            }
+            .padding(.horizontal, 20)
+        }
+    }
+    
+    @ViewBuilder
+    private func portraitStopwatchDisplay() -> some View {
+        // Always show stats - don't hide them when completed
+        let isCooldown = timerViewModel.state == .cooldown || timerViewModel.state == .cooldownPaused
+        let totalTime = isCooldown ? timerViewModel.frozenElapsedTime : (timerViewModel.isCompleted ? timerViewModel.frozenElapsedTime : timerViewModel.elapsedTime)
+        let setLabel = isCooldown ? "Cooldown" : (timerViewModel.isCompleted ? "Avg Set" : "Set")
+        
+        // For cooldown, calculate countdown from 2 minutes
+        let cooldownTotal = 120.0 // 2 minutes
+        let displaySetTime: TimeInterval = isCooldown 
+            ? max(0, cooldownTotal - timerViewModel.currentSetTime)
+            : (timerViewModel.isCompleted ? (timerViewModel.avgSetTime ?? 0) : timerViewModel.currentSetTime)
+        
+        // Pre-calculate complex values
+        let totalTimeTitle = timerViewModel.isCompleted ? "Total Time" : "Total"
+        let setTimeValue: String = {
+            if timerViewModel.isCompleted {
+                return timerViewModel.avgSetTime.map(formatTime) ?? "---"
+            } else {
+                return formatTime(displaySetTime)
+            }
+        }()
+        
+        // Calculate BPM display values
+        let bpmTitle: String = {
+            if timerViewModel.isCompleted {
+                switch timerBPMDisplay {
+                case .avg: return "Avg BPM"
+                case .max: return "Max BPM"
+                case .hrr: return "HRR"
+                }
+            } else {
+                return "BPM"
+            }
+        }()
+        
+        let bpmValue: String = {
+            if timerViewModel.isCompleted {
+                switch timerBPMDisplay {
+                case .avg: return timerViewModel.avgHeartRate.map(String.init) ?? "---"
+                case .max: return timerViewModel.maxHeartRate.map(String.init) ?? "---"
+                case .hrr: return timerViewModel.heartRateRecovery.map(String.init) ?? "---"
+                }
+            } else {
+                return displayedHeartRate.map(String.init) ?? "---"
+            }
+        }()
+        
+        // Portrait: show Total, Set, BPM (realtime while running, Avg/Max/HRR when completed)
+        VStack(spacing: 12) {
+            HStack(spacing: 20) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(totalTimeTitle)
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(.gray)
+                    Text(formatTime(totalTime))
+                        .font(.system(size: 32, weight: .bold, design: .monospaced))
+                        .foregroundColor(.white)
+                }
+                
+                Spacer()
+                
+                VStack(alignment: .center, spacing: 4) {
+                    Text(setLabel)
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(.gray)
+                    Text(setTimeValue)
+                        .font(.system(size: 32, weight: .bold, design: .monospaced))
+                        .foregroundColor(.white)
+                }
+                
+                Spacer()
+                
+                VStack(alignment: .trailing, spacing: 4) {
+                    Text(bpmTitle)
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(.gray)
+                    Text(bpmValue)
+                        .font(.system(size: 32, weight: .bold, design: .monospaced))
+                        .foregroundColor(.white)
+                }
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    if timerViewModel.isCompleted {
+                        timerBPMDisplay.cycle()
                     }
                 }
-                .padding(.horizontal, 20)
             }
-        } else {
-            // Portrait: show Total, Set, BPM (realtime while running, Avg/Max when completed)
-            VStack(spacing: 12) {
-                HStack(spacing: 20) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(timerViewModel.isCompleted ? "Total Time" : "Total")
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundColor(.gray)
-                        Text(formatTime(totalTime))
-                            .font(.system(size: 32, weight: .bold, design: .monospaced))
-                            .foregroundColor(.white)
-                    }
-                    
-                    Spacer()
-                    
-                    VStack(alignment: .center, spacing: 4) {
-                        Text(setLabel)
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundColor(.gray)
-                        Text(timerViewModel.isCompleted 
-                             ? (timerViewModel.avgSetTime.map(formatTime) ?? "---")
-                             : formatTime(displaySetTime))
-                            .font(.system(size: 32, weight: .bold, design: .monospaced))
-                            .foregroundColor(.white)
-                    }
-                    
-                    Spacer()
-                    
-                    VStack(alignment: .trailing, spacing: 4) {
-                        if timerViewModel.isCompleted {
-                            Text(timerBPMDisplay == .avg ? "Avg BPM" : "Max BPM")
-                                .font(.system(size: 14, weight: .medium))
-                                .foregroundColor(.gray)
-                            Text(timerBPMDisplay == .avg 
-                                 ? (timerViewModel.avgHeartRate.map(String.init) ?? "---")
-                                 : (timerViewModel.maxHeartRate.map(String.init) ?? "---"))
-                                .font(.system(size: 32, weight: .bold, design: .monospaced))
-                                .foregroundColor(.white)
-                        } else {
-                            Text("BPM")
-                                .font(.system(size: 14, weight: .medium))
-                                .foregroundColor(.gray)
-                            Text(displayedHeartRate.map(String.init) ?? "---")
-                                .font(.system(size: 32, weight: .bold, design: .monospaced))
-                                .foregroundColor(.white)
-                        }
-                    }
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        if timerViewModel.isCompleted {
-                            timerBPMDisplay.cycle()
-                        }
-                    }
-                }
-                .padding(.horizontal, 20)
-            }
+            .padding(.horizontal, 20)
         }
     }
     
