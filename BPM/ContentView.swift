@@ -1448,14 +1448,18 @@ struct HeartRateDisplayView: View {
                 Button {
                     timerViewModel.captureSet()
                 } label: {
-                    Text("Work Set")
-                        .font(.system(size: buttonFontSize, weight: .semibold))
-                        .foregroundColor(workSetDisabled ? .gray.opacity(0.5) : .white)
-                        .frame(maxWidth: .infinity)
-                        .padding(.horizontal, buttonPaddingSize * 1.5)
-                        .padding(.vertical, buttonPaddingSize)
-                        .background(workSetDisabled ? Color.gray.opacity(0.1) : Color.gray.opacity(0.3))
-                        .cornerRadius(buttonPaddingSize)
+                    HStack(spacing: 4) {
+                        Image(systemName: "plus")
+                            .font(.system(size: buttonFontSize, weight: .semibold))
+                        Text("Work Set")
+                            .font(.system(size: buttonFontSize, weight: .semibold))
+                    }
+                    .foregroundColor(workSetDisabled ? .gray.opacity(0.5) : .white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.horizontal, buttonPaddingSize * 1.5)
+                    .padding(.vertical, buttonPaddingSize)
+                    .background(workSetDisabled ? Color.gray.opacity(0.1) : Color.gray.opacity(0.3))
+                    .cornerRadius(buttonPaddingSize)
                 }
                 .disabled(workSetDisabled)
                 .frame(maxWidth: .infinity)
@@ -1464,14 +1468,18 @@ struct HeartRateDisplayView: View {
                 Button {
                     timerViewModel.captureRestSet()
                 } label: {
-                    Text("Rest Set")
-                        .font(.system(size: buttonFontSize, weight: .semibold))
-                        .foregroundColor(restSetDisabled ? .gray.opacity(0.5) : .white)
-                        .frame(maxWidth: .infinity)
-                        .padding(.horizontal, buttonPaddingSize * 1.5)
-                        .padding(.vertical, buttonPaddingSize)
-                        .background(restSetDisabled ? Color.gray.opacity(0.1) : Color.gray.opacity(0.3))
-                        .cornerRadius(buttonPaddingSize)
+                    HStack(spacing: 4) {
+                        Image(systemName: "plus")
+                            .font(.system(size: buttonFontSize, weight: .semibold))
+                        Text("Rest Set")
+                            .font(.system(size: buttonFontSize, weight: .semibold))
+                    }
+                    .foregroundColor(restSetDisabled ? .gray.opacity(0.5) : .white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.horizontal, buttonPaddingSize * 1.5)
+                    .padding(.vertical, buttonPaddingSize)
+                    .background(restSetDisabled ? Color.gray.opacity(0.1) : Color.gray.opacity(0.3))
+                    .cornerRadius(buttonPaddingSize)
                 }
                 .disabled(restSetDisabled)
                 .frame(maxWidth: .infinity)
@@ -1557,14 +1565,18 @@ struct HeartRateDisplayView: View {
                     Button {
                         timerViewModel.captureSet()
                     } label: {
-                        Text("Work Set")
-                            .font(.system(size: buttonFontSize, weight: .semibold))
-                            .foregroundColor(workSetDisabled ? .gray.opacity(0.5) : .white)
-                            .frame(maxWidth: .infinity)
-                            .padding(.horizontal, buttonPaddingSize * 2)
-                            .padding(.vertical, buttonPaddingSize)
-                            .background(workSetDisabled ? Color.gray.opacity(0.1) : Color.gray.opacity(0.3))
-                            .cornerRadius(buttonPaddingSize)
+                        HStack(spacing: 4) {
+                            Image(systemName: "plus")
+                                .font(.system(size: buttonFontSize, weight: .semibold))
+                            Text("Work Set")
+                                .font(.system(size: buttonFontSize, weight: .semibold))
+                        }
+                        .foregroundColor(workSetDisabled ? .gray.opacity(0.5) : .white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.horizontal, buttonPaddingSize * 2)
+                        .padding(.vertical, buttonPaddingSize)
+                        .background(workSetDisabled ? Color.gray.opacity(0.1) : Color.gray.opacity(0.3))
+                        .cornerRadius(buttonPaddingSize)
                     }
                     .disabled(workSetDisabled)
                     .frame(maxWidth: .infinity)
@@ -1572,14 +1584,18 @@ struct HeartRateDisplayView: View {
                     Button {
                         timerViewModel.captureRestSet()
                     } label: {
-                        Text("Rest Set")
-                            .font(.system(size: buttonFontSize, weight: .semibold))
-                            .foregroundColor(restSetDisabled ? .gray.opacity(0.5) : .white)
-                            .frame(maxWidth: .infinity)
-                            .padding(.horizontal, buttonPaddingSize * 2)
-                            .padding(.vertical, buttonPaddingSize)
-                            .background(restSetDisabled ? Color.gray.opacity(0.1) : Color.gray.opacity(0.3))
-                            .cornerRadius(buttonPaddingSize)
+                        HStack(spacing: 4) {
+                            Image(systemName: "plus")
+                                .font(.system(size: buttonFontSize, weight: .semibold))
+                            Text("Rest Set")
+                                .font(.system(size: buttonFontSize, weight: .semibold))
+                        }
+                        .foregroundColor(restSetDisabled ? .gray.opacity(0.5) : .white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.horizontal, buttonPaddingSize * 2)
+                        .padding(.vertical, buttonPaddingSize)
+                        .background(restSetDisabled ? Color.gray.opacity(0.1) : Color.gray.opacity(0.3))
+                        .cornerRadius(buttonPaddingSize)
                     }
                     .disabled(restSetDisabled)
                     .frame(maxWidth: .infinity)
