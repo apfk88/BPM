@@ -45,6 +45,8 @@ final class TimerViewModel: ObservableObject {
     private var restStartTime: Date? // Start time for rest period
     private var cooldownOneMinuteTimer: Timer?
     private var cooldownTwoMinuteTimer: Timer?
+    private var heartRateSamples: [HeartRateSample] = [] // Track all heart rate samples during workout
+    private var heartRateSampleTimer: Timer? // Timer to sample heart rate periodically
     
     var currentHeartRate: (() -> Int?)?
     
@@ -56,14 +58,103 @@ final class TimerViewModel: ObservableObject {
     }
     
     var avgHeartRate: Int? {
-        let workoutSets = sets.filter { !$0.isRestSet && $0.heartRate != nil }
-        guard !workoutSets.isEmpty else { return nil }
-        let total = workoutSets.reduce(0) { $0 + ($1.heartRate ?? 0) }
-        return Int((Double(total) / Double(workoutSets.count)).rounded())
+        // Calculate average from all heart rate samples during the workout (excluding paused time)
+        guard !heartRateSamples.isEmpty else { return nil }
+        let total = heartRateSamples.reduce(0) { $0 + $1.value }
+        return Int((Double(total) / Double(heartRateSamples.count)).rounded())
+    }
+    
+    var maxHeartRate: Int? {
+        // Calculate max from all heart rate samples during the workout
+        guard !heartRateSamples.isEmpty else {
+            // Fallback to current heart rate if no samples yet
+            return currentHeartRate?()
+        }
+        let maxFromSamples = heartRateSamples.map { $0.value }.max()
+        
+        // Also consider current heart rate if timer is running
+        if state == .running || state == .paused, let currentHR = currentHeartRate?() {
+            if let maxFromSamples = maxFromSamples {
+                return max(maxFromSamples, currentHR)
+            } else {
+                return currentHR
+            }
+        }
+        
+        return maxFromSamples
     }
     
     var isCompleted: Bool {
         state == .idle && !sets.isEmpty
+    }
+    
+    // Calculate average BPM for a specific set based on heart rate samples during that set's time period
+    func avgBPMForSet(_ set: SetRecord) -> Int? {
+        guard let startTime = startTime else { return nil }
+        let setStartTime = startTime.addingTimeInterval(set.totalTime - set.setTime)
+        let setEndTime = startTime.addingTimeInterval(set.totalTime)
+        
+        let samplesInSet = heartRateSamples.filter { sample in
+            sample.timestamp >= setStartTime && sample.timestamp <= setEndTime
+        }
+        
+        guard !samplesInSet.isEmpty else { return set.heartRate }
+        let total = samplesInSet.reduce(0) { $0 + $1.value }
+        return Int((Double(total) / Double(samplesInSet.count)).rounded())
+    }
+    
+    // Calculate max BPM for a specific set based on heart rate samples during that set's time period
+    func maxBPMForSet(_ set: SetRecord) -> Int? {
+        guard let startTime = startTime else { return nil }
+        let setStartTime = startTime.addingTimeInterval(set.totalTime - set.setTime)
+        let setEndTime = startTime.addingTimeInterval(set.totalTime)
+        
+        let samplesInSet = heartRateSamples.filter { sample in
+            sample.timestamp >= setStartTime && sample.timestamp <= setEndTime
+        }
+        
+        guard !samplesInSet.isEmpty else { return set.heartRate }
+        return samplesInSet.map { $0.value }.max()
+    }
+    
+    // Calculate average BPM for the current set being timed
+    func avgBPMForCurrentSet() -> Int? {
+        guard let startTime = startTime else { return nil }
+        let currentSetStartTime = startTime.addingTimeInterval(lastSetEndTime)
+        let now = Date()
+        
+        let samplesInCurrentSet = heartRateSamples.filter { sample in
+            sample.timestamp >= currentSetStartTime && sample.timestamp <= now
+        }
+        
+        guard !samplesInCurrentSet.isEmpty else { return currentHeartRate?() }
+        let total = samplesInCurrentSet.reduce(0) { $0 + $1.value }
+        return Int((Double(total) / Double(samplesInCurrentSet.count)).rounded())
+    }
+    
+    // Calculate max BPM for the current set being timed
+    func maxBPMForCurrentSet() -> Int? {
+        guard let startTime = startTime else { return nil }
+        let currentSetStartTime = startTime.addingTimeInterval(lastSetEndTime)
+        let now = Date()
+        
+        let samplesInCurrentSet = heartRateSamples.filter { sample in
+            sample.timestamp >= currentSetStartTime && sample.timestamp <= now
+        }
+        
+        guard !samplesInCurrentSet.isEmpty else { return currentHeartRate?() }
+        let maxFromSamples = samplesInCurrentSet.map { $0.value }.max()
+        
+        // Also consider current heart rate
+        if let currentHR = currentHeartRate?() {
+            if let maxFromSamples = maxFromSamples {
+                return max(maxFromSamples, currentHR)
+            } else {
+                return currentHR
+            }
+        }
+        
+        return maxFromSamples
     }
     
     func start() {
@@ -76,6 +167,8 @@ final class TimerViewModel: ObservableObject {
             restSetCounter = 0
             lastSetEndTime = 0
             sets.removeAll()
+            heartRateSamples.removeAll()
+            startHeartRateSampling()
         } else if state == .paused {
             // Resume from paused state - adjust startTime to account for total elapsed time
             if let pauseStartTime = pauseStartTime {
@@ -85,6 +178,7 @@ final class TimerViewModel: ObservableObject {
                 startTime = (startTime ?? Date()).addingTimeInterval(pauseDuration)
                 self.pauseStartTime = nil
             }
+            startHeartRateSampling()
         }
         
         state = .running
@@ -96,12 +190,14 @@ final class TimerViewModel: ObservableObject {
         state = .paused
         stopTimer()
         pauseStartTime = Date()
+        stopHeartRateSampling()
     }
     
     func captureSet() {
-        guard state == .running, let startTime = startTime else { return }
+        guard (state == .running || state == .paused), let startTime = startTime else { return }
         
-        let currentTotalTime = Date().timeIntervalSince(startTime)
+        // When paused, use frozen elapsedTime; when running, calculate from startTime
+        let currentTotalTime = state == .paused ? elapsedTime : Date().timeIntervalSince(startTime)
         let setTime = currentTotalTime - lastSetEndTime
         
         setCounter += 1
@@ -166,6 +262,7 @@ final class TimerViewModel: ObservableObject {
         guard state == .running || state == .paused else { return }
         
         stopTimer()
+        stopHeartRateSampling()
         frozenElapsedTime = elapsedTime
         state = .idle
     }
@@ -174,6 +271,7 @@ final class TimerViewModel: ObservableObject {
         guard state == .cooldown || state == .cooldownPaused else { return }
         
         stopCooldownTimer()
+        stopHeartRateSampling()
         // If we're ending during cooldown, capture the current rest time if needed
         // But don't add it as a set - just end
         state = .idle
@@ -182,6 +280,7 @@ final class TimerViewModel: ObservableObject {
     func reset() {
         stopTimer()
         stopCooldownTimer()
+        stopHeartRateSampling()
         state = .idle
         elapsedTime = 0
         currentSetTime = 0
@@ -196,6 +295,7 @@ final class TimerViewModel: ObservableObject {
         lastSetEndTime = 0
         frozenElapsedTime = 0
         sets.removeAll()
+        heartRateSamples.removeAll()
     }
     
     private func startTimer() {
@@ -216,6 +316,26 @@ final class TimerViewModel: ObservableObject {
     private func stopTimer() {
         timer?.invalidate()
         timer = nil
+    }
+    
+    private func startHeartRateSampling() {
+        heartRateSampleTimer?.invalidate()
+        // Sample heart rate every second (1 Hz) to match main mode behavior
+        heartRateSampleTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+            guard let self = self else { return }
+            DispatchQueue.main.async {
+                if let heartRate = self.currentHeartRate?() {
+                    let sample = HeartRateSample(value: heartRate, timestamp: Date())
+                    self.heartRateSamples.append(sample)
+                }
+            }
+        }
+        RunLoop.current.add(heartRateSampleTimer!, forMode: .common)
+    }
+    
+    private func stopHeartRateSampling() {
+        heartRateSampleTimer?.invalidate()
+        heartRateSampleTimer = nil
     }
     
     private func startCooldownTimer() {
@@ -304,6 +424,7 @@ final class TimerViewModel: ObservableObject {
         cooldownTimer?.invalidate()
         cooldownOneMinuteTimer?.invalidate()
         cooldownTwoMinuteTimer?.invalidate()
+        heartRateSampleTimer?.invalidate()
     }
 }
 
