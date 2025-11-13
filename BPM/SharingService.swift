@@ -103,23 +103,48 @@ class SharingService: ObservableObject {
     }
     
     func startSharing() async throws {
-        guard let url = URL(string: "\(baseURL)/api/share") else {
-            throw SharingError.invalidURL
+        let apiURL = "\(baseURL)/api/share"
+        print("🔗 Starting sharing with API URL: \(apiURL)")
+        
+        guard let url = URL(string: apiURL) else {
+            let error = SharingError.invalidURL
+            await MainActor.run {
+                self.errorMessage = "Invalid API URL. Please check your configuration."
+                self.errorContext = .sharing
+            }
+            throw error
         }
         
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 10.0 // 10 second timeout
         
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
             
             guard let httpResponse = response as? HTTPURLResponse else {
-                throw SharingError.invalidResponse
+                let error = SharingError.invalidResponse
+                await MainActor.run {
+                    self.errorMessage = "Invalid server response. Please try again."
+                    self.errorContext = .sharing
+                }
+                throw error
             }
             
             guard httpResponse.statusCode == 200 else {
-                throw SharingError.serverError(httpResponse.statusCode)
+                let error = SharingError.serverError(httpResponse.statusCode)
+                await MainActor.run {
+                    if httpResponse.statusCode == 401 {
+                        self.errorMessage = "Authentication required. Staging may have password protection enabled. Please disable it in Vercel dashboard."
+                    } else if httpResponse.statusCode == 500 {
+                        self.errorMessage = "Server error. Please try again later."
+                    } else {
+                        self.errorMessage = "Server error (code \(httpResponse.statusCode)). Please try again."
+                    }
+                    self.errorContext = .sharing
+                }
+                throw error
             }
             
             let shareResponse = try JSONDecoder().decode(ShareResponse.self, from: data)
@@ -137,10 +162,40 @@ class SharingService: ObservableObject {
                 self.startUpdatingHeartRate()
                 self.startExpirationTimer()
             }
+        } catch let urlError as URLError {
+            await MainActor.run {
+                let errorMessage: String
+                switch urlError.code {
+                case .notConnectedToInternet:
+                    errorMessage = "No internet connection. Please check your network and try again."
+                case .networkConnectionLost:
+                    errorMessage = "Network connection lost. Please check your connection and try again."
+                case .timedOut:
+                    errorMessage = "Request timed out. Please check your connection and try again."
+                case .cannotFindHost, .cannotConnectToHost:
+                    errorMessage = "Cannot connect to server. Please check your internet connection."
+                case .cancelled:
+                    errorMessage = "Request was cancelled. Please try again."
+                default:
+                    errorMessage = "Network error: \(urlError.localizedDescription). Please check your connection and try again."
+                }
+                self.errorMessage = errorMessage
+                self.errorContext = .sharing
+                print("❌ Sharing error: \(urlError.code.rawValue) - \(urlError.localizedDescription)")
+            }
+            throw SharingError.networkError(urlError)
+        } catch let decodingError as DecodingError {
+            await MainActor.run {
+                self.errorMessage = "Invalid server response. Please try again."
+                self.errorContext = .sharing
+                print("❌ Decoding error: \(decodingError)")
+            }
+            throw SharingError.invalidResponse
         } catch {
             await MainActor.run {
-                self.errorMessage = "Failed to start sharing: \(error.localizedDescription)"
+                self.errorMessage = "Failed to start sharing: \(error.localizedDescription). Please try again."
                 self.errorContext = .sharing
+                print("❌ Unexpected error: \(error)")
             }
             throw error
         }
