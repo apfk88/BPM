@@ -177,6 +177,7 @@ struct HeartRateDisplayView: View {
                     connectionPrompt
                     errorMessageDisplay
                     sharingCodeDisplay
+                    debugInfo
                 }
             }
         }
@@ -205,6 +206,7 @@ struct HeartRateDisplayView: View {
                     connectionPrompt
                     errorMessageDisplay
                     sharingCodeDisplay
+                    debugInfo
                 }
             }
         } else {
@@ -229,6 +231,7 @@ struct HeartRateDisplayView: View {
                     connectionPrompt
                     errorMessageDisplay
                     sharingCodeDisplay
+                    debugInfo
                 }
             }
         }
@@ -351,6 +354,28 @@ struct HeartRateDisplayView: View {
         let hasDeviceConnection = bluetoothManager.connectedDevice != nil
         let hasFriendConnection = sharingService.isViewing && sharingService.friendCode != nil
         return !hasDeviceConnection && !hasFriendConnection
+    }
+    
+    @ViewBuilder
+    private var debugInfo: some View {
+        #if DEBUG
+        if bluetoothManager.connectedDevice != nil {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(bluetoothManager.connectionStatus)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(.yellow)
+                
+                if !bluetoothManager.debugMessages.isEmpty {
+                    Text(bluetoothManager.debugMessages.last ?? "")
+                        .font(.system(size: 9))
+                        .foregroundColor(.gray.opacity(0.7))
+                        .lineLimit(2)
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 4)
+        }
+        #endif
     }
 
     @ViewBuilder

@@ -68,6 +68,8 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
     @Published var isScanning = false
     @Published var currentHeartRate: Int?
     @Published private(set) var heartRateSamples: [HeartRateSample] = []
+    @Published var debugMessages: [String] = []
+    @Published var connectionStatus: String = "Not connected"
 
     private var centralManager: CBCentralManager!
     private let heartRateServiceUUID = CBUUID(string: "180D")
@@ -153,7 +155,9 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
             availableDevices = []
         }
         
-        centralManager.scanForPeripherals(withServices: [heartRateServiceUUID], options: [CBCentralManagerScanOptionAllowDuplicatesKey: false])
+        // Scan without service filtering to discover devices that don't advertise the Heart Rate Service UUID
+        // Some heart rate monitors only expose the service after connection
+        centralManager.scanForPeripherals(withServices: nil, options: [CBCentralManagerScanOptionAllowDuplicatesKey: false])
     }
 
     func stopScanning() {
@@ -198,6 +202,18 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
 
     func connect(to device: CBPeripheral) {
         stopScanning()
+        
+        // Check device state - if already connected to another device, we can't connect
+        if device.state == .connected {
+            let msg = "Device is already connected to another device (e.g., your treadmill). Please disconnect it first."
+            print(msg)
+            addDebugMessage(msg)
+            connectionStatus = "Device busy - disconnect from other device"
+            return
+        }
+        
+        connectionStatus = "Connecting..."
+        addDebugMessage("Connecting to \(device.name ?? device.identifier.uuidString)... (current state: \(deviceStateDescription(device.state)))")
         connectedDevice = device
         
         // Ensure connected device is in the available devices list
@@ -212,6 +228,19 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
         }
         
         centralManager.connect(device, options: nil)
+    }
+    
+    private func deviceStateDescription(_ state: CBPeripheralState) -> String {
+        switch state {
+        case .disconnected:
+            return "disconnected"
+        case .connecting:
+            return "connecting"
+        case .connected:
+            return "connected (to another device)"
+        @unknown default:
+            return "unknown"
+        }
     }
 
     func disconnect() {
@@ -361,7 +390,29 @@ extension HeartRateBluetoothManager: CBCentralManagerDelegate {
     }
 
     func centralManager(_ central: CBCentralManager, didDiscover peripheral: CBPeripheral, advertisementData: [String: Any], rssi RSSI: NSNumber) {
+        // Filter to only show devices that advertise the Heart Rate Service UUID
+        // or devices that might be heart rate monitors (based on name patterns)
+        let advertisedServices = advertisementData[CBAdvertisementDataServiceUUIDsKey] as? [CBUUID]
+        let hasHeartRateService = advertisedServices?.contains(heartRateServiceUUID) ?? false
+        
+        // Also check for common heart rate monitor name patterns
         let localName = advertisementData[CBAdvertisementDataLocalNameKey] as? String
+        let peripheralName = peripheral.name
+        let name = localName ?? peripheralName ?? ""
+        let nameLower = name.lowercased()
+        let isLikelyHeartRateMonitor = hasHeartRateService || 
+            nameLower.contains("heart") || 
+            nameLower.contains("hr") || 
+            nameLower.contains("bpm") ||
+            nameLower.contains("polar") ||
+            nameLower.contains("garmin") ||
+            nameLower.contains("wahoo") ||
+            nameLower.contains("suunto") ||
+            nameLower.contains("coach")
+        
+        // Only add devices that are likely heart rate monitors
+        guard isLikelyHeartRateMonitor else { return }
+        
         let manufacturerIdentifier = manufacturerIdentifier(from: advertisementData[CBAdvertisementDataManufacturerDataKey] as? Data)
         
         if let index = availableDevices.firstIndex(where: { $0.id == peripheral.identifier }) {
@@ -384,12 +435,22 @@ extension HeartRateBluetoothManager: CBCentralManagerDelegate {
     }
 
     func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
+        let msg = "Connected to \(peripheral.name ?? peripheral.identifier.uuidString)"
+        print(msg)
+        addDebugMessage(msg)
+        connectionStatus = "Connected - Discovering services..."
         peripheral.delegate = self
-        peripheral.discoverServices([heartRateServiceUUID])
+        // Discover all services first, then we'll check for heart rate service
+        // Some devices don't advertise the service but expose it after connection
+        peripheral.discoverServices(nil)
     }
 
     func centralManager(_ central: CBCentralManager, didDisconnectPeripheral peripheral: CBPeripheral, error: Error?) {
         if connectedDevice?.identifier == peripheral.identifier {
+            let msg = error != nil ? "Disconnected: \(error!.localizedDescription)" : "Disconnected"
+            print(msg)
+            addDebugMessage(msg)
+            connectionStatus = "Disconnected"
             connectedDevice = nil
             currentHeartRate = nil
         }
@@ -408,51 +469,156 @@ extension HeartRateBluetoothManager: CBCentralManagerDelegate {
     }
 
     func centralManager(_ central: CBCentralManager, didFailToConnect peripheral: CBPeripheral, error: Error?) {
+        var msg: String
+        if let error = error {
+            let errorDesc = error.localizedDescription
+            // Check for common connection errors
+            if errorDesc.contains("busy") || errorDesc.contains("already") || errorDesc.contains("in use") {
+                msg = "Device is connected to another device (like your treadmill). Please disconnect it from the other device first."
+            } else {
+                msg = "Failed to connect: \(errorDesc)"
+            }
+        } else {
+            msg = "Failed to connect: Unknown error. Device may be connected to another device."
+        }
+        
+        print(msg)
+        addDebugMessage(msg)
+        connectionStatus = "Connection failed - device may be in use"
+        
         if connectedDevice?.identifier == peripheral.identifier {
             connectedDevice = nil
         }
-        startScanning()
-#if canImport(ActivityKit)
-        if #available(iOS 16.1, *) {
-            Task { @MainActor in
-                HeartRateActivityController.shared.endActivity()
-            }
-        }
-#endif
-        if connectedDevice == nil && !sharingService.isSharing {
-            endBackgroundTask()
+        
+        // Retry scanning after a short delay
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+            self?.startScanning()
         }
     }
 }
 
 extension HeartRateBluetoothManager: CBPeripheralDelegate {
     func peripheral(_ peripheral: CBPeripheral, didDiscoverServices error: Error?) {
-        guard error == nil else { return }
-        guard let services = peripheral.services else { return }
+        guard error == nil else {
+            let msg = "Error discovering services: \(error?.localizedDescription ?? "unknown")"
+            print(msg)
+            addDebugMessage(msg)
+            return
+        }
+        guard let services = peripheral.services else {
+            let msg = "No services found on peripheral"
+            print(msg)
+            addDebugMessage(msg)
+            return
+        }
 
-        for service in services where service.uuid == heartRateServiceUUID {
-            peripheral.discoverCharacteristics([heartRateMeasurementCharacteristicUUID], for: service)
+        // Look for the Heart Rate Service
+        let heartRateService = services.first { $0.uuid == heartRateServiceUUID }
+        
+        if let heartRateService = heartRateService {
+            let msg = "Found Heart Rate Service, discovering characteristics..."
+            print(msg)
+            addDebugMessage(msg)
+            peripheral.discoverCharacteristics([heartRateMeasurementCharacteristicUUID], for: heartRateService)
+        } else {
+            let msg = "Heart Rate Service not found. Available services: \(services.map { $0.uuid.uuidString }.joined(separator: ", "))"
+            print(msg)
+            addDebugMessage(msg)
+            // If we don't find the heart rate service, disconnect since this isn't a heart rate monitor
+            if connectedDevice?.identifier == peripheral.identifier {
+                centralManager.cancelPeripheralConnection(peripheral)
+            }
         }
     }
 
     func peripheral(_ peripheral: CBPeripheral, didDiscoverCharacteristicsFor service: CBService, error: Error?) {
-        guard error == nil else { return }
-        guard let characteristics = service.characteristics else { return }
+        guard error == nil else {
+            let msg = "Error discovering characteristics: \(error?.localizedDescription ?? "unknown")"
+            print(msg)
+            addDebugMessage(msg)
+            return
+        }
+        guard let characteristics = service.characteristics else {
+            let msg = "No characteristics found for service"
+            print(msg)
+            addDebugMessage(msg)
+            return
+        }
 
-        for characteristic in characteristics where characteristic.uuid == heartRateMeasurementCharacteristicUUID {
-            peripheral.setNotifyValue(true, for: characteristic)
+        let heartRateCharacteristic = characteristics.first { $0.uuid == heartRateMeasurementCharacteristicUUID }
+        
+        if let heartRateCharacteristic = heartRateCharacteristic {
+            let msg = "Found Heart Rate Measurement Characteristic, enabling notifications..."
+            print(msg)
+            addDebugMessage(msg)
+            peripheral.setNotifyValue(true, for: heartRateCharacteristic)
+        } else {
+            let msg = "Heart Rate Measurement Characteristic not found. Available: \(characteristics.map { $0.uuid.uuidString }.joined(separator: ", "))"
+            print(msg)
+            addDebugMessage(msg)
         }
     }
 
     func peripheral(_ peripheral: CBPeripheral, didUpdateValueFor characteristic: CBCharacteristic, error: Error?) {
-        guard error == nil else { return }
-        guard let data = characteristic.value else { return }
+        if let error = error {
+            let msg = "Error reading characteristic value: \(error.localizedDescription)"
+            print(msg)
+            addDebugMessage(msg)
+            return
+        }
+        guard let data = characteristic.value else {
+            let msg = "No data received from characteristic"
+            print(msg)
+            addDebugMessage(msg)
+            return
+        }
 
         let heartRate = parseHeartRate(from: data)
         DispatchQueue.main.async { [weak self] in
-            guard let heartRate else { return }
+            guard let heartRate else {
+                let msg = "Failed to parse heart rate from data: \(data.map { String(format: "%02x", $0) }.joined(separator: " "))"
+                print(msg)
+                self?.addDebugMessage(msg)
+                return
+            }
+            let msg = "Received heart rate: \(heartRate) BPM"
+            print(msg)
+            self?.addDebugMessage(msg)
+            self?.connectionStatus = "Connected - Receiving data"
             self?.addHeartRateSample(heartRate)
         }
+    }
+    
+    func peripheral(_ peripheral: CBPeripheral, didUpdateNotificationStateFor characteristic: CBCharacteristic, error: Error?) {
+        if let error = error {
+            let msg = "Error updating notification state: \(error.localizedDescription)"
+            print(msg)
+            addDebugMessage(msg)
+        } else {
+            let msg = "Notifications \(characteristic.isNotifying ? "enabled" : "disabled") for \(characteristic.uuid.uuidString)"
+            print(msg)
+            addDebugMessage(msg)
+            if characteristic.isNotifying {
+                connectionStatus = "Connected - Waiting for data"
+            }
+        }
+    }
+    
+    private func addDebugMessage(_ message: String) {
+        #if DEBUG
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            let timestamp = DateFormatter.localizedString(from: Date(), dateStyle: .none, timeStyle: .medium)
+            self.debugMessages.append("[\(timestamp)] \(message)")
+            // Keep only last 10 messages
+            if self.debugMessages.count > 10 {
+                self.debugMessages.removeFirst()
+            }
+        }
+        #else
+        // In production, still log to console but don't store in UI
+        print(message)
+        #endif
     }
 
     private func parseHeartRate(from data: Data) -> Int? {

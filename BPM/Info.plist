@@ -27,5 +27,7 @@
 	<string>This app needs Bluetooth access to connect to your heart rate strap.</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
+	<key>NSSupportsLiveActivities</key>
+	<true/>
 </dict>
 </plist>
