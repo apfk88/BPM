@@ -226,7 +226,9 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
         startScanning()
 #if canImport(ActivityKit)
         if #available(iOS 16.1, *) {
-            HeartRateActivityController.shared.endActivity()
+            Task { @MainActor in
+                HeartRateActivityController.shared.endActivity()
+            }
         }
 #endif
         if connectedDevice == nil && !sharingService.isSharing {
@@ -287,7 +289,9 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
 
 #if canImport(ActivityKit)
             if #available(iOS 16.1, *) {
-                HeartRateActivityController.shared.updateActivity(bpm: value, average: avg, maximum: max, minimum: min)
+                Task { @MainActor in
+                    HeartRateActivityController.shared.updateActivity(bpm: value, average: avg, maximum: max, minimum: min)
+                }
             }
 #endif
         } else {
@@ -393,7 +397,9 @@ extension HeartRateBluetoothManager: CBCentralManagerDelegate {
         startScanning()
 #if canImport(ActivityKit)
         if #available(iOS 16.1, *) {
-            HeartRateActivityController.shared.endActivity()
+            Task { @MainActor in
+                HeartRateActivityController.shared.endActivity()
+            }
         }
 #endif
         if connectedDevice == nil && !sharingService.isSharing {
@@ -408,7 +414,9 @@ extension HeartRateBluetoothManager: CBCentralManagerDelegate {
         startScanning()
 #if canImport(ActivityKit)
         if #available(iOS 16.1, *) {
-            HeartRateActivityController.shared.endActivity()
+            Task { @MainActor in
+                HeartRateActivityController.shared.endActivity()
+            }
         }
 #endif
         if connectedDevice == nil && !sharingService.isSharing {

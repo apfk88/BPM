@@ -4,10 +4,10 @@
 	classes = {
 	};
 	objectVersion = 77;
-        objects = {
+	objects = {
 
 /* Begin PBXBuildFile section */
-                41EB7C092EB8547D003F2D59 /* BPMActivityExtension.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = 41EB7C002EB8547D003F2D59 /* BPMActivityExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		41EB7C092EB8547D003F2D59 /* BPMActivityExtension.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = 41EB7C002EB8547D003F2D59 /* BPMActivityExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -28,24 +28,24 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
-                41EB7C082EB8547D003F2D59 /* Embed App Extensions */ = {
-                        isa = PBXCopyFilesBuildPhase;
-                        buildActionMask = 2147483647;
-                        dstPath = "";
-                        dstSubfolderSpec = 13;
-                        files = (
-                                41EB7C092EB8547D003F2D59 /* BPMActivityExtension.appex in Embed App Extensions */,
-                        );
-                        name = "Embed App Extensions";
-                        runOnlyForDeploymentPostprocessing = 0;
-                };
+		41EB7C082EB8547D003F2D59 /* Embed App Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				41EB7C092EB8547D003F2D59 /* BPMActivityExtension.appex in Embed App Extensions */,
+			);
+			name = "Embed App Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
-                41EB7BC02EB8547B003F2D59 /* BPM.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BPM.app; sourceTree = BUILT_PRODUCTS_DIR; };
-                41EB7BD42EB8547C003F2D59 /* BPMTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = BPMTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-                41EB7BDE2EB8547C003F2D59 /* BPMUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = BPMUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-                41EB7C002EB8547D003F2D59 /* BPMActivityExtension.appex */ = {isa = PBXFileReference; explicitFileType = wrapper.app-extension; includeInIndex = 0; path = BPMActivityExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		41EB7BC02EB8547B003F2D59 /* BPM.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BPM.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		41EB7BD42EB8547C003F2D59 /* BPMTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = BPMTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		41EB7BDE2EB8547C003F2D59 /* BPMUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = BPMUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		41EB7C002EB8547D003F2D59 /* BPMActivityExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = BPMActivityExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -55,6 +55,13 @@
 				Info.plist,
 			);
 			target = 41EB7BBF2EB8547B003F2D59 /* BPM */;
+		};
+		41EB7C0B2EB8547D003F2D59 /* Exceptions for "BPMActivityExtension" folder in "BPMActivityExtension" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 41EB7C022EB8547D003F2D59 /* BPMActivityExtension */;
 		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
@@ -72,21 +79,24 @@
 			path = BPMTests;
 			sourceTree = "<group>";
 		};
-                41EB7BE12EB8547C003F2D59 /* BPMUITests */ = {
-                        isa = PBXFileSystemSynchronizedRootGroup;
-                        path = BPMUITests;
-                        sourceTree = "<group>";
-                };
-                41EB7C012EB8547D003F2D59 /* BPMActivityExtension */ = {
-                        isa = PBXFileSystemSynchronizedRootGroup;
-                        path = BPMActivityExtension;
-                        sourceTree = "<group>";
-                };
-                41EB7C1A2EB8547D003F2D59 /* Shared */ = {
-                        isa = PBXFileSystemSynchronizedRootGroup;
-                        path = Shared;
-                        sourceTree = "<group>";
-                };
+		41EB7BE12EB8547C003F2D59 /* BPMUITests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = BPMUITests;
+			sourceTree = "<group>";
+		};
+		41EB7C012EB8547D003F2D59 /* BPMActivityExtension */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				41EB7C0B2EB8547D003F2D59 /* Exceptions for "BPMActivityExtension" folder in "BPMActivityExtension" target */,
+			);
+			path = BPMActivityExtension;
+			sourceTree = "<group>";
+		};
+		41EB7C1A2EB8547D003F2D59 /* Shared */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = Shared;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -104,43 +114,43 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-                41EB7BDB2EB8547C003F2D59 /* Frameworks */ = {
-                        isa = PBXFrameworksBuildPhase;
-                        buildActionMask = 2147483647;
-                        files = (
-                        );
-                        runOnlyForDeploymentPostprocessing = 0;
-                };
-                41EB7C0A2EB8547D003F2D59 /* Frameworks */ = {
-                        isa = PBXFrameworksBuildPhase;
-                        buildActionMask = 2147483647;
-                        files = (
-                        );
-                        runOnlyForDeploymentPostprocessing = 0;
-                };
+		41EB7BDB2EB8547C003F2D59 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		41EB7C0A2EB8547D003F2D59 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
-                41EB7BB72EB8547B003F2D59 = {
-                        isa = PBXGroup;
-                        children = (
-                                41EB7BC22EB8547B003F2D59 /* BPM */,
-                                41EB7BD72EB8547C003F2D59 /* BPMTests */,
-                                41EB7BE12EB8547C003F2D59 /* BPMUITests */,
-                                41EB7C012EB8547D003F2D59 /* BPMActivityExtension */,
-                                41EB7C1A2EB8547D003F2D59 /* Shared */,
-                                41EB7BC12EB8547B003F2D59 /* Products */,
-                        );
-                        sourceTree = "<group>";
-                };
+		41EB7BB72EB8547B003F2D59 = {
+			isa = PBXGroup;
+			children = (
+				41EB7BC22EB8547B003F2D59 /* BPM */,
+				41EB7BD72EB8547C003F2D59 /* BPMTests */,
+				41EB7BE12EB8547C003F2D59 /* BPMUITests */,
+				41EB7C012EB8547D003F2D59 /* BPMActivityExtension */,
+				41EB7C1A2EB8547D003F2D59 /* Shared */,
+				41EB7BC12EB8547B003F2D59 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
 		41EB7BC12EB8547B003F2D59 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-                                41EB7BC02EB8547B003F2D59 /* BPM.app */,
-                                41EB7BD42EB8547C003F2D59 /* BPMTests.xctest */,
-                                41EB7BDE2EB8547C003F2D59 /* BPMUITests.xctest */,
-                                41EB7C002EB8547D003F2D59 /* BPMActivityExtension.appex */,
-                        );
+				41EB7BC02EB8547B003F2D59 /* BPM.app */,
+				41EB7BD42EB8547C003F2D59 /* BPMTests.xctest */,
+				41EB7BDE2EB8547C003F2D59 /* BPMUITests.xctest */,
+				41EB7C002EB8547D003F2D59 /* BPMActivityExtension.appex */,
+			);
 			name = Products;
 			sourceTree = "<group>";
 		};
@@ -150,20 +160,20 @@
 		41EB7BBF2EB8547B003F2D59 /* BPM */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = 41EB7BE72EB8547C003F2D59 /* Build configuration list for PBXNativeTarget "BPM" */;
-                        buildPhases = (
-                                41EB7BBC2EB8547B003F2D59 /* Sources */,
-                                41EB7BBD2EB8547B003F2D59 /* Frameworks */,
-                                41EB7BBE2EB8547B003F2D59 /* Resources */,
-                                41EB7C082EB8547D003F2D59 /* Embed App Extensions */,
-                        );
+			buildPhases = (
+				41EB7BBC2EB8547B003F2D59 /* Sources */,
+				41EB7BBD2EB8547B003F2D59 /* Frameworks */,
+				41EB7BBE2EB8547B003F2D59 /* Resources */,
+				41EB7C082EB8547D003F2D59 /* Embed App Extensions */,
+			);
 			buildRules = (
 			);
 			dependencies = (
 			);
-                        fileSystemSynchronizedGroups = (
-                                41EB7BC22EB8547B003F2D59 /* BPM */,
-                                41EB7C1A2EB8547D003F2D59 /* Shared */,
-                        );
+			fileSystemSynchronizedGroups = (
+				41EB7BC22EB8547B003F2D59 /* BPM */,
+				41EB7C1A2EB8547D003F2D59 /* Shared */,
+			);
 			name = BPM;
 			packageProductDependencies = (
 			);
@@ -194,52 +204,52 @@
 			productReference = 41EB7BD42EB8547C003F2D59 /* BPMTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
-                41EB7BDD2EB8547C003F2D59 /* BPMUITests */ = {
-                        isa = PBXNativeTarget;
-                        buildConfigurationList = 41EB7BEF2EB8547C003F2D59 /* Build configuration list for PBXNativeTarget "BPMUITests" */;
-                        buildPhases = (
-                                41EB7BDA2EB8547C003F2D59 /* Sources */,
-                                41EB7BDB2EB8547C003F2D59 /* Frameworks */,
-                                41EB7BDC2EB8547C003F2D59 /* Resources */,
-                        );
-                        buildRules = (
-                        );
-                        dependencies = (
-                                41EB7BE02EB8547C003F2D59 /* PBXTargetDependency */,
-                        );
-                        fileSystemSynchronizedGroups = (
-                                41EB7BE12EB8547C003F2D59 /* BPMUITests */,
-                        );
-                        name = BPMUITests;
-                        packageProductDependencies = (
-                        );
-                        productName = BPMUITests;
-                        productReference = 41EB7BDE2EB8547C003F2D59 /* BPMUITests.xctest */;
-                        productType = "com.apple.product-type.bundle.ui-testing";
-                };
-                41EB7C022EB8547D003F2D59 /* BPMActivityExtension */ = {
-                        isa = PBXNativeTarget;
-                        buildConfigurationList = 41EB7C072EB8547D003F2D59 /* Build configuration list for PBXNativeTarget "BPMActivityExtension" */;
-                        buildPhases = (
-                                41EB7C032EB8547D003F2D59 /* Sources */,
-                                41EB7C0A2EB8547D003F2D59 /* Frameworks */,
-                                41EB7C042EB8547D003F2D59 /* Resources */,
-                        );
-                        buildRules = (
-                        );
-                        dependencies = (
-                        );
-                        fileSystemSynchronizedGroups = (
-                                41EB7C012EB8547D003F2D59 /* BPMActivityExtension */,
-                                41EB7C1A2EB8547D003F2D59 /* Shared */,
-                        );
-                        name = BPMActivityExtension;
-                        packageProductDependencies = (
-                        );
-                        productName = BPMActivityExtension;
-                        productReference = 41EB7C002EB8547D003F2D59 /* BPMActivityExtension.appex */;
-                        productType = "com.apple.product-type.widgetkit-extension";
-                };
+		41EB7BDD2EB8547C003F2D59 /* BPMUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 41EB7BEF2EB8547C003F2D59 /* Build configuration list for PBXNativeTarget "BPMUITests" */;
+			buildPhases = (
+				41EB7BDA2EB8547C003F2D59 /* Sources */,
+				41EB7BDB2EB8547C003F2D59 /* Frameworks */,
+				41EB7BDC2EB8547C003F2D59 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				41EB7BE02EB8547C003F2D59 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				41EB7BE12EB8547C003F2D59 /* BPMUITests */,
+			);
+			name = BPMUITests;
+			packageProductDependencies = (
+			);
+			productName = BPMUITests;
+			productReference = 41EB7BDE2EB8547C003F2D59 /* BPMUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+		41EB7C022EB8547D003F2D59 /* BPMActivityExtension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 41EB7C072EB8547D003F2D59 /* Build configuration list for PBXNativeTarget "BPMActivityExtension" */;
+			buildPhases = (
+				41EB7C032EB8547D003F2D59 /* Sources */,
+				41EB7C0A2EB8547D003F2D59 /* Frameworks */,
+				41EB7C042EB8547D003F2D59 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				41EB7C012EB8547D003F2D59 /* BPMActivityExtension */,
+				41EB7C1A2EB8547D003F2D59 /* Shared */,
+			);
+			name = BPMActivityExtension;
+			packageProductDependencies = (
+			);
+			productName = BPMActivityExtension;
+			productReference = 41EB7C002EB8547D003F2D59 /* BPMActivityExtension.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -249,22 +259,22 @@
 				BuildIndependentTargetsInParallel = 1;
 				LastSwiftUpdateCheck = 1640;
 				LastUpgradeCheck = 2610;
-                                TargetAttributes = {
-                                        41EB7BBF2EB8547B003F2D59 = {
-                                                CreatedOnToolsVersion = 16.4;
-                                        };
-                                        41EB7BD32EB8547C003F2D59 = {
-                                                CreatedOnToolsVersion = 16.4;
-                                                TestTargetID = 41EB7BBF2EB8547B003F2D59;
-                                        };
-                                        41EB7BDD2EB8547C003F2D59 = {
-                                                CreatedOnToolsVersion = 16.4;
-                                                TestTargetID = 41EB7BBF2EB8547B003F2D59;
-                                        };
-                                        41EB7C022EB8547D003F2D59 = {
-                                                CreatedOnToolsVersion = 16.4;
-                                        };
-                                };
+				TargetAttributes = {
+					41EB7BBF2EB8547B003F2D59 = {
+						CreatedOnToolsVersion = 16.4;
+					};
+					41EB7BD32EB8547C003F2D59 = {
+						CreatedOnToolsVersion = 16.4;
+						TestTargetID = 41EB7BBF2EB8547B003F2D59;
+					};
+					41EB7BDD2EB8547C003F2D59 = {
+						CreatedOnToolsVersion = 16.4;
+						TestTargetID = 41EB7BBF2EB8547B003F2D59;
+					};
+					41EB7C022EB8547D003F2D59 = {
+						CreatedOnToolsVersion = 16.4;
+					};
+				};
 			};
 			buildConfigurationList = 41EB7BBB2EB8547B003F2D59 /* Build configuration list for PBXProject "BPM" */;
 			developmentRegion = en;
@@ -279,13 +289,13 @@
 			productRefGroup = 41EB7BC12EB8547B003F2D59 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
-                        targets = (
-                                41EB7BBF2EB8547B003F2D59 /* BPM */,
-                                41EB7BD32EB8547C003F2D59 /* BPMTests */,
-                                41EB7BDD2EB8547C003F2D59 /* BPMUITests */,
-                                41EB7C022EB8547D003F2D59 /* BPMActivityExtension */,
-                        );
-                };
+			targets = (
+				41EB7BBF2EB8547B003F2D59 /* BPM */,
+				41EB7BD32EB8547C003F2D59 /* BPMTests */,
+				41EB7BDD2EB8547C003F2D59 /* BPMUITests */,
+				41EB7C022EB8547D003F2D59 /* BPMActivityExtension */,
+			);
+		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
@@ -303,25 +313,25 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-                41EB7BDC2EB8547C003F2D59 /* Resources */ = {
-                        isa = PBXResourcesBuildPhase;
-                        buildActionMask = 2147483647;
-                        files = (
-                        );
-                        runOnlyForDeploymentPostprocessing = 0;
-                };
-                41EB7C042EB8547D003F2D59 /* Resources */ = {
-                        isa = PBXResourcesBuildPhase;
-                        buildActionMask = 2147483647;
-                        files = (
-                        );
-                        runOnlyForDeploymentPostprocessing = 0;
-                };
+		41EB7BDC2EB8547C003F2D59 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		41EB7C042EB8547D003F2D59 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
-                41EB7BBC2EB8547B003F2D59 /* Sources */ = {
-                        isa = PBXSourcesBuildPhase;
+		41EB7BBC2EB8547B003F2D59 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
 			);
@@ -337,17 +347,17 @@
 		41EB7BDA2EB8547C003F2D59 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
-                        files = (
-                        );
-                        runOnlyForDeploymentPostprocessing = 0;
-                };
-                41EB7C032EB8547D003F2D59 /* Sources */ = {
-                        isa = PBXSourcesBuildPhase;
-                        buildActionMask = 2147483647;
-                        files = (
-                        );
-                        runOnlyForDeploymentPostprocessing = 0;
-                };
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		41EB7C032EB8547D003F2D59 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -369,11 +379,10 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "iPhone Distribution";
-				CODE_SIGN_STYLE = Manual;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = "";
-				"DEVELOPMENT_TEAM[sdk=iphoneos*]" = 5HW85B6746;
+				DEVELOPMENT_TEAM = 5HW85B6746;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = BPM/Info.plist;
@@ -387,11 +396,10 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.3;
+				MARKETING_VERSION = 1.4;
 				PRODUCT_BUNDLE_IDENTIFIER = kvamme.BPM;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
-				"PROVISIONING_PROFILE_SPECIFIER[sdk=iphoneos*]" = "iOS Ad Hoc";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -403,11 +411,10 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "iPhone Distribution";
-				CODE_SIGN_STYLE = Manual;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = "";
-				"DEVELOPMENT_TEAM[sdk=iphoneos*]" = 5HW85B6746;
+				DEVELOPMENT_TEAM = 5HW85B6746;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = BPM/Info.plist;
@@ -421,11 +428,10 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.3;
+				MARKETING_VERSION = 1.4;
 				PRODUCT_BUNDLE_IDENTIFIER = kvamme.BPM;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
-				"PROVISIONING_PROFILE_SPECIFIER[sdk=iphoneos*]" = "iOS Ad Hoc";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -603,11 +609,11 @@
 			};
 			name = Debug;
 		};
-                41EB7BF12EB8547C003F2D59 /* Release */ = {
-                        isa = XCBuildConfiguration;
-                        buildSettings = {
-                                CODE_SIGN_STYLE = Automatic;
-                                CURRENT_PROJECT_VERSION = 1;
+		41EB7BF12EB8547C003F2D59 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;
 				MARKETING_VERSION = 1.1.2;
 				PRODUCT_BUNDLE_IDENTIFIER = kvamme.BPMUITests;
@@ -616,59 +622,61 @@
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_TARGET_NAME = BPM;
-                        };
-                        name = Release;
-                };
-                41EB7C052EB8547D003F2D59 /* Debug */ = {
-                        isa = XCBuildConfiguration;
-                        buildSettings = {
-                                CODE_SIGN_STYLE = Manual;
-                                CURRENT_PROJECT_VERSION = 1;
-                                DEVELOPMENT_TEAM = "";
-                                "DEVELOPMENT_TEAM[sdk=iphoneos*]" = 5HW85B6746;
-                                INFOPLIST_FILE = BPMActivityExtension/Info.plist;
-                                INFOPLIST_KEY_CFBundleDisplayName = "BPM Live Activity";
-                                LD_RUNPATH_SEARCH_PATHS = (
-                                        "$(inherited)",
-                                        "@executable_path/Frameworks",
-                                        "@executable_path/../../Frameworks",
-                                );
-                                MARKETING_VERSION = 1.3;
-                                PRODUCT_BUNDLE_IDENTIFIER = kvamme.BPM.activity;
-                                PRODUCT_NAME = "$(TARGET_NAME)";
-                                SKIP_INSTALL = YES;
-                                SWIFT_EMIT_LOC_STRINGS = YES;
-                                SWIFT_VERSION = 5.0;
-                                TARGETED_DEVICE_FAMILY = "1,2";
-                                WK_APP_BUNDLE_IDENTIFIER = kvamme.BPM;
-                        };
-                        name = Debug;
-                };
-                41EB7C062EB8547D003F2D59 /* Release */ = {
-                        isa = XCBuildConfiguration;
-                        buildSettings = {
-                                CODE_SIGN_STYLE = Manual;
-                                CURRENT_PROJECT_VERSION = 1;
-                                DEVELOPMENT_TEAM = "";
-                                "DEVELOPMENT_TEAM[sdk=iphoneos*]" = 5HW85B6746;
-                                INFOPLIST_FILE = BPMActivityExtension/Info.plist;
-                                INFOPLIST_KEY_CFBundleDisplayName = "BPM Live Activity";
-                                LD_RUNPATH_SEARCH_PATHS = (
-                                        "$(inherited)",
-                                        "@executable_path/Frameworks",
-                                        "@executable_path/../../Frameworks",
-                                );
-                                MARKETING_VERSION = 1.3;
-                                PRODUCT_BUNDLE_IDENTIFIER = kvamme.BPM.activity;
-                                PRODUCT_NAME = "$(TARGET_NAME)";
-                                SKIP_INSTALL = YES;
-                                SWIFT_EMIT_LOC_STRINGS = YES;
-                                SWIFT_VERSION = 5.0;
-                                TARGETED_DEVICE_FAMILY = "1,2";
-                                WK_APP_BUNDLE_IDENTIFIER = kvamme.BPM;
-                        };
-                        name = Release;
-                };
+			};
+			name = Release;
+		};
+		41EB7C052EB8547D003F2D59 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 5HW85B6746;
+				INFOPLIST_FILE = BPMActivityExtension/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "BPM Live Activity";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.4;
+				PRODUCT_BUNDLE_IDENTIFIER = kvamme.BPM.activity;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				WK_APP_BUNDLE_IDENTIFIER = kvamme.BPM;
+			};
+			name = Debug;
+		};
+		41EB7C062EB8547D003F2D59 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 5HW85B6746;
+				INFOPLIST_FILE = BPMActivityExtension/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "BPM Live Activity";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.4;
+				PRODUCT_BUNDLE_IDENTIFIER = kvamme.BPM.activity;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				WK_APP_BUNDLE_IDENTIFIER = kvamme.BPM;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -699,24 +707,24 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-                41EB7BEF2EB8547C003F2D59 /* Build configuration list for PBXNativeTarget "BPMUITests" */ = {
-                        isa = XCConfigurationList;
-                        buildConfigurations = (
-                                41EB7BF02EB8547C003F2D59 /* Debug */,
-                                41EB7BF12EB8547C003F2D59 /* Release */,
-                        );
-                        defaultConfigurationIsVisible = 0;
-                        defaultConfigurationName = Release;
-                };
-                41EB7C072EB8547D003F2D59 /* Build configuration list for PBXNativeTarget "BPMActivityExtension" */ = {
-                        isa = XCConfigurationList;
-                        buildConfigurations = (
-                                41EB7C052EB8547D003F2D59 /* Debug */,
-                                41EB7C062EB8547D003F2D59 /* Release */,
-                        );
-                        defaultConfigurationIsVisible = 0;
-                        defaultConfigurationName = Release;
-                };
+		41EB7BEF2EB8547C003F2D59 /* Build configuration list for PBXNativeTarget "BPMUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				41EB7BF02EB8547C003F2D59 /* Debug */,
+				41EB7BF12EB8547C003F2D59 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		41EB7C072EB8547D003F2D59 /* Build configuration list for PBXNativeTarget "BPMActivityExtension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				41EB7C052EB8547D003F2D59 /* Debug */,
+				41EB7C062EB8547D003F2D59 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 /* End XCConfigurationList section */
 	};
 	rootObject = 41EB7BB82EB8547B003F2D59 /* Project object */;

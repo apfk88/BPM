@@ -48,13 +48,15 @@ final class HeartRateActivityController {
             guard let self else { return }
 
             if let currentActivity = activity {
-                await currentActivity.update(using: state)
+                let content = ActivityContent(state: state, staleDate: nil)
+                await currentActivity.update(content)
             } else {
                 let attributes = HeartRateActivityAttributes(title: "Current BPM")
+                let content = ActivityContent(state: state, staleDate: nil)
                 do {
-                    activity = try Activity.request(attributes: attributes, contentState: state, pushType: nil)
+                    activity = try Activity.request(attributes: attributes, content: content, pushType: nil)
                 } catch {
-                    logger.error("Failed to start heart rate activity: %{public}@", error.localizedDescription)
+                    logger.error("Failed to start heart rate activity: \(error.localizedDescription)")
                 }
             }
         }
