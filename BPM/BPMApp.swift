@@ -22,10 +22,13 @@ struct BPMApp: App {
         .onChange(of: scenePhase) { oldPhase, newPhase in
             switch newPhase {
             case .active:
+                bluetoothManager.enterForeground()
                 bluetoothManager.startScanning()
                 IdleTimer.disable()
-            case .inactive, .background:
-                bluetoothManager.stopScanning()
+            case .inactive:
+                IdleTimer.enable()
+            case .background:
+                bluetoothManager.enterBackground()
                 IdleTimer.enable()
             @unknown default:
                 IdleTimer.enable()

@@ -1,6 +1,10 @@
 import Foundation
 import CoreBluetooth
 import Combine
+import UIKit
+#if canImport(ActivityKit)
+import ActivityKit
+#endif
 
 struct DiscoveredPeripheral: Identifiable, Equatable {
     let peripheral: CBPeripheral
@@ -69,6 +73,9 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
     private let heartRateServiceUUID = CBUUID(string: "180D")
     private let heartRateMeasurementCharacteristicUUID = CBUUID(string: "2A37")
     private var pendingScanRequest = false
+    private let centralRestoreIdentifier = "com.bpmapp.client.central"
+    private var backgroundTaskIdentifier: UIBackgroundTaskIdentifier = .invalid
+    private var shouldResumeScanningAfterBackground = false
     
     // Sharing integration
     private let sharingService = SharingService.shared
@@ -92,13 +99,33 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
 
     override init() {
         super.init()
-        centralManager = CBCentralManager(delegate: self, queue: nil)
+        let options: [String: Any] = [
+            CBCentralManagerOptionShowPowerAlertKey: true,
+            CBCentralManagerOptionRestoreIdentifierKey: centralRestoreIdentifier
+        ]
+        centralManager = CBCentralManager(delegate: self, queue: nil, options: options)
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleApplicationDidEnterBackground),
+            name: UIApplication.didEnterBackgroundNotification,
+            object: nil
+        )
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleApplicationWillEnterForeground),
+            name: UIApplication.willEnterForegroundNotification,
+            object: nil
+        )
     }
-    
+
     deinit {
         fakeDataTimer?.invalidate()
+        NotificationCenter.default.removeObserver(self)
+        endBackgroundTask()
     }
-    
+
     func startScanning() {
         // In simulator, start fake data generation instead of real Bluetooth scanning
         if isSimulator {
@@ -137,12 +164,36 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
             stopFakeDataGeneration()
             return
         }
-        
+
         guard centralManager != nil else { return }
         guard isScanning else { return }
 
         isScanning = false
         centralManager.stopScan()
+    }
+
+    func enterBackground() {
+        shouldResumeScanningAfterBackground = shouldResumeScanningAfterBackground || isScanning
+
+        if isScanning && !isSimulator {
+            centralManager.stopScan()
+            isScanning = false
+        }
+
+        if connectedDevice != nil || sharingService.isSharing {
+            beginBackgroundTaskIfNeeded()
+        } else {
+            endBackgroundTask()
+        }
+    }
+
+    func enterForeground() {
+        endBackgroundTask()
+
+        if shouldResumeScanningAfterBackground {
+            startScanning()
+            shouldResumeScanningAfterBackground = false
+        }
     }
 
     func connect(to device: CBPeripheral) {
@@ -173,6 +224,37 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
         currentHeartRate = nil
         heartRateSamples.removeAll()
         startScanning()
+#if canImport(ActivityKit)
+        if #available(iOS 16.1, *) {
+            HeartRateActivityController.shared.endActivity()
+        }
+#endif
+        if connectedDevice == nil && !sharingService.isSharing {
+            endBackgroundTask()
+        }
+    }
+
+    @objc private func handleApplicationDidEnterBackground() {
+        enterBackground()
+    }
+
+    @objc private func handleApplicationWillEnterForeground() {
+        enterForeground()
+    }
+
+    private func beginBackgroundTaskIfNeeded() {
+        guard backgroundTaskIdentifier == .invalid else { return }
+
+        backgroundTaskIdentifier = UIApplication.shared.beginBackgroundTask(withName: "com.bpmapp.client.bluetooth") { [weak self] in
+            self?.endBackgroundTask()
+        }
+    }
+
+    private func endBackgroundTask() {
+        guard backgroundTaskIdentifier != .invalid else { return }
+
+        UIApplication.shared.endBackgroundTask(backgroundTaskIdentifier)
+        backgroundTaskIdentifier = .invalid
     }
 
     private func addHeartRateSample(_ value: Int) {
@@ -186,7 +268,7 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
             heartRateSamples.removeAll { $0.timestamp < cutoff }
 
             currentHeartRate = value
-            
+
             // Update sharing service (throttled to 1 Hz)
             let max = maxHeartRateLastHour
             let avg = avgHeartRateLastHour
@@ -202,6 +284,12 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
                 sharingService.updateHeartRate(value, max: max, avg: avg, min: min)
                 lastUpdateTime = now
             }
+
+#if canImport(ActivityKit)
+            if #available(iOS 16.1, *) {
+                HeartRateActivityController.shared.updateActivity(bpm: value, average: avg, maximum: max, minimum: min)
+            }
+#endif
         } else {
             DispatchQueue.main.sync { [weak self] in
                 self?.addHeartRateSample(value)
@@ -229,6 +317,32 @@ extension HeartRateBluetoothManager {
 }
 
 extension HeartRateBluetoothManager: CBCentralManagerDelegate {
+    func centralManager(_ central: CBCentralManager, willRestoreState dict: [String : Any]) {
+        if let restoredPeripherals = dict[CBCentralManagerRestoredStatePeripheralsKey] as? [CBPeripheral] {
+            for peripheral in restoredPeripherals {
+                peripheral.delegate = self
+
+                if connectedDevice == nil || connectedDevice?.identifier == peripheral.identifier {
+                    connectedDevice = peripheral
+
+                    if !availableDevices.contains(where: { $0.id == peripheral.identifier }) {
+                        let discoveredPeripheral = DiscoveredPeripheral(
+                            peripheral: peripheral,
+                            advertisedName: peripheral.name,
+                            manufacturerIdentifier: nil,
+                            rssi: nil
+                        )
+                        availableDevices.append(discoveredPeripheral)
+                    }
+                }
+            }
+        }
+
+        if let _ = dict[CBCentralManagerRestoredStateScanServicesKey] as? [CBUUID] {
+            shouldResumeScanningAfterBackground = true
+        }
+    }
+
     func centralManagerDidUpdateState(_ central: CBCentralManager) {
         switch central.state {
         case .poweredOn:
@@ -277,6 +391,14 @@ extension HeartRateBluetoothManager: CBCentralManagerDelegate {
         }
 
         startScanning()
+#if canImport(ActivityKit)
+        if #available(iOS 16.1, *) {
+            HeartRateActivityController.shared.endActivity()
+        }
+#endif
+        if connectedDevice == nil && !sharingService.isSharing {
+            endBackgroundTask()
+        }
     }
 
     func centralManager(_ central: CBCentralManager, didFailToConnect peripheral: CBPeripheral, error: Error?) {
@@ -284,6 +406,14 @@ extension HeartRateBluetoothManager: CBCentralManagerDelegate {
             connectedDevice = nil
         }
         startScanning()
+#if canImport(ActivityKit)
+        if #available(iOS 16.1, *) {
+            HeartRateActivityController.shared.endActivity()
+        }
+#endif
+        if connectedDevice == nil && !sharingService.isSharing {
+            endBackgroundTask()
+        }
     }
 }
 
