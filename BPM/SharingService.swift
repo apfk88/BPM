@@ -1,5 +1,8 @@
 import Foundation
 import Combine
+#if canImport(ActivityKit)
+import ActivityKit
+#endif
 
 struct ShareResponse: Codable {
     let code: String
@@ -358,6 +361,22 @@ class SharingService: ObservableObject {
                         self.errorMessage = nil
                         self.errorContext = nil
                     }
+                    
+                    // Update activity when viewing friend's heart rate
+                    #if canImport(ActivityKit)
+                    if #available(iOS 16.1, *) {
+                        if let bpm = heartRateResponse.bpm {
+                            HeartRateActivityController.shared.updateActivity(
+                                bpm: bpm,
+                                average: heartRateResponse.avg,
+                                maximum: heartRateResponse.max,
+                                minimum: heartRateResponse.min,
+                                isSharing: false,
+                                isViewing: true
+                            )
+                        }
+                    }
+                    #endif
                 }
             } catch {
                 await MainActor.run {

@@ -18,7 +18,7 @@ struct HeartRateLiveActivity: Widget {
                             .font(.caption)
                             .foregroundStyle(.secondary)
                         Text("\(context.state.bpm)")
-                            .font(.system(size: 44, weight: .bold, design: .rounded))
+                            .font(.system(size: 44, weight: .bold, design: .monospaced))
                     }
                 }
                 DynamicIslandExpandedRegion(.trailing) {
@@ -39,17 +39,25 @@ struct HeartRateLiveActivity: Widget {
                     }
                 }
             } compactLeading: {
-                Text("\(context.state.bpm)")
-                    .font(.system(size: 20, weight: .semibold, design: .rounded))
-            } compactTrailing: {
-                if let average = context.state.average {
-                    Text("Avg\n\(average)")
-                        .font(.system(size: 11, weight: .regular, design: .rounded))
-                        .multilineTextAlignment(.trailing)
+                HStack(spacing: 6) {
+                    if context.state.isSharing {
+                        Image(systemName: "antenna.radiowaves.left.and.right")
+                            .font(.system(size: 14))
+                            .foregroundColor(.green)
+                    } else {
+                        Image(systemName: "heart.fill")
+                            .font(.system(size: 14))
+                            .foregroundColor(context.state.isViewing ? .green : .white)
+                    }
+                    Text("\(context.state.bpm)")
+                        .font(.system(size: 20, weight: .semibold, design: .monospaced))
                 }
+            } compactTrailing: {
+                EmptyView()
             } minimal: {
-                Text("\(context.state.bpm)")
-                    .font(.system(size: 17, weight: .medium, design: .rounded))
+                Circle()
+                    .fill(Color.white)
+                    .frame(width: 8, height: 8)
             }
         }
     }
@@ -60,30 +68,42 @@ private struct HeartRateLiveActivityView: View {
     let content: HeartRateActivityAttributes.ContentState
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Current BPM")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
-            HStack(alignment: .firstTextBaseline, spacing: 16) {
-                Text("\(content.bpm)")
-                    .font(.system(size: 56, weight: .bold, design: .rounded))
-                    .monospacedDigit()
-
-                VStack(alignment: .leading, spacing: 8) {
-                    if let average = content.average {
-                        Text("Average \(average) • \(content.trendDescription)")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                    }
-                    HStack(spacing: 12) {
-                        if let max = content.maximum {
-                            LabeledValue(title: "MAX", value: max)
-                        }
-                        if let min = content.minimum {
-                            LabeledValue(title: "MIN", value: min)
-                        }
-                    }
+        HStack(alignment: .center, spacing: 24) {
+            // Big BPM on the left with icon and label
+            HStack(alignment: .center, spacing: 12) {
+                // Icon - middle aligned to left of BPM number
+                if content.isSharing {
+                    Image(systemName: "antenna.radiowaves.left.and.right")
+                        .font(.system(size: 28))
+                        .foregroundColor(.green)
+                } else {
+                    Image(systemName: "heart.fill")
+                        .font(.system(size: 28))
+                        .foregroundColor(content.isViewing ? .green : .white)
+                }
+                
+                // BPM number and label
+                HStack(alignment: .center, spacing: 8) {
+                    Text("\(content.bpm)")
+                        .font(.system(size: 56, weight: .bold, design: .monospaced))
+                    Text("BPM")
+                        .font(.system(size: 20, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                }
+            }
+            
+            Spacer()
+            
+            // Stats on the right, horizontal
+            HStack(spacing: 20) {
+                if let max = content.maximum {
+                    StatValue(label: "Max", value: max)
+                }
+                if let min = content.minimum {
+                    StatValue(label: "Min", value: min)
+                }
+                if let avg = content.average {
+                    StatValue(label: "Avg", value: avg)
                 }
             }
         }
@@ -103,6 +123,22 @@ private struct LabeledValue: View {
                 .foregroundStyle(.secondary)
             Text("\(value)")
                 .font(.headline)
+        }
+    }
+}
+
+@available(iOSApplicationExtension 16.1, *)
+private struct StatValue: View {
+    let label: String
+    let value: Int
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(label)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(.secondary)
+            Text("\(value)")
+                .font(.system(size: 24, weight: .bold, design: .monospaced))
         }
     }
 }

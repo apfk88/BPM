@@ -319,7 +319,14 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
 #if canImport(ActivityKit)
             if #available(iOS 16.1, *) {
                 Task { @MainActor in
-                    HeartRateActivityController.shared.updateActivity(bpm: value, average: avg, maximum: max, minimum: min)
+                    HeartRateActivityController.shared.updateActivity(
+                        bpm: value,
+                        average: avg,
+                        maximum: max,
+                        minimum: min,
+                        isSharing: sharingService.isSharing,
+                        isViewing: sharingService.isViewing
+                    )
                 }
             }
 #endif
