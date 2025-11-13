@@ -82,14 +82,11 @@ private struct HeartRateLiveActivityView: View {
                         .foregroundColor(content.isViewing ? .green : .white)
                 }
                 
-                // BPM number and label
-                HStack(alignment: .center, spacing: 8) {
-                    Text("\(content.bpm)")
-                        .font(.system(size: 56, weight: .bold, design: .monospaced))
-                    Text("BPM")
-                        .font(.system(size: 20, weight: .semibold))
-                        .foregroundStyle(.secondary)
-                }
+                // BPM number
+                Text("\(content.bpm)")
+                    .font(.system(size: 56, weight: .bold, design: .monospaced))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
             }
             
             Spacer()
@@ -137,8 +134,11 @@ private struct StatValue: View {
             Text(label)
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(.secondary)
+                .lineLimit(1)
             Text("\(value)")
                 .font(.system(size: 24, weight: .bold, design: .monospaced))
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
         }
     }
 }
