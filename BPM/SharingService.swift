@@ -152,6 +152,15 @@ class SharingService: ObservableObject {
         UserDefaults.standard.removeObject(forKey: shareCodeKey)
         UserDefaults.standard.removeObject(forKey: shareTokenKey)
         
+        // End live activity when sharing stops
+        #if canImport(ActivityKit)
+        if #available(iOS 16.1, *) {
+            Task { @MainActor in
+                HeartRateActivityController.shared.endActivity()
+            }
+        }
+        #endif
+        
         // Delete the session from the backend if we have a token
         if let token = tokenToDelete {
             Task {
@@ -228,6 +237,15 @@ class SharingService: ObservableObject {
         }
         
         UserDefaults.standard.removeObject(forKey: friendCodeKey)
+        
+        // End live activity when viewing stops
+        #if canImport(ActivityKit)
+        if #available(iOS 16.1, *) {
+            Task { @MainActor in
+                HeartRateActivityController.shared.endActivity()
+            }
+        }
+        #endif
     }
     
     func updateHeartRate(_ bpm: Int, max: Int?, avg: Int?, min: Int?) {
