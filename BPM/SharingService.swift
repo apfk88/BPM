@@ -45,7 +45,17 @@ class SharingService: ObservableObject {
     @Published var errorContext: ErrorContext?
     
     private var baseURL: String {
-        UserDefaults.standard.string(forKey: "BPM_API_BASE_URL") ?? "https://bpm-chi.vercel.app"
+        // Priority: 1. UserDefaults override, 2. Info.plist (set by build script), 3. Production default
+        if let userDefaultsURL = UserDefaults.standard.string(forKey: "BPM_API_BASE_URL"), !userDefaultsURL.isEmpty {
+            return userDefaultsURL
+        }
+        
+        if let infoPlistURL = Bundle.main.infoDictionary?["BPM_API_BASE_URL"] as? String, !infoPlistURL.isEmpty {
+            return infoPlistURL
+        }
+        
+        // Default to production URL
+        return "https://bpmtracker.app"
     }
     
     private var updateTimer: Timer?
