@@ -7,37 +7,38 @@
 
 import SwiftUI
 import UIKit
+import os.log
 
 @main
 struct BPMApp: App {
     @StateObject private var bluetoothManager = HeartRateBluetoothManager()
     @Environment(\.scenePhase) private var scenePhase
+    nonisolated(unsafe) private static let logger = Logger(subsystem: "com.bpmapp.client", category: "BPMApp")
     
     init() {
         // Set up notification observers for app termination/background
         NotificationCenter.default.addObserver(
             forName: UIApplication.willTerminateNotification,
             object: nil,
-            queue: .main
+            queue: nil
         ) { _ in
-            BPMApp.endLiveActivityIfNeeded()
-        }
-        
-        NotificationCenter.default.addObserver(
-            forName: UIApplication.didEnterBackgroundNotification,
-            object: nil,
-            queue: .main
-        ) { _ in
-            BPMApp.endLiveActivityIfNeeded()
+            BPMApp.endLiveActivity()
         }
         
         // Clean up any stale Live Activities on launch
-        // (in case app was force-closed previously)
-        // Always end on launch - the app will recreate it when sharing/viewing starts
+        // Note: Force-closed apps cannot reliably clean up Live Activities due to iOS process termination.
+        // Activities will be cleaned up on next app launch if no active session exists.
         #if canImport(ActivityKit)
         if #available(iOS 16.1, *) {
-            Task { @MainActor in
-                HeartRateActivityController.shared.endActivity()
+            Task.detached(priority: .high) {
+                // Small delay to let SharingService restore state first
+                try? await Task.sleep(nanoseconds: 200_000_000) // 0.2 seconds
+                // Only clean up if no active session (to avoid race with state restoration)
+                let isSharing = await MainActor.run { SharingService.shared.isSharing }
+                let isViewing = await MainActor.run { SharingService.shared.isViewing }
+                if !isSharing && !isViewing {
+                    await HeartRateActivityController.shared.endActivity()
+                }
             }
         }
         #endif
@@ -60,29 +61,25 @@ struct BPMApp: App {
             case .background:
                 bluetoothManager.enterBackground()
                 IdleTimer.enable()
-                // End live activity when app goes to background/terminates
-                BPMApp.endLiveActivityIfNeeded()
             @unknown default:
                 IdleTimer.enable()
-                BPMApp.endLiveActivityIfNeeded()
                 break
             }
         }
     }
     
-    static func endLiveActivityIfNeeded() {
+    private static func endLiveActivity() {
         #if canImport(ActivityKit)
         if #available(iOS 16.1, *) {
-            // End live activity if sharing or viewing is active
-            // This ensures cleanup when app is closed/terminated
-            if SharingService.shared.isSharing || SharingService.shared.isViewing {
-                Task { @MainActor in
-                    HeartRateActivityController.shared.endActivity()
-                }
+            // End Live Activity on app termination
+            // Note: Force-closed apps may not complete this cleanup due to iOS process termination
+            Task.detached(priority: .high) {
+                await HeartRateActivityController.shared.endActivity()
             }
         }
         #endif
     }
+
 }
 
 enum IdleTimer {

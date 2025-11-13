@@ -258,7 +258,7 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
 #if canImport(ActivityKit)
         if #available(iOS 16.1, *) {
             Task { @MainActor in
-                HeartRateActivityController.shared.endActivity()
+                await HeartRateActivityController.shared.endActivity()
             }
         }
 #endif
@@ -468,7 +468,7 @@ extension HeartRateBluetoothManager: CBCentralManagerDelegate {
 #if canImport(ActivityKit)
         if #available(iOS 16.1, *) {
             Task { @MainActor in
-                HeartRateActivityController.shared.endActivity()
+                await HeartRateActivityController.shared.endActivity()
             }
         }
 #endif

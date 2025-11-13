@@ -221,7 +221,7 @@ class SharingService: ObservableObject {
         #if canImport(ActivityKit)
         if #available(iOS 16.1, *) {
             Task { @MainActor in
-                HeartRateActivityController.shared.endActivity()
+                await HeartRateActivityController.shared.endActivity()
             }
         }
         #endif
@@ -307,7 +307,7 @@ class SharingService: ObservableObject {
         #if canImport(ActivityKit)
         if #available(iOS 16.1, *) {
             Task { @MainActor in
-                HeartRateActivityController.shared.endActivity()
+                await HeartRateActivityController.shared.endActivity()
             }
         }
         #endif

@@ -1,6 +1,7 @@
 #if canImport(ActivityKit)
 import ActivityKit
 import os.log
+import UIKit
 
 @available(iOS 16.1, iOSApplicationExtension 16.1, *)
 struct HeartRateActivityAttributes: ActivityAttributes {
@@ -70,11 +71,40 @@ final class HeartRateActivityController {
 
     private var activity: Activity<HeartRateActivityAttributes>?
     private let logger = Logger(subsystem: "com.bpmapp.client", category: "HeartRateActivity")
+    
 
-    private init() {}
+    private init() {
+        // Clean up any lingering activities from previous sessions on launch
+        Task { @MainActor in
+            await endAllActivities()
+        }
+    }
+    
+    /// Restores any existing activity from a previous session
+    private func restoreActivity() {
+        let existingActivities = Activity<HeartRateActivityAttributes>.activities
+        if let firstActivity = existingActivities.first {
+            activity = firstActivity
+        }
+    }
+    
+    /// Ends all existing activities, not just the one stored in self.activity
+    private func endAllActivities() async {
+        let existingActivities = Activity<HeartRateActivityAttributes>.activities
+        for activity in existingActivities {
+            let content = ActivityContent(state: activity.content.state, staleDate: nil)
+            await activity.end(content, dismissalPolicy: .immediate)
+        }
+        activity = nil
+    }
 
     func updateActivity(bpm: Int, average: Int?, maximum: Int?, minimum: Int?, isSharing: Bool = false, isViewing: Bool = false, hasError: Bool = false) {
         guard ActivityAuthorizationInfo().areActivitiesEnabled else { return }
+
+        // Restore activity if we don't have one stored (e.g., after app restart)
+        if activity == nil {
+            restoreActivity()
+        }
 
         let state = HeartRateActivityAttributes.ContentState(
             bpm: bpm,
@@ -90,9 +120,15 @@ final class HeartRateActivityController {
             guard let self else { return }
 
             if let currentActivity = activity {
+                // Update existing activity (works in background)
                 let content = ActivityContent(state: state, staleDate: nil)
                 await currentActivity.update(content)
             } else {
+                // Try to create new activity
+                // Note: ActivityKit requires foreground to create activities in main app
+                // Extensions can create activities, so this will work there
+                // In main app background, this will fail gracefully with an error we catch below
+                
                 let attributes = HeartRateActivityAttributes(title: "Current BPM")
                 let content = ActivityContent(state: state, staleDate: nil)
                 do {
@@ -104,13 +140,10 @@ final class HeartRateActivityController {
         }
     }
 
-    func endActivity() {
-        guard let activity else { return }
-
-        Task { [weak self] in
-            await activity.end(using: activity.content.state, dismissalPolicy: .immediate)
-            self?.activity = nil
-        }
+    func endActivity() async {
+        // End all activities, not just the one stored in self.activity
+        // This ensures cleanup even after force-close scenarios
+        await endAllActivities()
     }
 }
 #endif
