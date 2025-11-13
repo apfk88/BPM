@@ -30,11 +30,28 @@ struct BPMApp: App {
             case .background:
                 bluetoothManager.enterBackground()
                 IdleTimer.enable()
+                // End live activity when app goes to background/terminates
+                endLiveActivityIfNeeded()
             @unknown default:
                 IdleTimer.enable()
+                endLiveActivityIfNeeded()
                 break
             }
         }
+    }
+    
+    private func endLiveActivityIfNeeded() {
+        #if canImport(ActivityKit)
+        if #available(iOS 16.1, *) {
+            // End live activity if sharing or viewing is active
+            // This ensures cleanup when app is closed/terminated
+            if SharingService.shared.isSharing || SharingService.shared.isViewing {
+                Task { @MainActor in
+                    HeartRateActivityController.shared.endActivity()
+                }
+            }
+        }
+        #endif
     }
 }
 
