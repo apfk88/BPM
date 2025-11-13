@@ -12,6 +12,36 @@ import UIKit
 struct BPMApp: App {
     @StateObject private var bluetoothManager = HeartRateBluetoothManager()
     @Environment(\.scenePhase) private var scenePhase
+    
+    init() {
+        // Set up notification observers for app termination/background
+        NotificationCenter.default.addObserver(
+            forName: UIApplication.willTerminateNotification,
+            object: nil,
+            queue: .main
+        ) { _ in
+            BPMApp.endLiveActivityIfNeeded()
+        }
+        
+        NotificationCenter.default.addObserver(
+            forName: UIApplication.didEnterBackgroundNotification,
+            object: nil,
+            queue: .main
+        ) { _ in
+            BPMApp.endLiveActivityIfNeeded()
+        }
+        
+        // Clean up any stale Live Activities on launch
+        // (in case app was force-closed previously)
+        // Always end on launch - the app will recreate it when sharing/viewing starts
+        #if canImport(ActivityKit)
+        if #available(iOS 16.1, *) {
+            Task { @MainActor in
+                HeartRateActivityController.shared.endActivity()
+            }
+        }
+        #endif
+    }
 
     var body: some Scene {
         WindowGroup {
@@ -31,16 +61,16 @@ struct BPMApp: App {
                 bluetoothManager.enterBackground()
                 IdleTimer.enable()
                 // End live activity when app goes to background/terminates
-                endLiveActivityIfNeeded()
+                BPMApp.endLiveActivityIfNeeded()
             @unknown default:
                 IdleTimer.enable()
-                endLiveActivityIfNeeded()
+                BPMApp.endLiveActivityIfNeeded()
                 break
             }
         }
     }
     
-    private func endLiveActivityIfNeeded() {
+    static func endLiveActivityIfNeeded() {
         #if canImport(ActivityKit)
         if #available(iOS 16.1, *) {
             // End live activity if sharing or viewing is active
