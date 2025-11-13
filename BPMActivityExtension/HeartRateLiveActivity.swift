@@ -59,9 +59,24 @@ struct HeartRateLiveActivity: Widget {
             } compactTrailing: {
                 EmptyView()
             } minimal: {
-                Circle()
-                    .fill(Color.white)
-                    .frame(width: 8, height: 8)
+                HStack(spacing: 2) {
+                    if context.state.hasError {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 10))
+                            .foregroundColor(.red)
+                    } else if context.state.isSharing {
+                        Image(systemName: "antenna.radiowaves.left.and.right")
+                            .font(.system(size: 10))
+                            .foregroundColor(.green)
+                    } else {
+                        Image(systemName: "heart.fill")
+                            .font(.system(size: 10))
+                            .foregroundColor(context.state.isViewing ? .green : .white)
+                    }
+                    Text("\(context.state.bpm)")
+                        .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                        .foregroundColor(.white)
+                }
             }
         }
     }
