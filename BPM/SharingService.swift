@@ -137,6 +137,8 @@ class SharingService: ObservableObject {
     }
     
     func stopSharing() {
+        let tokenToDelete = shareToken
+        
         isSharing = false
         shareCode = nil
         shareToken = nil
@@ -149,6 +151,41 @@ class SharingService: ObservableObject {
         
         UserDefaults.standard.removeObject(forKey: shareCodeKey)
         UserDefaults.standard.removeObject(forKey: shareTokenKey)
+        
+        // Delete the session from the backend if we have a token
+        if let token = tokenToDelete {
+            Task {
+                await deleteShareSession(token: token)
+            }
+        }
+    }
+    
+    private func deleteShareSession(token: String) async {
+        guard let url = URL(string: "\(baseURL)/api/share") else {
+            return
+        }
+        
+        var request = URLRequest(url: url)
+        request.httpMethod = "DELETE"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        
+        let body = ["token": token]
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        
+        do {
+            let (_, response) = try await URLSession.shared.data(for: request)
+            
+            if let httpResponse = response as? HTTPURLResponse {
+                if httpResponse.statusCode == 200 {
+                    print("✅ Successfully deleted share session from backend")
+                } else {
+                    print("⚠️ Failed to delete share session on server: \(httpResponse.statusCode)")
+                }
+            }
+        } catch {
+            // Silently handle errors - session is already stopped locally
+            print("⚠️ Error deleting share session: \(error.localizedDescription)")
+        }
     }
     
     func startViewing(code: String) {
@@ -254,10 +291,17 @@ class SharingService: ObservableObject {
         pollTimer?.invalidate()
         
         pollTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+            print("⏰ Polling timer fired")
             self?.pollFriendHeartRate()
         }
         
+        // Ensure timer runs on main RunLoop
+        if let timer = pollTimer {
+            RunLoop.main.add(timer, forMode: .common)
+        }
+        
         // Poll immediately
+        print("🔄 Starting to poll friend heart rate")
         pollFriendHeartRate()
     }
     
@@ -302,8 +346,12 @@ class SharingService: ObservableObject {
     }
     
     private func pollFriendHeartRate() {
-        guard let code = friendCode else { return }
+        guard let code = friendCode else {
+            print("⚠️ No friend code, skipping poll")
+            return
+        }
         
+        print("📡 Polling friend heart rate for code: \(code)")
         Task {
             guard let url = URL(string: "\(baseURL)/api/share/\(code)") else {
                 await MainActor.run {
@@ -329,10 +377,29 @@ class SharingService: ObservableObject {
                 
                 if httpResponse.statusCode == 404 {
                     await MainActor.run {
+                        print("⚠️ Viewer received 404 - sharing session expired")
                         self.errorMessage = "Sharing session expired or ended. Ask the sharer to start a new session."
                         self.errorContext = .viewing
-                        self.stopViewing(clearError: false)
+                        
+                        // Update activity with error state - keep last known BPM if available
+                        #if canImport(ActivityKit)
+                        if #available(iOS 16.1, *) {
+                            // Use last known BPM if available, otherwise use 0 as placeholder
+                            let lastBPM = self.friendHeartRate ?? 0
+                            print("📱 Updating activity with error state, BPM: \(lastBPM)")
+                            HeartRateActivityController.shared.updateActivity(
+                                bpm: lastBPM,
+                                average: self.friendAvgHeartRate,
+                                maximum: self.friendMaxHeartRate,
+                                minimum: self.friendMinHeartRate,
+                                isSharing: false,
+                                isViewing: true,
+                                hasError: true
+                            )
+                        }
+                        #endif
                     }
+                    // Continue polling - timer will call this again in 1 second to keep error state visible
                     return
                 }
                 
@@ -347,6 +414,8 @@ class SharingService: ObservableObject {
                 let heartRateResponse = try JSONDecoder().decode(HeartRateResponse.self, from: data)
                 
                 await MainActor.run {
+                    print("✅ Received heart rate response: BPM=\(heartRateResponse.bpm?.description ?? "nil"), Max=\(heartRateResponse.max?.description ?? "nil"), Avg=\(heartRateResponse.avg?.description ?? "nil")")
+                    
                     // Only update timestamp if we actually received heart rate data
                     // This ensures timeout works correctly - if we get responses but no data, timeout should still trigger
                     if heartRateResponse.bpm != nil {
@@ -360,21 +429,23 @@ class SharingService: ObservableObject {
                     if heartRateResponse.bpm != nil {
                         self.errorMessage = nil
                         self.errorContext = nil
+                        print("✅ Cleared error message")
                     }
                     
                     // Update activity when viewing friend's heart rate
                     #if canImport(ActivityKit)
                     if #available(iOS 16.1, *) {
-                        if let bpm = heartRateResponse.bpm {
-                            HeartRateActivityController.shared.updateActivity(
-                                bpm: bpm,
-                                average: heartRateResponse.avg,
-                                maximum: heartRateResponse.max,
-                                minimum: heartRateResponse.min,
-                                isSharing: false,
-                                isViewing: true
-                            )
-                        }
+                        // Always update activity, even if bpm is nil (to clear error state)
+                        let bpm = heartRateResponse.bpm ?? (self.friendHeartRate ?? 0)
+                        HeartRateActivityController.shared.updateActivity(
+                            bpm: bpm,
+                            average: heartRateResponse.avg,
+                            maximum: heartRateResponse.max,
+                            minimum: heartRateResponse.min,
+                            isSharing: false,
+                            isViewing: true,
+                            hasError: false
+                        )
                     }
                     #endif
                 }

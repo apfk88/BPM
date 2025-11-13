@@ -40,7 +40,11 @@ struct HeartRateLiveActivity: Widget {
                 }
             } compactLeading: {
                 HStack(spacing: 6) {
-                    if context.state.isSharing {
+                    if context.state.hasError {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 14))
+                            .foregroundColor(.red)
+                    } else if context.state.isSharing {
                         Image(systemName: "antenna.radiowaves.left.and.right")
                             .font(.system(size: 14))
                             .foregroundColor(.green)
@@ -72,7 +76,11 @@ private struct HeartRateLiveActivityView: View {
             // Big BPM on the left with icon and label
             HStack(alignment: .center, spacing: 12) {
                 // Icon - middle aligned to left of BPM number
-                if content.isSharing {
+                if content.hasError {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 28))
+                        .foregroundColor(.red)
+                } else if content.isSharing {
                     Image(systemName: "antenna.radiowaves.left.and.right")
                         .font(.system(size: 28))
                         .foregroundColor(.green)

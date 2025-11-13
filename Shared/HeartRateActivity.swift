@@ -11,18 +11,20 @@ struct HeartRateActivityAttributes: ActivityAttributes {
         let minimum: Int?
         let isSharing: Bool
         let isViewing: Bool
+        let hasError: Bool
 
-        init(bpm: Int, average: Int?, maximum: Int?, minimum: Int?, isSharing: Bool = false, isViewing: Bool = false) {
+        init(bpm: Int, average: Int?, maximum: Int?, minimum: Int?, isSharing: Bool = false, isViewing: Bool = false, hasError: Bool = false) {
             self.bpm = bpm
             self.average = average
             self.maximum = maximum
             self.minimum = minimum
             self.isSharing = isSharing
             self.isViewing = isViewing
+            self.hasError = hasError
         }
         
         enum CodingKeys: String, CodingKey {
-            case bpm, average, maximum, minimum, isSharing, isViewing
+            case bpm, average, maximum, minimum, isSharing, isViewing, hasError
         }
         
         init(from decoder: Decoder) throws {
@@ -33,6 +35,7 @@ struct HeartRateActivityAttributes: ActivityAttributes {
             minimum = try container.decodeIfPresent(Int.self, forKey: .minimum)
             isSharing = try container.decodeIfPresent(Bool.self, forKey: .isSharing) ?? false
             isViewing = try container.decodeIfPresent(Bool.self, forKey: .isViewing) ?? false
+            hasError = try container.decodeIfPresent(Bool.self, forKey: .hasError) ?? false
         }
         
         func encode(to encoder: Encoder) throws {
@@ -43,6 +46,7 @@ struct HeartRateActivityAttributes: ActivityAttributes {
             try container.encodeIfPresent(minimum, forKey: .minimum)
             try container.encode(isSharing, forKey: .isSharing)
             try container.encode(isViewing, forKey: .isViewing)
+            try container.encode(hasError, forKey: .hasError)
         }
 
         var trendDescription: String {
@@ -69,7 +73,7 @@ final class HeartRateActivityController {
 
     private init() {}
 
-    func updateActivity(bpm: Int, average: Int?, maximum: Int?, minimum: Int?, isSharing: Bool = false, isViewing: Bool = false) {
+    func updateActivity(bpm: Int, average: Int?, maximum: Int?, minimum: Int?, isSharing: Bool = false, isViewing: Bool = false, hasError: Bool = false) {
         guard ActivityAuthorizationInfo().areActivitiesEnabled else { return }
 
         let state = HeartRateActivityAttributes.ContentState(
@@ -78,7 +82,8 @@ final class HeartRateActivityController {
             maximum: maximum,
             minimum: minimum,
             isSharing: isSharing,
-            isViewing: isViewing
+            isViewing: isViewing,
+            hasError: hasError
         )
 
         Task { [weak self] in
@@ -103,7 +108,7 @@ final class HeartRateActivityController {
         guard let activity else { return }
 
         Task { [weak self] in
-            await activity.end(content: ActivityContent(state: activity.content.state, staleDate: nil), dismissalPolicy: .immediate)
+            await activity.end(using: activity.content.state, dismissalPolicy: .immediate)
             self?.activity = nil
         }
     }

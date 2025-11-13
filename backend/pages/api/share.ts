@@ -66,6 +66,29 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       console.error('Error creating share session:', error);
       res.status(500).json({ error: 'Failed to create share session' });
     }
+  } else if (req.method === 'DELETE') {
+    try {
+      const { token } = req.body;
+
+      if (!token || typeof token !== 'string') {
+        return res.status(400).json({ error: 'Missing token' });
+      }
+
+      const code = await kv.get(`token:${token}`);
+      if (!code) {
+        // Token already expired or invalid, consider it successful
+        return res.status(200).json({ success: true });
+      }
+
+      // Delete both the share session and token mapping
+      await kv.del(`share:${code}`);
+      await kv.del(`token:${token}`);
+
+      res.status(200).json({ success: true });
+    } catch (error) {
+      console.error('Error deleting share session:', error);
+      res.status(500).json({ error: 'Failed to delete share session' });
+    }
   } else {
     res.status(405).json({ error: 'Method not allowed' });
   }
