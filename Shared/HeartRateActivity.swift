@@ -103,7 +103,7 @@ final class HeartRateActivityController {
         guard let activity else { return }
 
         Task { [weak self] in
-            await activity.end(dismissalPolicy: .immediate)
+            await activity.end(content: ActivityContent(state: activity.content.state, staleDate: nil), dismissalPolicy: .immediate)
             self?.activity = nil
         }
     }

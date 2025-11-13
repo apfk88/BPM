@@ -238,6 +238,8 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
             return "connecting"
         case .connected:
             return "connected (to another device)"
+        case .disconnecting:
+            return "disconnecting"
         @unknown default:
             return "unknown"
         }
