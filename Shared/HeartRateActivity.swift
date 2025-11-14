@@ -71,6 +71,7 @@ final class HeartRateActivityController {
 
     private var activity: Activity<HeartRateActivityAttributes>?
     private let logger = Logger(subsystem: "com.bpmapp.client", category: "HeartRateActivity")
+    private var isRequestingActivity = false
     
 
     private init() {
@@ -96,6 +97,7 @@ final class HeartRateActivityController {
             await activity.end(content, dismissalPolicy: .immediate)
         }
         activity = nil
+        isRequestingActivity = false
     }
 
     func updateActivity(bpm: Int, average: Int?, maximum: Int?, minimum: Int?, isSharing: Bool = false, isViewing: Bool = false, hasError: Bool = false) {
@@ -116,26 +118,36 @@ final class HeartRateActivityController {
             hasError: hasError
         )
 
-        Task { [weak self] in
+        Task { @MainActor [weak self] in
             guard let self else { return }
 
+            let content = ActivityContent(state: state, staleDate: nil)
+
             if let currentActivity = activity {
-                // Update existing activity (works in background)
-                let content = ActivityContent(state: state, staleDate: nil)
                 await currentActivity.update(content)
-            } else {
-                // Try to create new activity
-                // Note: ActivityKit requires foreground to create activities in main app
-                // Extensions can create activities, so this will work there
-                // In main app background, this will fail gracefully with an error we catch below
-                
-                let attributes = HeartRateActivityAttributes(title: "Current BPM")
-                let content = ActivityContent(state: state, staleDate: nil)
-                do {
-                    activity = try Activity.request(attributes: attributes, content: content, pushType: nil)
-                } catch {
-                    logger.error("Failed to start heart rate activity: \(error.localizedDescription)")
-                }
+                return
+            }
+
+            if let existingActivity = Activity<HeartRateActivityAttributes>.activities.first {
+                activity = existingActivity
+                await existingActivity.update(content)
+                return
+            }
+
+            guard !isRequestingActivity else {
+                logger.debug("Activity request already in progress; skipping new request")
+                return
+            }
+
+            isRequestingActivity = true
+            defer { isRequestingActivity = false }
+
+            let attributes = HeartRateActivityAttributes(title: "Current BPM")
+
+            do {
+                activity = try Activity.request(attributes: attributes, content: content, pushType: nil)
+            } catch {
+                logger.error("Failed to start heart rate activity: \(error.localizedDescription)")
             }
         }
     }

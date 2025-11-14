@@ -39,44 +39,33 @@ struct HeartRateLiveActivity: Widget {
                     }
                 }
             } compactLeading: {
-                HStack(spacing: 6) {
+                let textColor: Color = {
                     if context.state.hasError {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 14))
-                            .foregroundColor(.red)
-                    } else if context.state.isSharing {
-                        Image(systemName: "antenna.radiowaves.left.and.right")
-                            .font(.system(size: 14))
-                            .foregroundColor(.green)
-                    } else {
-                        Image(systemName: "heart.fill")
-                            .font(.system(size: 14))
-                            .foregroundColor(context.state.isViewing ? .green : .white)
+                        return .red
+                    } else if context.state.isSharing || context.state.isViewing {
+                        return .green
                     }
-                    Text("\(context.state.bpm)")
-                        .font(.system(size: 20, weight: .semibold, design: .monospaced))
-                }
+                    return .white
+                }()
+
+                Text("\(context.state.bpm)")
+                    .font(.system(size: 20, weight: .semibold, design: .monospaced))
+                    .foregroundColor(textColor)
             } compactTrailing: {
                 EmptyView()
             } minimal: {
-                HStack(spacing: 2) {
+                let textColor: Color = {
                     if context.state.hasError {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 10))
-                            .foregroundColor(.red)
-                    } else if context.state.isSharing {
-                        Image(systemName: "antenna.radiowaves.left.and.right")
-                            .font(.system(size: 10))
-                            .foregroundColor(.green)
-                    } else {
-                        Image(systemName: "heart.fill")
-                            .font(.system(size: 10))
-                            .foregroundColor(context.state.isViewing ? .green : .white)
+                        return .red
+                    } else if context.state.isSharing || context.state.isViewing {
+                        return .green
                     }
-                    Text("\(context.state.bpm)")
-                        .font(.system(size: 12, weight: .semibold, design: .monospaced))
-                        .foregroundColor(.white)
-                }
+                    return .white
+                }()
+
+                Text("\(context.state.bpm)")
+                    .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                    .foregroundColor(textColor)
             }
         }
     }
