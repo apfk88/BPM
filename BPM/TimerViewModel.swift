@@ -578,7 +578,16 @@ final class TimerViewModel: ObservableObject {
             guard let self = self else { return }
             DispatchQueue.main.async {
                 if let heartRate = self.currentHeartRate?() {
-                    let sample = HeartRateSample(value: heartRate, timestamp: Date())
+                    // Calculate workout time for chart display
+                    let workoutTime: TimeInterval
+                    if self.frozenElapsedTime > 0 {
+                        // During cooldown: workout time = frozen workout time + cooldown time
+                        workoutTime = self.frozenElapsedTime + self.cooldownTime
+                    } else {
+                        // During workout: use elapsedTime (excludes pauses)
+                        workoutTime = self.elapsedTime
+                    }
+                    let sample = HeartRateSample(value: heartRate, timestamp: Date(), workoutTime: workoutTime)
                     self.heartRateSamples.append(sample)
                 }
             }
@@ -676,6 +685,120 @@ final class TimerViewModel: ObservableObject {
         DispatchQueue.main.async {
             self.sets.append(setRecord)
         }
+    }
+    
+    // MARK: - Chart Data
+    
+    struct ChartDataPoint: Identifiable {
+        let id = UUID()
+        let time: TimeInterval // Time since workout start
+        let bpm: Int
+    }
+    
+    struct ChartSegment: Identifiable {
+        let id = UUID()
+        let startTime: TimeInterval
+        let endTime: TimeInterval
+        let type: SegmentType
+        
+        enum SegmentType {
+            case work
+            case rest
+            case cooldown
+        }
+    }
+    
+    /// Returns chart data points with time since start and BPM values
+    func chartDataPoints() -> [ChartDataPoint] {
+        guard startTime != nil else { return [] }
+        
+        // Include all samples up to current max time (includes cooldown if active)
+        let maxTime = chartMaxTime()
+        
+        return heartRateSamples.compactMap { sample in
+            // Use workoutTime if available (excludes pauses), otherwise fall back to timestamp calculation
+            let workoutTime: TimeInterval
+            if let sampleWorkoutTime = sample.workoutTime {
+                workoutTime = sampleWorkoutTime
+            } else {
+                // Fallback for old samples without workoutTime
+                guard let startTime = startTime else { return nil }
+                workoutTime = sample.timestamp.timeIntervalSince(startTime)
+            }
+            
+            // Only include samples up to maxTime
+            guard workoutTime <= maxTime else { return nil }
+            return ChartDataPoint(time: workoutTime, bpm: sample.value)
+        }
+    }
+    
+    /// Returns segments for chart shading (work, rest, cooldown)
+    func chartSegments() -> [ChartSegment] {
+        var segments: [ChartSegment] = []
+        
+        // Process sets to create segments
+        for set in sets {
+            let startTime = set.totalTime - set.setTime
+            let endTime = set.totalTime
+            
+            let segmentType: ChartSegment.SegmentType
+            if set.isCooldownSet {
+                segmentType = .cooldown
+            } else if set.isRestSet {
+                segmentType = .rest
+            } else {
+                segmentType = .work
+            }
+            
+            segments.append(ChartSegment(
+                startTime: startTime,
+                endTime: endTime,
+                type: segmentType
+            ))
+        }
+        
+        // Add active segment if timer is running or paused
+        if state == .running || state == .paused {
+            let currentTotalTime = frozenElapsedTime > 0 ? frozenElapsedTime : elapsedTime
+            let activeStartTime = lastSetEndTime
+            
+            if isTimingRestSet {
+                // Active rest set
+                segments.append(ChartSegment(
+                    startTime: activeStartTime,
+                    endTime: currentTotalTime,
+                    type: .rest
+                ))
+            } else {
+                // Active work set
+                segments.append(ChartSegment(
+                    startTime: activeStartTime,
+                    endTime: currentTotalTime,
+                    type: .work
+                ))
+            }
+        }
+        
+        // Add active cooldown segment if in cooldown
+        if state == .cooldown || state == .cooldownPaused {
+            let cooldownStartTime = frozenElapsedTime
+            let cooldownEndTime = frozenElapsedTime + cooldownTime
+            segments.append(ChartSegment(
+                startTime: cooldownStartTime,
+                endTime: cooldownEndTime,
+                type: .cooldown
+            ))
+        }
+        
+        return segments
+    }
+    
+    /// Returns the current max time for the chart (for x-axis scaling)
+    func chartMaxTime() -> TimeInterval {
+        if frozenElapsedTime > 0 {
+            return frozenElapsedTime + cooldownTime
+        }
+        return elapsedTime
     }
     
     deinit {

@@ -56,11 +56,11 @@ struct HeartRateDisplayView: View {
     @State private var appMode: AppMode = .myDevice
     @State private var isTimerMode = false
     @State private var showClearAlert = false
-    @State private var showStartNewWorkoutAlert = false
     @State private var portraitBottomContentHeight: CGFloat = 0
     @State private var landscapeBottomContentHeight: CGFloat = 0
     @State private var heartRateExtremumDisplay: HeartRateExtremumDisplay = .max
     @State private var timerBPMDisplay: TimerBPMDisplay = .avg
+    @State private var showChart = false
 
     private var isPad: Bool {
         UIDevice.current.userInterfaceIdiom == .pad
@@ -820,6 +820,7 @@ struct HeartRateDisplayView: View {
             Text(value)
                 .font(.system(size: 24, weight: .bold, design: .monospaced))
                 .foregroundColor(.white)
+                .frame(minWidth: alignment == .center ? 90 : 100, alignment: alignment == .leading ? .leading : (alignment == .trailing ? .trailing : .center))
         }
     }
     
@@ -833,6 +834,7 @@ struct HeartRateDisplayView: View {
                 Text(timerViewModel.heartRateRecovery.map(String.init) ?? "---")
                     .font(.system(size: 24, weight: .bold, design: .monospaced))
                     .foregroundColor(.white)
+                    .frame(minWidth: 50, alignment: .center)
             }
         } else {
             VStack(alignment: .center, spacing: 4) {
@@ -842,6 +844,7 @@ struct HeartRateDisplayView: View {
                 Text(displayedHeartRate.map(String.init) ?? "---")
                     .font(.system(size: 24, weight: .bold, design: .monospaced))
                     .foregroundColor(.white)
+                    .frame(minWidth: 50, alignment: .center)
             }
         }
     }
@@ -849,7 +852,7 @@ struct HeartRateDisplayView: View {
     @ViewBuilder
     private func timerModeLayout(geometry: GeometryProxy, isLandscape: Bool) -> some View {
         VStack(spacing: 0) {
-            // Top bar with device picker and clear button
+            // Top bar with device picker, chart toggle, and clear button
             HStack(spacing: 16) {
                 Button {
                     showDevicePicker = true
@@ -863,6 +866,18 @@ struct HeartRateDisplayView: View {
                 }
                 
                 Spacer()
+                
+                // Chart toggle button
+                Button {
+                    showChart.toggle()
+                } label: {
+                    Image(systemName: showChart ? "chart.bar.fill" : "chart.bar")
+                        .font(.system(size: 20))
+                        .foregroundColor(showChart ? .green : .white)
+                        .padding(12)
+                        .background(Color.gray.opacity(0.3))
+                        .clipShape(Circle())
+                }
                 
                 Button {
                     // Only show alert if there's workout data to lose
@@ -892,25 +907,23 @@ struct HeartRateDisplayView: View {
             } message: {
                 Text("Are you sure you want to clear all timer data? This cannot be undone.")
             }
-            .alert("Start New Workout", isPresented: $showStartNewWorkoutAlert) {
-                Button("Cancel", role: .cancel) { }
-                Button("Start", role: .destructive) {
-                    timerViewModel.reset()
-                    timerViewModel.start()
-                }
-            } message: {
-                Text("Starting a new workout will clear all current timer data. This cannot be undone.")
-            }
             
             // Stopwatch display with BPM (or completion stats when done)
             stopwatchDisplay(isLandscape: isLandscape)
                 .padding(.top, 12)
             
+            // Heart rate chart (when enabled)
+            if showChart {
+                HeartRateChartView(timerViewModel: timerViewModel)
+                    .padding(.horizontal, isLandscape ? 40 : 20)
+                    .padding(.top, 12)
+            }
+            
             // Set tracking table
             if !timerViewModel.sets.isEmpty || timerViewModel.state == .running || timerViewModel.state == .paused || timerViewModel.state == .cooldown || timerViewModel.state == .cooldownPaused {
                 setsTable(isLandscape: isLandscape, screenWidth: geometry.size.width)
                     .padding(.horizontal, isLandscape ? 40 : 20)
-                    .padding(.top, 8)
+                    .padding(.top, showChart ? 12 : 8)
             }
             
             Spacer(minLength: 0)
@@ -1063,6 +1076,7 @@ struct HeartRateDisplayView: View {
                     Text(formatTime(totalTime))
                         .font(.system(size: 32, weight: .bold, design: .monospaced))
                         .foregroundColor(.white)
+                        .frame(minWidth: 120, alignment: .leading)
                 }
                 
                 Spacer()
@@ -1074,6 +1088,7 @@ struct HeartRateDisplayView: View {
                     Text(setTimeValue)
                         .font(.system(size: 32, weight: .bold, design: .monospaced))
                         .foregroundColor(.white)
+                        .frame(minWidth: 120, alignment: .center)
                 }
                 
                 Spacer()
@@ -1085,6 +1100,7 @@ struct HeartRateDisplayView: View {
                     Text(bpmValue)
                         .font(.system(size: 32, weight: .bold, design: .monospaced))
                         .foregroundColor(.white)
+                        .frame(minWidth: 60, alignment: .trailing)
                 }
                 .contentShape(Rectangle())
                 .onTapGesture {
@@ -1366,34 +1382,34 @@ struct HeartRateDisplayView: View {
         let buttonPaddingSize = isLandscape ? 12.0 : max(12.0, 16.0 * scaleFactor)
         let isCooldownDisabled = timerViewModel.state == .idle
         let isInCooldownMode = timerViewModel.isInCooldownMode
+        let isCompleted = timerViewModel.isCompleted
         
         // Work Set is available while the workout timer is running (both work and rest phases)
         // Rest Set is available only during work phases
-        let workSetDisabled = timerViewModel.state != .running || isInCooldownMode
-        let restSetDisabled = timerViewModel.state != .running || isInCooldownMode || timerViewModel.isTimingRestSet
+        let workSetDisabled = timerViewModel.state != .running || isInCooldownMode || isCompleted
+        let restSetDisabled = timerViewModel.state != .running || isInCooldownMode || timerViewModel.isTimingRestSet || isCompleted
         
         if isLandscape {
             // Landscape: single row with all buttons
             HStack(spacing: buttonSpacing) {
-                // Start/Pause button
+                // Start/Pause/Reset button
                 Button {
                     if timerViewModel.state == .running {
                         timerViewModel.stop()
+                    } else if isCompleted {
+                        // Reset button - just reset, don't start
+                        timerViewModel.reset()
                     } else {
-                        if timerViewModel.isCompleted {
-                            showStartNewWorkoutAlert = true
-                        } else {
-                            timerViewModel.start()
-                        }
+                        timerViewModel.start()
                     }
                 } label: {
-                    Text(timerViewModel.state == .running ? "Pause" : "Start")
+                    Text(isCompleted ? "Reset" : (timerViewModel.state == .running ? "Pause" : "Start"))
                         .font(.system(size: buttonFontSize, weight: .semibold))
-                        .foregroundColor(isInCooldownMode ? .gray.opacity(0.5) : .white)
+                        .foregroundColor((isInCooldownMode || isCompleted) ? .white : .white)
                         .frame(maxWidth: .infinity)
                         .padding(.horizontal, buttonPaddingSize * 1.5)
                         .padding(.vertical, buttonPaddingSize)
-                        .background(isInCooldownMode ? Color.gray.opacity(0.1) : Color.gray.opacity(0.3))
+                        .background(Color.gray.opacity(0.3))
                         .cornerRadius(buttonPaddingSize)
                 }
                 .disabled(isInCooldownMode)
@@ -1412,14 +1428,14 @@ struct HeartRateDisplayView: View {
                 } label: {
                     Text("End")
                         .font(.system(size: buttonFontSize, weight: .semibold))
-                        .foregroundColor((timerViewModel.state == .idle && timerViewModel.sets.isEmpty) ? .gray.opacity(0.5) : .white)
+                        .foregroundColor((timerViewModel.state == .idle && timerViewModel.sets.isEmpty) || isCompleted ? .gray.opacity(0.5) : .white)
                         .frame(maxWidth: .infinity)
                         .padding(.horizontal, buttonPaddingSize * 1.5)
                         .padding(.vertical, buttonPaddingSize)
-                        .background((timerViewModel.state == .idle && timerViewModel.sets.isEmpty) ? Color.gray.opacity(0.1) : Color.gray.opacity(0.3))
+                        .background((timerViewModel.state == .idle && timerViewModel.sets.isEmpty) || isCompleted ? Color.gray.opacity(0.1) : Color.gray.opacity(0.3))
                         .cornerRadius(buttonPaddingSize)
                 }
-                .disabled(timerViewModel.state == .idle && timerViewModel.sets.isEmpty)
+                .disabled((timerViewModel.state == .idle && timerViewModel.sets.isEmpty) || isCompleted)
                 .frame(maxWidth: .infinity)
                 
                 // HRR button
@@ -1435,14 +1451,14 @@ struct HeartRateDisplayView: View {
                 } label: {
                     Text("Cool")
                         .font(.system(size: buttonFontSize, weight: .semibold))
-                        .foregroundColor(isCooldownDisabled || isInCooldownMode ? .gray.opacity(0.5) : .white)
+                        .foregroundColor(isCooldownDisabled || isInCooldownMode || isCompleted ? .gray.opacity(0.5) : .white)
                         .frame(maxWidth: .infinity)
                         .padding(.horizontal, buttonPaddingSize * 1.5)
                         .padding(.vertical, buttonPaddingSize)
-                        .background((isCooldownDisabled || isInCooldownMode) ? Color.gray.opacity(0.1) : Color.gray.opacity(0.3))
+                        .background((isCooldownDisabled || isInCooldownMode || isCompleted) ? Color.gray.opacity(0.1) : Color.gray.opacity(0.3))
                         .cornerRadius(buttonPaddingSize)
                 }
-                .disabled(isCooldownDisabled || isInCooldownMode)
+                .disabled(isCooldownDisabled || isInCooldownMode || isCompleted)
                 .frame(maxWidth: .infinity)
                 
                 // Work Set button
@@ -1491,26 +1507,25 @@ struct HeartRateDisplayView: View {
         } else {
             // Portrait: two rows
             VStack(spacing: buttonSpacing) {
-                // Top row: Start/Pause, End, HRR
+                // Top row: Start/Pause/Reset, End, HRR
                 HStack(spacing: buttonSpacing) {
                     Button {
                         if timerViewModel.state == .running {
                             timerViewModel.stop()
+                        } else if isCompleted {
+                            // Reset button - just reset, don't start
+                            timerViewModel.reset()
                         } else {
-                            if timerViewModel.isCompleted {
-                                showStartNewWorkoutAlert = true
-                            } else {
-                                timerViewModel.start()
-                            }
+                            timerViewModel.start()
                         }
                     } label: {
-                        Text(timerViewModel.state == .running ? "Pause" : "Start")
+                        Text(isCompleted ? "Reset" : (timerViewModel.state == .running ? "Pause" : "Start"))
                             .font(.system(size: buttonFontSize, weight: .semibold))
-                            .foregroundColor(isInCooldownMode ? .gray.opacity(0.5) : .white)
+                            .foregroundColor(.white)
                             .frame(maxWidth: .infinity)
                             .padding(.horizontal, buttonPaddingSize * 2)
                             .padding(.vertical, buttonPaddingSize)
-                            .background(isInCooldownMode ? Color.gray.opacity(0.1) : Color.gray.opacity(0.3))
+                            .background(Color.gray.opacity(0.3))
                             .cornerRadius(buttonPaddingSize)
                     }
                     .disabled(isInCooldownMode)
@@ -1528,14 +1543,14 @@ struct HeartRateDisplayView: View {
                     } label: {
                         Text("End")
                             .font(.system(size: buttonFontSize, weight: .semibold))
-                            .foregroundColor((timerViewModel.state == .idle && timerViewModel.sets.isEmpty) ? .gray.opacity(0.5) : .white)
+                            .foregroundColor((timerViewModel.state == .idle && timerViewModel.sets.isEmpty) || isCompleted ? .gray.opacity(0.5) : .white)
                             .frame(maxWidth: .infinity)
                             .padding(.horizontal, buttonPaddingSize * 2)
                             .padding(.vertical, buttonPaddingSize)
-                            .background((timerViewModel.state == .idle && timerViewModel.sets.isEmpty) ? Color.gray.opacity(0.1) : Color.gray.opacity(0.3))
+                            .background((timerViewModel.state == .idle && timerViewModel.sets.isEmpty) || isCompleted ? Color.gray.opacity(0.1) : Color.gray.opacity(0.3))
                             .cornerRadius(buttonPaddingSize)
                     }
-                    .disabled(timerViewModel.state == .idle && timerViewModel.sets.isEmpty)
+                    .disabled((timerViewModel.state == .idle && timerViewModel.sets.isEmpty) || isCompleted)
                     .frame(maxWidth: .infinity)
                     
                     Button {
@@ -1550,14 +1565,14 @@ struct HeartRateDisplayView: View {
                     } label: {
                         Text("Cool")
                             .font(.system(size: buttonFontSize, weight: .semibold))
-                            .foregroundColor(isCooldownDisabled || isInCooldownMode ? .gray.opacity(0.5) : .white)
+                            .foregroundColor(isCooldownDisabled || isInCooldownMode || isCompleted ? .gray.opacity(0.5) : .white)
                             .frame(maxWidth: .infinity)
                             .padding(.horizontal, buttonPaddingSize * 2)
                             .padding(.vertical, buttonPaddingSize)
-                            .background((isCooldownDisabled || isInCooldownMode) ? Color.gray.opacity(0.1) : Color.gray.opacity(0.3))
+                            .background((isCooldownDisabled || isInCooldownMode || isCompleted) ? Color.gray.opacity(0.1) : Color.gray.opacity(0.3))
                             .cornerRadius(buttonPaddingSize)
                     }
-                    .disabled(isCooldownDisabled || isInCooldownMode)
+                    .disabled(isCooldownDisabled || isInCooldownMode || isCompleted)
                     .frame(maxWidth: .infinity)
                 }
                 
@@ -1609,10 +1624,17 @@ struct HeartRateDisplayView: View {
     }
     
     private func formatTime(_ time: TimeInterval) -> String {
-        let minutes = Int(time) / 60
-        let seconds = Int(time) % 60
+        let totalSeconds = Int(time)
+        let hours = totalSeconds / 3600
+        let minutes = (totalSeconds % 3600) / 60
+        let seconds = totalSeconds % 60
         let milliseconds = Int((time.truncatingRemainder(dividingBy: 1)) * 10)
-        return String(format: "%d:%02d.%d", minutes, seconds, milliseconds)
+        
+        if hours > 0 {
+            return String(format: "%d:%02d:%02d.%d", hours, minutes, seconds, milliseconds)
+        } else {
+            return String(format: "%d:%02d.%d", minutes, seconds, milliseconds)
+        }
     }
 }
 

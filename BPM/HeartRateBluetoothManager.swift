@@ -294,7 +294,7 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
         // Ensure @Published properties are updated on main thread
         if Thread.isMainThread {
             let now = Date()
-            let sample = HeartRateSample(value: value, timestamp: now)
+            let sample = HeartRateSample(value: value, timestamp: now, workoutTime: nil)
             heartRateSamples.append(sample)
 
             let cutoff = now.addingTimeInterval(-3600)
