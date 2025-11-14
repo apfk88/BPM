@@ -10,6 +10,7 @@ import Charts
 
 struct HeartRateChartView: View {
     @ObservedObject var timerViewModel: TimerViewModel
+    var isLandscape: Bool = false
     @State private var selectedTime: TimeInterval?
     @State private var isDragging = false
     
@@ -60,11 +61,11 @@ struct HeartRateChartView: View {
                     .frame(minWidth: 0)
             }
             .padding(.leading, 8)
-            .frame(height: 200)
+            .frame(height: isLandscape ? 120 : 200)
             .overlay {
                 // Overlay empty state message
                 VStack(spacing: 8) {
-                    Text("No workout data yet")
+                    Text("No heart rate data")
                         .font(.system(size: 14, weight: .medium))
                         .foregroundColor(.gray.opacity(0.6))
                     
@@ -180,7 +181,7 @@ struct HeartRateChartView: View {
                         }
                     }
                 }
-                .frame(height: 200)
+                .frame(height: isLandscape ? 120 : 200)
                 
                 // Selection info display
                 if let selectedTime = selectedTime,

@@ -914,7 +914,7 @@ struct HeartRateDisplayView: View {
             
             // Heart rate chart (when enabled)
             if showChart {
-                HeartRateChartView(timerViewModel: timerViewModel)
+                HeartRateChartView(timerViewModel: timerViewModel, isLandscape: isLandscape)
                     .padding(.horizontal, isLandscape ? 40 : 20)
                     .padding(.top, 12)
             }
@@ -1350,27 +1350,53 @@ struct HeartRateDisplayView: View {
                 .background(Color.black.opacity(0.9))
             }
             .onChange(of: timerViewModel.sets.count) { _, _ in
-                // Auto-scroll to most recent set
-                if let lastSet = timerViewModel.sets.last {
-                    withAnimation {
-                        proxy.scrollTo(lastSet.id, anchor: .bottom)
+                if isLandscape {
+                    // In landscape, always scroll to active row
+                    scrollToActiveRow(proxy: proxy, isLandscape: isLandscape)
+                } else {
+                    // In portrait, scroll to most recent set
+                    if let lastSet = timerViewModel.sets.last {
+                        withAnimation {
+                            proxy.scrollTo(lastSet.id, anchor: .bottom)
+                        }
                     }
                 }
             }
             .onChange(of: timerViewModel.state) { _, _ in
-                // Scroll to active row when state changes
-                if timerViewModel.state == .running {
-                    withAnimation {
-                        proxy.scrollTo("active", anchor: .bottom)
-                    }
-                } else if timerViewModel.state == .cooldown {
-                    withAnimation {
-                        proxy.scrollTo("activeRest", anchor: .bottom)
-                    }
+                scrollToActiveRow(proxy: proxy, isLandscape: isLandscape)
+            }
+            .onChange(of: timerViewModel.isTimingRestSet) { _, _ in
+                scrollToActiveRow(proxy: proxy, isLandscape: isLandscape)
+            }
+            .onAppear {
+                // Scroll to active row when view appears in landscape
+                if isLandscape {
+                    scrollToActiveRow(proxy: proxy, isLandscape: isLandscape)
                 }
             }
         }
         .frame(maxHeight: isLandscape ? 600 : 700)
+    }
+    
+    private func scrollToActiveRow(proxy: ScrollViewProxy, isLandscape: Bool) {
+        guard isLandscape else { return }
+        
+        withAnimation {
+            if timerViewModel.state == .cooldown || timerViewModel.state == .cooldownPaused {
+                proxy.scrollTo("activeRest", anchor: .center)
+            } else if timerViewModel.state == .running || timerViewModel.state == .paused {
+                if timerViewModel.isTimingRestSet {
+                    // Find the active rest set
+                    if let activeRestSet = timerViewModel.sets.first(where: { timerViewModel.isActiveRestSet($0) }) {
+                        proxy.scrollTo(activeRestSet.id, anchor: .center)
+                    } else {
+                        proxy.scrollTo("active", anchor: .center)
+                    }
+                } else {
+                    proxy.scrollTo("active", anchor: .center)
+                }
+            }
+        }
     }
     
     @ViewBuilder
