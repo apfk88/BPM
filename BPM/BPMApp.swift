@@ -13,7 +13,7 @@ import os.log
 struct BPMApp: App {
     @StateObject private var bluetoothManager = HeartRateBluetoothManager()
     @Environment(\.scenePhase) private var scenePhase
-    nonisolated(unsafe) private static let logger = Logger(subsystem: "com.bpmapp.client", category: "BPMApp")
+    private static let logger = Logger(subsystem: "com.bpmapp.client", category: "BPMApp")
     
     init() {
         // Set up notification observers for app termination/background

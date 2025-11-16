@@ -31,6 +31,34 @@ private enum HeartRateExtremumDisplay {
     }
 }
 
+private enum CollapsedStatDisplay {
+    case max
+    case min
+    case avg
+
+    var title: String {
+        switch self {
+        case .max:
+            return "MAX"
+        case .min:
+            return "MIN"
+        case .avg:
+            return "AVG"
+        }
+    }
+
+    mutating func cycle() {
+        switch self {
+        case .max:
+            self = .min
+        case .min:
+            self = .avg
+        case .avg:
+            self = .max
+        }
+    }
+}
+
 private enum TimerBPMDisplay {
     case avg
     case max
@@ -52,13 +80,16 @@ struct HeartRateDisplayView: View {
     @EnvironmentObject var bluetoothManager: HeartRateBluetoothManager
     @StateObject private var sharingService = SharingService.shared
     @StateObject private var timerViewModel = TimerViewModel()
+    @StateObject private var hrvViewModel = HRVMeasurementViewModel()
     @State private var showDevicePicker = false
     @State private var appMode: AppMode = .myDevice
     @State private var isTimerMode = false
+    @State private var isHRVMode = false
     @State private var showClearAlert = false
     @State private var portraitBottomContentHeight: CGFloat = 0
     @State private var landscapeBottomContentHeight: CGFloat = 0
     @State private var heartRateExtremumDisplay: HeartRateExtremumDisplay = .max
+    @State private var collapsedStatDisplay: CollapsedStatDisplay = .max
     @State private var timerBPMDisplay: TimerBPMDisplay = .avg
     @State private var showChart = false
 
@@ -153,7 +184,13 @@ struct HeartRateDisplayView: View {
     
     @ViewBuilder
     private func portraitLayout(geometry: GeometryProxy) -> some View {
-        if isTimerMode {
+        if isHRVMode {
+            HRVMeasurementView(viewModel: hrvViewModel, onDismiss: {
+                isHRVMode = false
+            })
+                .environmentObject(bluetoothManager)
+                .environmentObject(sharingService)
+        } else if isTimerMode {
             timerModeLayout(geometry: geometry, isLandscape: false)
         } else {
             ZStack {
@@ -184,7 +221,13 @@ struct HeartRateDisplayView: View {
     
     @ViewBuilder
     private func landscapeLayout(geometry: GeometryProxy, useSideLayout: Bool) -> some View {
-        if isTimerMode {
+        if isHRVMode {
+            HRVMeasurementView(viewModel: hrvViewModel, onDismiss: {
+                isHRVMode = false
+            })
+                .environmentObject(bluetoothManager)
+                .environmentObject(sharingService)
+        } else if isTimerMode {
             timerModeLayout(geometry: geometry, isLandscape: true)
         } else if useSideLayout {
             HStack(spacing: 0) {
@@ -321,6 +364,32 @@ struct HeartRateDisplayView: View {
         heartRateExtremumDisplay.cycle()
     }
     
+    private func myDeviceCollapsedStatValue(for display: CollapsedStatDisplay) -> Int? {
+        switch display {
+        case .max:
+            return bluetoothManager.maxHeartRateLastHour
+        case .min:
+            return bluetoothManager.minHeartRateLastHour
+        case .avg:
+            return bluetoothManager.avgHeartRateLastHour
+        }
+    }
+    
+    private func friendCollapsedStatValue(for display: CollapsedStatDisplay) -> Int? {
+        switch display {
+        case .max:
+            return sharingService.friendMaxHeartRate
+        case .min:
+            return sharingService.friendMinHeartRate
+        case .avg:
+            return sharingService.friendAvgHeartRate
+        }
+    }
+    
+    private func cycleCollapsedStatDisplay() {
+        collapsedStatDisplay.cycle()
+    }
+    
     @ViewBuilder
     private var errorMessageDisplay: some View {
         if let error = sharingService.errorMessage, shouldShowError(for: appMode) {
@@ -436,6 +505,22 @@ struct HeartRateDisplayView: View {
                                             Circle().fill(Color.gray.opacity(0.3))
                                         )
                                 }
+                                
+                                Button {
+                                    isHRVMode.toggle()
+                                    if !isHRVMode {
+                                        hrvViewModel.reset()
+                                    }
+                                } label: {
+                                    Image(systemName: "waveform.path.ecg")
+                                        .renderingMode(.template)
+                                        .font(.system(size: scaledButtonSize))
+                                        .foregroundColor(isHRVMode ? .green : .white)
+                                        .padding(scaledButtonPadding)
+                                        .background(
+                                            Circle().fill(Color.gray.opacity(0.3))
+                                        )
+                                }
                             }
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -508,6 +593,22 @@ struct HeartRateDisplayView: View {
                                             Circle().fill(Color.gray.opacity(0.3))
                                         )
                                 }
+                                
+                                Button {
+                                    isHRVMode.toggle()
+                                    if !isHRVMode {
+                                        hrvViewModel.reset()
+                                    }
+                                } label: {
+                                    Image(systemName: "waveform.path.ecg")
+                                        .renderingMode(.template)
+                                        .font(.system(size: scaledButtonSize))
+                                        .foregroundColor(isHRVMode ? .green : .white)
+                                        .padding(scaledButtonPadding)
+                                        .background(
+                                            Circle().fill(Color.gray.opacity(0.3))
+                                        )
+                                }
                             }
                         }
                         .padding(.horizontal, scaledPadding)
@@ -518,12 +619,11 @@ struct HeartRateDisplayView: View {
                     // Portrait mode - stats and buttons on same line
                     HStack(spacing: scaledSpacing) {
                         statColumn(
-                            title: heartRateExtremumDisplay.title,
-                            value: myDeviceExtremumValue(for: heartRateExtremumDisplay),
+                            title: collapsedStatDisplay.title,
+                            value: myDeviceCollapsedStatValue(for: collapsedStatDisplay),
                             scaleFactor: scaleFactor,
-                            onTap: cycleHeartRateExtremumDisplay
+                            onTap: cycleCollapsedStatDisplay
                         )
-                        statColumn(title: "AVG", value: bluetoothManager.avgHeartRateLastHour, scaleFactor: scaleFactor)
 
                         Spacer()
 
@@ -575,6 +675,21 @@ struct HeartRateDisplayView: View {
                                 .renderingMode(.template)
                                 .font(.system(size: scaledButtonSize))
                                 .foregroundColor(isTimerMode ? .green : .white)
+                                .padding(scaledButtonPadding)
+                                .background(Color.gray.opacity(0.3))
+                                .clipShape(Circle())
+                        }
+                        
+                        Button {
+                            isHRVMode.toggle()
+                            if !isHRVMode {
+                                hrvViewModel.reset()
+                            }
+                        } label: {
+                            Image(systemName: "waveform.path.ecg")
+                                .renderingMode(.template)
+                                .font(.system(size: scaledButtonSize))
+                                .foregroundColor(isHRVMode ? .green : .white)
                                 .padding(scaledButtonPadding)
                                 .background(Color.gray.opacity(0.3))
                                 .clipShape(Circle())
@@ -641,6 +756,22 @@ struct HeartRateDisplayView: View {
                                             Circle().fill(Color.gray.opacity(0.3))
                                         )
                                 }
+                                
+                                Button {
+                                    isHRVMode.toggle()
+                                    if !isHRVMode {
+                                        hrvViewModel.reset()
+                                    }
+                                } label: {
+                                    Image(systemName: "waveform.path.ecg")
+                                        .renderingMode(.template)
+                                        .font(.system(size: scaledButtonSize))
+                                        .foregroundColor(isHRVMode ? .green : .white)
+                                        .padding(scaledButtonPadding)
+                                        .background(
+                                            Circle().fill(Color.gray.opacity(0.3))
+                                        )
+                                }
                             }
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -696,6 +827,21 @@ struct HeartRateDisplayView: View {
                                         .background(Color.gray.opacity(0.3))
                                         .clipShape(Circle())
                                 }
+                                
+                                Button {
+                                    isHRVMode.toggle()
+                                    if !isHRVMode {
+                                        hrvViewModel.reset()
+                                    }
+                                } label: {
+                                    Image(systemName: "waveform.path.ecg")
+                                        .renderingMode(.template)
+                                        .font(.system(size: scaledButtonSize))
+                                        .foregroundColor(isHRVMode ? .green : .white)
+                                        .padding(scaledButtonPadding)
+                                        .background(Color.gray.opacity(0.3))
+                                        .clipShape(Circle())
+                                }
                             }
                         }
                         .padding(.horizontal, scaledPadding)
@@ -706,12 +852,11 @@ struct HeartRateDisplayView: View {
                     // Portrait mode - stats and buttons on same line
                     HStack(spacing: scaledSpacing) {
                         statColumn(
-                            title: heartRateExtremumDisplay.title,
-                            value: friendExtremumValue(for: heartRateExtremumDisplay),
+                            title: collapsedStatDisplay.title,
+                            value: friendCollapsedStatValue(for: collapsedStatDisplay),
                             scaleFactor: scaleFactor,
-                            onTap: cycleHeartRateExtremumDisplay
+                            onTap: cycleCollapsedStatDisplay
                         )
-                        statColumn(title: "AVG", value: sharingService.friendAvgHeartRate, scaleFactor: scaleFactor)
 
                         Spacer()
 
@@ -748,6 +893,21 @@ struct HeartRateDisplayView: View {
                                 .renderingMode(.template)
                                 .font(.system(size: scaledButtonSize))
                                 .foregroundColor(isTimerMode ? .green : .white)
+                                .padding(scaledButtonPadding)
+                                .background(Color.gray.opacity(0.3))
+                                .clipShape(Circle())
+                        }
+                        
+                        Button {
+                            isHRVMode.toggle()
+                            if !isHRVMode {
+                                hrvViewModel.reset()
+                            }
+                        } label: {
+                            Image(systemName: "waveform.path.ecg")
+                                .renderingMode(.template)
+                                .font(.system(size: scaledButtonSize))
+                                .foregroundColor(isHRVMode ? .green : .white)
                                 .padding(scaledButtonPadding)
                                 .background(Color.gray.opacity(0.3))
                                 .clipShape(Circle())
