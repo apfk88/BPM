@@ -18,6 +18,7 @@ The marketing site and backend are deployed together on Vercel, with the static 
 
 ### Features
 - **Live BPM**: Large, high-contrast digits designed to be readable at a glance.
+- **HRV measurement**: Guided two-minute RMSSD test powered by native RR intervals from straps like the Polar H10.
 - **BLE device discovery**: Finds and connects to standard heart rate monitors.
 - **Quick device picker**: Tap the antenna icon to select or switch devices.
 - **On-screen stats**: Max and average over the last hour.
@@ -30,7 +31,7 @@ The marketing site and backend are deployed together on Vercel, with the static 
 - **Devices**: Universal (iPad and iPhone). UI optimized for iPad landscape.
 - **iOS**: Deployment target set to 17.0 (adjustable in project settings).
 - **Hardware**: A real iPhone/iPad with Bluetooth LE (CoreBluetooth does not work in the simulator).
-- **Heart rate strap**: Any BLE device that implements the Heart Rate Service (e.g., Polar H10, Wahoo TICKR, Garmin HRM, etc.).
+- **Heart rate strap**: Any BLE device that implements the Heart Rate Service (e.g., Polar H10, Wahoo TICKR, Garmin HRM, etc.). HRV measurements require a strap that streams RR intervals (Polar H10 or equivalent).
 
 ### Getting Started
 1. Clone the repo:
@@ -68,6 +69,12 @@ You can change permission later in iOS Settings → Privacy & Security → Bluet
 1. Tap "Friend's Code" at the top of the screen.
 2. Enter the 6-character share code provided by a friend.
 3. View their live heart rate updates (updates every second).
+
+**HRV Measurement:**
+1. Connect a strap that streams RR intervals (Polar H10 or similar) in My Device mode.
+2. From the main screen, tap the HRV button to open the measurement view.
+3. Stay relaxed and still while the two-minute countdown runs (keep the app in the foreground).
+4. When finished you'll hear haptic/audio feedback and see your RMSSD value along with session stats.
 
 ### Project Structure
 - `BPMApp.swift`: App entry; manages app lifecycle and scanning start/stop.

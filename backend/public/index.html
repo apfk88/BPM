@@ -34,7 +34,7 @@
         </p>
 
         <p class="subtitle">
-          ...ok, you can also share your live heart rate with someone else and track it over workout sets.
+          ...ok, you can also share your live heart rate, measure HRV and HRR
         </p>
 
         <div class="app-store-container">
@@ -83,6 +83,14 @@
             <h3 class="faq-question">Which heart rate monitors does this work with?</h3>
             <div class="faq-answer">
               <p>This app works with any Bluetooth Low Energy (BLE) heart rate monitor that follows the standard Heart Rate Profile. I've tested it with Polar H10 and Morpheus straps, and it should work with most chest strap monitors that use BLE. Wrist-based monitors aren't recommended since they're not accurate enough for serious training.</p>
+              <p>For HRV measurements you need a strap that streams RR intervals (Polar H10, Garmin HRM-Pro Plus, Whoop Pro worn as a strap, etc.). Other devices will still show BPM but the HRV test will stay disabled.</p>
+            </div>
+          </div>
+
+          <div class="faq-item">
+            <h3 class="faq-question">How accurate is the HRV test?</h3>
+            <div class="faq-answer">
+              <p>The app reads the RR-interval payload straight from chest straps like the Polar H10 and computes RMSSD locally. No guesswork from BPM averages, no server processing. Keep the app in the foreground during the two-minute test and you'll get the same data you would from dedicated HRV tools.</p>
             </div>
           </div>
 
