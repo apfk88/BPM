@@ -10,10 +10,11 @@ import Combine
 import UIKit
 import AudioToolbox
 
-enum HRVMeasurementState {
+enum HRVMeasurementState: Equatable {
     case idle
     case countingDown
     case completed
+    case error(String) // Error state with message
 }
 
 final class HRVMeasurementViewModel: ObservableObject {
@@ -29,17 +30,44 @@ final class HRVMeasurementViewModel: ObservableObject {
     private var heartRateSampleTimer: Timer?
     private var liveHeartRateTimer: Timer? // Timer for live BPM updates when not measuring
     private var heartRateSamples: [Int] = []
+    private var rrIntervalsDuringMeasurement: [Double] = [] // RR intervals collected during measurement
+    private var measurementStartRRIndex: Int = 0 // Index in bluetooth manager's RR intervals array when measurement started
     private var startTime: Date?
     private let measurementDuration: TimeInterval = 120.0 // 2 minutes
     
     var currentHeartRate: (() -> Int?)?
+    var getRRIntervals: (() -> [RRInterval])? // Callback to get current RR intervals from bluetooth manager
+    var supportsRRIntervals: (() -> Bool)? // Callback to check if device supports RR intervals
     
     var isCompleted: Bool {
-        state == .completed
+        if case .completed = state {
+            return true
+        }
+        return false
+    }
+    
+    var hasError: Bool {
+        if case .error = state {
+            return true
+        }
+        return false
+    }
+    
+    var errorMessage: String? {
+        if case .error(let message) = state {
+            return message
+        }
+        return nil
     }
     
     func startMeasurement() {
-        guard state == .idle || state == .completed else { return }
+        guard state == .idle || state == .completed || hasError else { return }
+        
+        // Check if device supports RR intervals
+        if let supportsRR = supportsRRIntervals?(), !supportsRR {
+            state = .error("Your heart rate monitor does not support RR intervals, which are required for accurate HRV measurement. Please use a compatible chest strap like Polar H10.")
+            return
+        }
         
         // Stop live updates during measurement (heartRateSampleTimer will handle it)
         liveHeartRateTimer?.invalidate()
@@ -52,6 +80,7 @@ final class HRVMeasurementViewModel: ObservableObject {
         state = .countingDown
         remainingTime = measurementDuration
         heartRateSamples.removeAll()
+        rrIntervalsDuringMeasurement.removeAll()
         hrvValue = nil
         avgHeartRate = nil
         minHeartRate = nil
@@ -59,6 +88,13 @@ final class HRVMeasurementViewModel: ObservableObject {
         // Preserve current BPM if available, otherwise set to nil
         currentBPM = currentHeartRateValue
         startTime = Date()
+        
+        // Record the starting index of RR intervals
+        if let currentRRIntervals = getRRIntervals?() {
+            measurementStartRRIndex = currentRRIntervals.count
+        } else {
+            measurementStartRRIndex = 0
+        }
         
         // Use 5 seconds for simulator, 120 seconds for real device
         #if targetEnvironment(simulator)
@@ -134,8 +170,23 @@ final class HRVMeasurementViewModel: ObservableObject {
             avgHeartRate = Int((Double(total) / Double(heartRateSamples.count)).rounded())
         }
         
-        // Calculate HRV (RMSSD)
-        hrvValue = calculateRMSSD(from: heartRateSamples)
+        // Collect RR intervals that were received during measurement
+        if let allRRIntervals = getRRIntervals?() {
+            // Get RR intervals from the start of measurement to now
+            let endIndex = allRRIntervals.count
+            if endIndex > measurementStartRRIndex {
+                let measurementRRIntervals = Array(allRRIntervals[measurementStartRRIndex..<endIndex])
+                rrIntervalsDuringMeasurement = measurementRRIntervals.map { $0.value }
+            }
+        }
+        
+        // Calculate HRV (RMSSD) from actual RR intervals if available, otherwise fall back to BPM conversion
+        if !rrIntervalsDuringMeasurement.isEmpty {
+            hrvValue = calculateRMSSDFromRRIntervals(rrIntervalsDuringMeasurement)
+        } else {
+            // Fallback: calculate from BPM samples (less accurate)
+            hrvValue = calculateRMSSD(from: heartRateSamples)
+        }
         
         state = .completed
         
@@ -164,14 +215,10 @@ final class HRVMeasurementViewModel: ObservableObject {
         }
     }
     
-    private func calculateRMSSD(from samples: [Int]) -> Double? {
-        guard samples.count >= 2 else { return nil }
+    private func calculateRMSSDFromRRIntervals(_ rrIntervals: [Double]) -> Double? {
+        guard rrIntervals.count >= 2 else { return nil }
         
-        // Convert BPM to RR intervals (milliseconds)
-        // RR interval = 60000 / BPM
-        let rrIntervals = samples.map { 60000.0 / Double($0) }
-        
-        // Calculate successive differences
+        // Calculate successive differences between RR intervals
         var differences: [Double] = []
         for i in 1..<rrIntervals.count {
             let diff = rrIntervals[i] - rrIntervals[i-1]
@@ -185,6 +232,17 @@ final class HRVMeasurementViewModel: ObservableObject {
         
         // RMSSD = sqrt(mean of squared differences)
         return sqrt(meanSquaredDiff)
+    }
+    
+    private func calculateRMSSD(from samples: [Int]) -> Double? {
+        guard samples.count >= 2 else { return nil }
+        
+        // Convert BPM to RR intervals (milliseconds)
+        // RR interval = 60000 / BPM
+        // This is a fallback method - less accurate than using actual RR intervals
+        let rrIntervals = samples.map { 60000.0 / Double($0) }
+        
+        return calculateRMSSDFromRRIntervals(rrIntervals)
     }
     
     func startLiveHeartRateUpdates() {
@@ -217,12 +275,14 @@ final class HRVMeasurementViewModel: ObservableObject {
         state = .idle
         remainingTime = measurementDuration
         heartRateSamples.removeAll()
+        rrIntervalsDuringMeasurement.removeAll()
         hrvValue = nil
         avgHeartRate = nil
         minHeartRate = nil
         maxHeartRate = nil
         currentBPM = nil
         startTime = nil
+        measurementStartRRIndex = 0
     }
     
     deinit {

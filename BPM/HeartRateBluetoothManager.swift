@@ -6,6 +6,12 @@ import UIKit
 import ActivityKit
 #endif
 
+struct RRInterval: Identifiable {
+    let id = UUID()
+    let value: Double // RR interval in milliseconds
+    let timestamp: Date
+}
+
 struct DiscoveredPeripheral: Identifiable, Equatable {
     let peripheral: CBPeripheral
     let advertisedName: String?
@@ -70,6 +76,8 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
     @Published private(set) var heartRateSamples: [HeartRateSample] = []
     @Published var debugMessages: [String] = []
     @Published var connectionStatus: String = "Not connected"
+    @Published var supportsRRIntervals: Bool = false
+    @Published private(set) var rrIntervals: [RRInterval] = []
 
     private var centralManager: CBCentralManager!
     private let heartRateServiceUUID = CBUUID(string: "180D")
@@ -254,6 +262,8 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
         connectedDevice = nil
         currentHeartRate = nil
         heartRateSamples.removeAll()
+        rrIntervals.removeAll()
+        supportsRRIntervals = false
         startScanning()
 #if canImport(ActivityKit)
         if #available(iOS 16.1, *) {
@@ -582,19 +592,46 @@ extension HeartRateBluetoothManager: CBPeripheralDelegate {
             return
         }
 
-        let heartRate = parseHeartRate(from: data)
+        let parsedData = parseHeartRateData(from: data)
         DispatchQueue.main.async { [weak self] in
-            guard let heartRate else {
+            guard let self = self else { return }
+            
+            guard let heartRate = parsedData.heartRate else {
                 let msg = "Failed to parse heart rate from data: \(data.map { String(format: "%02x", $0) }.joined(separator: " "))"
                 print(msg)
-                self?.addDebugMessage(msg)
+                self.addDebugMessage(msg)
                 return
             }
-            let msg = "Received heart rate: \(heartRate) BPM"
+            
+            // Update RR interval support status
+            if parsedData.hasRRIntervals {
+                if !self.supportsRRIntervals {
+                    self.supportsRRIntervals = true
+                    let msg = "Device supports RR intervals"
+                    print(msg)
+                    self.addDebugMessage(msg)
+                }
+                
+                // Add RR intervals
+                let now = Date()
+                for rrValue in parsedData.rrIntervals {
+                    let interval = RRInterval(value: rrValue, timestamp: now)
+                    self.rrIntervals.append(interval)
+                }
+                
+                // Keep only last hour of RR intervals
+                let cutoff = now.addingTimeInterval(-3600)
+                self.rrIntervals.removeAll { $0.timestamp < cutoff }
+            } else {
+                // If we previously detected RR intervals but now they're missing, keep the support flag
+                // (some packets may not include RR intervals even if device supports them)
+            }
+            
+            let msg = "Received heart rate: \(heartRate) BPM" + (parsedData.hasRRIntervals ? " (with \(parsedData.rrIntervals.count) RR intervals)" : "")
             print(msg)
-            self?.addDebugMessage(msg)
-            self?.connectionStatus = "Connected - Receiving data"
-            self?.addHeartRateSample(heartRate)
+            self.addDebugMessage(msg)
+            self.connectionStatus = "Connected - Receiving data"
+            self.addHeartRateSample(heartRate)
         }
     }
     
@@ -630,21 +667,60 @@ extension HeartRateBluetoothManager: CBPeripheralDelegate {
         #endif
     }
 
-    private func parseHeartRate(from data: Data) -> Int? {
-        guard !data.isEmpty else { return nil }
+    private struct ParsedHeartRateData {
+        let heartRate: Int?
+        let hasRRIntervals: Bool
+        let rrIntervals: [Double] // RR intervals in milliseconds
+    }
+    
+    private func parseHeartRateData(from data: Data) -> ParsedHeartRateData {
+        guard !data.isEmpty else {
+            return ParsedHeartRateData(heartRate: nil, hasRRIntervals: false, rrIntervals: [])
+        }
 
         let flags = data[0]
         let is16Bit = (flags & 0x01) != 0
-
+        let hasRRIntervals = (flags & 0x10) != 0 // Bit 4 indicates RR intervals present
+        
+        // Parse heart rate
+        var heartRate: Int?
+        var offset: Int
+        
         if is16Bit {
-            guard data.count >= 3 else { return nil }
+            guard data.count >= 3 else {
+                return ParsedHeartRateData(heartRate: nil, hasRRIntervals: false, rrIntervals: [])
+            }
             let lower = Int(data[1])
             let upper = Int(data[2]) << 8
-            return lower | upper
+            heartRate = lower | upper
+            offset = 3
         } else {
-            guard data.count >= 2 else { return nil }
-            return Int(data[1])
+            guard data.count >= 2 else {
+                return ParsedHeartRateData(heartRate: nil, hasRRIntervals: false, rrIntervals: [])
+            }
+            heartRate = Int(data[1])
+            offset = 2
         }
+        
+        // Parse RR intervals if present
+        var rrIntervals: [Double] = []
+        if hasRRIntervals {
+            // RR intervals are stored as 2-byte values in 1/1024 second units
+            // Multiple RR intervals can be present
+            while offset + 2 <= data.count {
+                let rrValue = UInt16(data[offset]) | (UInt16(data[offset + 1]) << 8)
+                // Convert from 1/1024 seconds to milliseconds
+                let rrMs = (Double(rrValue) / 1024.0) * 1000.0
+                rrIntervals.append(rrMs)
+                offset += 2
+            }
+        }
+        
+        return ParsedHeartRateData(heartRate: heartRate, hasRRIntervals: hasRRIntervals, rrIntervals: rrIntervals)
+    }
+    
+    private func parseHeartRate(from data: Data) -> Int? {
+        return parseHeartRateData(from: data).heartRate
     }
     
     // MARK: - Simulator Test Mode
@@ -660,9 +736,12 @@ extension HeartRateBluetoothManager: CBPeripheralDelegate {
             // Reset fake data state
             self.fakeHeartRateBase = 75
             self.heartRateSamples.removeAll()
+            self.rrIntervals.removeAll()
+            self.supportsRRIntervals = true // Simulator supports RR intervals for testing
             
             // Start with an initial heart rate (already on main thread)
             self.addHeartRateSample(self.fakeHeartRateBase)
+            self.generateFakeRRIntervals(for: self.fakeHeartRateBase)
             
             // Create timer on main thread
             self.fakeDataTimer = Timer.scheduledTimer(withTimeInterval: self.fakeDataUpdateInterval, repeats: true) { [weak self] timer in
@@ -710,6 +789,29 @@ extension HeartRateBluetoothManager: CBPeripheralDelegate {
         // addHeartRateSample must be called on main thread for @Published properties
         // Timer callbacks are already on the thread that scheduled them (main thread)
         addHeartRateSample(clampedHeartRate)
+        
+        // Generate fake RR intervals for testing
+        generateFakeRRIntervals(for: clampedHeartRate)
+    }
+    
+    private func generateFakeRRIntervals(for heartRate: Int) {
+        // Generate 1-3 RR intervals per update to simulate realistic data
+        // RR interval = 60000 / BPM (in milliseconds)
+        let baseRR = 60000.0 / Double(heartRate)
+        let numIntervals = Int.random(in: 1...3)
+        let now = Date()
+        
+        for _ in 0..<numIntervals {
+            // Add some realistic variation (±5% of base RR interval)
+            let variation = Double.random(in: -0.05...0.05)
+            let rrValue = baseRR * (1.0 + variation)
+            let interval = RRInterval(value: rrValue, timestamp: now)
+            rrIntervals.append(interval)
+        }
+        
+        // Keep only last hour of RR intervals
+        let cutoff = now.addingTimeInterval(-3600)
+        rrIntervals.removeAll { $0.timestamp < cutoff }
     }
     
     private func manufacturerIdentifier(from data: Data?) -> UInt16? {

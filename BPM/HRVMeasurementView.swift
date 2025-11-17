@@ -27,6 +27,18 @@ struct HRVMeasurementView: View {
         (sharingService.isViewing) ? .green : .white
     }
     
+    private var buttonText: String {
+        if viewModel.hasError {
+            return "OK"
+        } else if viewModel.isCompleted {
+            return "Measure HRV"
+        } else if case .countingDown = viewModel.state {
+            return "Measuring..."
+        } else {
+            return "Measure HRV"
+        }
+    }
+    
     var body: some View {
         GeometryReader { geometry in
             ZStack {
@@ -87,7 +99,22 @@ struct HRVMeasurementView: View {
                     VStack(spacing: 40) {
                         // Timer/HRV display - fixed position
                         VStack(spacing: 16) {
-                            if viewModel.isCompleted {
+                            if viewModel.hasError {
+                                // Show error message
+                                VStack(spacing: 12) {
+                                    Image(systemName: "exclamationmark.triangle.fill")
+                                        .font(.system(size: 48))
+                                        .foregroundColor(.orange)
+                                    
+                                    if let errorMessage = viewModel.errorMessage {
+                                        Text(errorMessage)
+                                            .font(.system(size: 16, weight: .medium))
+                                            .foregroundColor(.white)
+                                            .multilineTextAlignment(.center)
+                                            .padding(.horizontal, 40)
+                                    }
+                                }
+                            } else if viewModel.isCompleted {
                                 // Show HRV value in same position as timer
                                 if let hrv = viewModel.hrvValue {
                                     Text("\(Int(hrv.rounded()))ms")
@@ -108,30 +135,33 @@ struct HRVMeasurementView: View {
                             }
                             
                             // Stats bar - BPM, Min, Max (BPM becomes avg when completed)
-                            HStack(spacing: 20) {
-                                statColumn(
-                                    title: viewModel.isCompleted ? "Avg" : "BPM",
-                                    value: viewModel.isCompleted ? viewModel.avgHeartRate : viewModel.currentBPM,
-                                    scaleFactor: 1.0
-                                )
-                                
-                                Spacer()
-                                
-                                statColumn(
-                                    title: "Min",
-                                    value: viewModel.minHeartRate,
-                                    scaleFactor: 1.0
-                                )
-                                
-                                Spacer()
-                                
-                                statColumn(
-                                    title: "Max",
-                                    value: viewModel.maxHeartRate,
-                                    scaleFactor: 1.0
-                                )
+                            // Only show stats if not in error state
+                            if !viewModel.hasError {
+                                HStack(spacing: 20) {
+                                    statColumn(
+                                        title: viewModel.isCompleted ? "Avg" : "BPM",
+                                        value: viewModel.isCompleted ? viewModel.avgHeartRate : viewModel.currentBPM,
+                                        scaleFactor: 1.0
+                                    )
+                                    
+                                    Spacer()
+                                    
+                                    statColumn(
+                                        title: "Min",
+                                        value: viewModel.minHeartRate,
+                                        scaleFactor: 1.0
+                                    )
+                                    
+                                    Spacer()
+                                    
+                                    statColumn(
+                                        title: "Max",
+                                        value: viewModel.maxHeartRate,
+                                        scaleFactor: 1.0
+                                    )
+                                }
+                                .padding(.horizontal, 40)
                             }
-                            .padding(.horizontal, 40)
                         }
                     }
                     
@@ -139,12 +169,18 @@ struct HRVMeasurementView: View {
                     
                     // Measure HRV button
                     Button {
-                        if viewModel.state == .idle || viewModel.isCompleted {
+                        if viewModel.hasError {
+                            // If there's an error, reset to try again
+                            viewModel.reset()
+                        } else if case .idle = viewModel.state {
+                            // Start new measurement
+                            viewModel.startMeasurement()
+                        } else if viewModel.isCompleted {
                             // Start new measurement (clears existing one automatically)
                             viewModel.startMeasurement()
                         }
                     } label: {
-                        Text(viewModel.isCompleted ? "Measure HRV" : (viewModel.state == .countingDown ? "Measuring..." : "Measure HRV"))
+                        Text(buttonText)
                             .font(.system(size: 18, weight: .semibold))
                             .foregroundColor(.white)
                             .frame(maxWidth: .infinity)
@@ -167,6 +203,27 @@ struct HRVMeasurementView: View {
                     return bluetoothManager?.currentHeartRate
                 }
             }
+            
+            // Set up RR intervals callback
+            viewModel.getRRIntervals = { [weak bluetoothManager] in
+                guard let bluetoothManager = bluetoothManager else { return [] }
+                // Only return RR intervals if not viewing shared data
+                if sharingService.isViewing {
+                    return []
+                }
+                return bluetoothManager.rrIntervals
+            }
+            
+            // Set up RR intervals support check callback
+            viewModel.supportsRRIntervals = { [weak bluetoothManager] in
+                guard let bluetoothManager = bluetoothManager else { return false }
+                // Only check support if not viewing shared data
+                if sharingService.isViewing {
+                    return false
+                }
+                return bluetoothManager.supportsRRIntervals
+            }
+            
             // Start live heart rate updates
             viewModel.startLiveHeartRateUpdates()
         }
