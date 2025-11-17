@@ -15,6 +15,9 @@ struct HRVMeasurementView: View {
     @State private var showClearAlert = false
     @State private var showStopAlert = false
     @State private var showDevicePicker = false
+    @State private var showFirstTimeAlert = false
+    @State private var hasShownFirstTimeAlert = false
+    @State private var pendingMeasurement = false
     
     private var displayedHeartRate: Int? {
         if sharingService.isViewing {
@@ -104,6 +107,17 @@ struct HRVMeasurementView: View {
                     } message: {
                         Text("Are you sure you want to clear the existing measurement? This cannot be undone.")
                     }
+                    .alert("Starting Measurement", isPresented: $showFirstTimeAlert) {
+                        Button("OK") {
+                            hasShownFirstTimeAlert = true
+                            if pendingMeasurement {
+                                viewModel.startMeasurement()
+                                pendingMeasurement = false
+                            }
+                        }
+                    } message: {
+                        Text("Lay down, close your eyes, and keep the app open.")
+                    }
                     
                     Spacer()
                     
@@ -185,8 +199,14 @@ struct HRVMeasurementView: View {
                             // If there's an error, reset to try again
                             viewModel.reset()
                         } else if case .idle = viewModel.state {
-                            // Start new measurement
-                            viewModel.startMeasurement()
+                            // Check if this is the first measurement in this session
+                            if !hasShownFirstTimeAlert {
+                                showFirstTimeAlert = true
+                                pendingMeasurement = true
+                            } else {
+                                // Start new measurement
+                                viewModel.startMeasurement()
+                            }
                         } else if viewModel.isCompleted {
                             // Start new measurement (clears existing one automatically)
                             viewModel.startMeasurement()
@@ -207,6 +227,9 @@ struct HRVMeasurementView: View {
             }
         }
         .onAppear {
+            // Reset first time alert flag for new session
+            hasShownFirstTimeAlert = false
+            
             // Set up heart rate callback
             viewModel.currentHeartRate = { [weak bluetoothManager, weak sharingService] in
                 if sharingService?.isViewing == true {

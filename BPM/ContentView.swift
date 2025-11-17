@@ -86,6 +86,7 @@ struct HeartRateDisplayView: View {
     @State private var isTimerMode = false
     @State private var isHRVMode = false
     @State private var showClearAlert = false
+    @State private var showDisconnectAlert = false
     @State private var portraitBottomContentHeight: CGFloat = 0
     @State private var landscapeBottomContentHeight: CGFloat = 0
     @State private var heartRateExtremumDisplay: HeartRateExtremumDisplay = .max
@@ -115,6 +116,14 @@ struct HeartRateDisplayView: View {
             DevicePickerView()
                 .environmentObject(bluetoothManager)
                 .environmentObject(sharingService)
+        }
+        .alert("Disconnect Sharing", isPresented: $showDisconnectAlert) {
+            Button("Cancel", role: .cancel) { }
+            Button("Disconnect", role: .destructive) {
+                sharingService.stopSharing()
+            }
+        } message: {
+            Text("Are you sure you want to disconnect? You'll need to start a new session and share a new code.")
         }
         .onAppear {
             // Restore mode based on saved state
@@ -280,7 +289,7 @@ struct HeartRateDisplayView: View {
     private var sharingCodeDisplay: some View {
         Group {
             if appMode == .myDevice && sharingService.isSharing, let code = sharingService.shareCode {
-                Text(formattedShareCode(code))
+                Text("SHARE CODE: \(formattedShareCode(code))")
                     .font(.system(size: 20, weight: .bold, design: .monospaced))
                     .foregroundColor(.green)
                     .padding(.top, 20)
@@ -440,21 +449,24 @@ struct HeartRateDisplayView: View {
                         HStack(spacing: 0) {
                             Spacer()
                             statColumn(
-                                title: "AVG",
+                                title: "Avg BPM",
                                 value: bluetoothManager.avgHeartRateLastHour,
-                                scaleFactor: 1.0
+                                scaleFactor: 1.0,
+                                isLandscape: true
                             )
                             Spacer()
                             statColumn(
-                                title: "MIN",
+                                title: "Min BPM",
                                 value: bluetoothManager.minHeartRateLastHour,
-                                scaleFactor: 1.0
+                                scaleFactor: 1.0,
+                                isLandscape: true
                             )
                             Spacer()
                             statColumn(
-                                title: "MAX",
+                                title: "Max BPM",
                                 value: bluetoothManager.maxHeartRateLastHour,
-                                scaleFactor: 1.0
+                                scaleFactor: 1.0,
+                                isLandscape: true
                             )
                             Spacer()
                         }
@@ -482,7 +494,7 @@ struct HeartRateDisplayView: View {
                                 
                                 Button {
                                     if sharingService.isSharing {
-                                        sharingService.stopSharing()
+                                        showDisconnectAlert = true
                                     } else {
                                         if bluetoothManager.connectedDevice == nil {
                                             sharingService.errorMessage = "Please connect a heart rate device before sharing."
@@ -547,7 +559,7 @@ struct HeartRateDisplayView: View {
                                         Image(systemName: "waveform.path.ecg")
                                             .renderingMode(.template)
                                             .font(.system(size: scaledButtonSize))
-                                        Text("HRR")
+                                        Text("HRV")
                                             .font(.system(size: max(12.0, 14.0 * scaleFactor), weight: .medium))
                                     }
                                     .foregroundColor(isHRVMode ? .green : .white)
@@ -572,21 +584,24 @@ struct HeartRateDisplayView: View {
                         HStack(spacing: 0) {
                             Spacer()
                             statColumn(
-                                title: "AVG",
+                                title: "Avg BPM",
                                 value: bluetoothManager.avgHeartRateLastHour,
-                                scaleFactor: scaleFactor
+                                scaleFactor: scaleFactor,
+                                isLandscape: false
                             )
                             Spacer()
                             statColumn(
-                                title: "MIN",
+                                title: "Min BPM",
                                 value: bluetoothManager.minHeartRateLastHour,
-                                scaleFactor: scaleFactor
+                                scaleFactor: scaleFactor,
+                                isLandscape: false
                             )
                             Spacer()
                             statColumn(
-                                title: "MAX",
+                                title: "Max BPM",
                                 value: bluetoothManager.maxHeartRateLastHour,
-                                scaleFactor: scaleFactor
+                                scaleFactor: scaleFactor,
+                                isLandscape: false
                             )
                             Spacer()
                         }
@@ -613,7 +628,7 @@ struct HeartRateDisplayView: View {
                             
                             Button {
                                 if sharingService.isSharing {
-                                    sharingService.stopSharing()
+                                    showDisconnectAlert = true
                                 } else {
                                     if bluetoothManager.connectedDevice == nil {
                                         sharingService.errorMessage = "Please connect a heart rate device before sharing."
@@ -676,7 +691,7 @@ struct HeartRateDisplayView: View {
                                     Image(systemName: "waveform.path.ecg")
                                         .renderingMode(.template)
                                         .font(.system(size: scaledButtonSize))
-                                    Text("HRR")
+                                    Text("HRV")
                                         .font(.system(size: max(10.0, 12.0 * scaleFactor), weight: .medium))
                                 }
                                 .foregroundColor(isHRVMode ? .green : .white)
@@ -703,21 +718,24 @@ struct HeartRateDisplayView: View {
                         HStack(spacing: 0) {
                             Spacer()
                             statColumn(
-                                title: "AVG",
+                                title: "Avg BPM",
                                 value: sharingService.friendAvgHeartRate,
-                                scaleFactor: 1.0
+                                scaleFactor: 1.0,
+                                isLandscape: true
                             )
                             Spacer()
                             statColumn(
-                                title: "MIN",
+                                title: "Min BPM",
                                 value: sharingService.friendMinHeartRate,
-                                scaleFactor: 1.0
+                                scaleFactor: 1.0,
+                                isLandscape: true
                             )
                             Spacer()
                             statColumn(
-                                title: "MAX",
+                                title: "Max BPM",
                                 value: sharingService.friendMaxHeartRate,
-                                scaleFactor: 1.0
+                                scaleFactor: 1.0,
+                                isLandscape: true
                             )
                             Spacer()
                         }
@@ -796,7 +814,7 @@ struct HeartRateDisplayView: View {
                                         Image(systemName: "waveform.path.ecg")
                                             .renderingMode(.template)
                                             .font(.system(size: scaledButtonSize))
-                                        Text("HRR")
+                                        Text("HRV")
                                             .font(.system(size: max(12.0, 14.0 * scaleFactor), weight: .medium))
                                     }
                                     .foregroundColor(isHRVMode ? .green : .white)
@@ -821,21 +839,24 @@ struct HeartRateDisplayView: View {
                         HStack(spacing: 0) {
                             Spacer()
                             statColumn(
-                                title: "AVG",
+                                title: "Avg BPM",
                                 value: sharingService.friendAvgHeartRate,
-                                scaleFactor: scaleFactor
+                                scaleFactor: scaleFactor,
+                                isLandscape: false
                             )
                             Spacer()
                             statColumn(
-                                title: "MIN",
+                                title: "Min BPM",
                                 value: sharingService.friendMinHeartRate,
-                                scaleFactor: scaleFactor
+                                scaleFactor: scaleFactor,
+                                isLandscape: false
                             )
                             Spacer()
                             statColumn(
-                                title: "MAX",
+                                title: "Max BPM",
                                 value: sharingService.friendMaxHeartRate,
-                                scaleFactor: scaleFactor
+                                scaleFactor: scaleFactor,
+                                isLandscape: false
                             )
                             Spacer()
                         }
@@ -911,7 +932,7 @@ struct HeartRateDisplayView: View {
                                     Image(systemName: "waveform.path.ecg")
                                         .renderingMode(.template)
                                         .font(.system(size: scaledButtonSize))
-                                    Text("HRR")
+                                    Text("HRV")
                                         .font(.system(size: max(10.0, 12.0 * scaleFactor), weight: .medium))
                                 }
                                 .foregroundColor(isHRVMode ? .green : .white)
@@ -932,13 +953,16 @@ struct HeartRateDisplayView: View {
             }
     }
 
-    private func statColumn(title: String, value: Int?, customText: String? = nil, scaleFactor: Double = 1.0, onTap: (() -> Void)? = nil) -> some View {
-        VStack(spacing: 4 * scaleFactor) {
+    private func statColumn(title: String, value: Int?, customText: String? = nil, scaleFactor: Double = 1.0, isLandscape: Bool = false, onTap: (() -> Void)? = nil) -> some View {
+        // Use same font sizes as timer bar stats
+        let labelSize: CGFloat = 14.0
+        let valueSize: CGFloat = isLandscape ? 24.0 : 32.0
+        return VStack(spacing: 4 * scaleFactor) {
             Text(title)
-                .font(.system(size: 20 * scaleFactor, weight: .semibold))
+                .font(.system(size: labelSize, weight: .medium))
                 .foregroundColor(.gray)
             Text(customText ?? value.map(String.init) ?? "---")
-                .font(.system(size: 36 * scaleFactor, weight: .bold, design: .monospaced))
+                .font(.system(size: valueSize, weight: .bold, design: .monospaced))
                 .foregroundColor((value == nil && customText == nil) ? .gray : .white)
                 .frame(minWidth: 60 * scaleFactor) // Ensure enough width for triple digits
                 .fixedSize(horizontal: false, vertical: true)
