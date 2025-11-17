@@ -13,6 +13,7 @@ struct HRVMeasurementView: View {
     @EnvironmentObject var sharingService: SharingService
     var onDismiss: () -> Void
     @State private var showClearAlert = false
+    @State private var showStopAlert = false
     @State private var showDevicePicker = false
     
     private var displayedHeartRate: Int? {
@@ -63,6 +64,8 @@ struct HRVMeasurementView: View {
                         Button {
                             if viewModel.isCompleted {
                                 showClearAlert = true
+                            } else if case .countingDown = viewModel.state {
+                                showStopAlert = true
                             } else {
                                 viewModel.reset()
                                 onDismiss()
@@ -82,6 +85,15 @@ struct HRVMeasurementView: View {
                         DevicePickerView()
                             .environmentObject(bluetoothManager)
                             .environmentObject(sharingService)
+                    }
+                    .alert("Stop Measurement", isPresented: $showStopAlert) {
+                        Button("Cancel", role: .cancel) { }
+                        Button("Stop", role: .destructive) {
+                            viewModel.reset()
+                            onDismiss()
+                        }
+                    } message: {
+                        Text("Are you sure you want to stop the measurement? All progress will be lost.")
                     }
                     .alert("Clear Measurement", isPresented: $showClearAlert) {
                         Button("Cancel", role: .cancel) { }
