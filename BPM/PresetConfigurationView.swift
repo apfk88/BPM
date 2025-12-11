@@ -197,6 +197,9 @@ struct PresetRowView: View {
                         Text("2m")
                     }
                 }
+                if preset.playSound {
+                    Image(systemName: "speaker.wave.2")
+                }
             }
             .font(.system(size: 14))
             .foregroundColor(.gray)
@@ -346,6 +349,24 @@ struct PresetEditorView: View {
                                         .font(.system(size: 18, weight: .semibold))
                                         .foregroundColor(.white)
                                     Text("2-minute recovery period at the end")
+                                        .font(.system(size: 14))
+                                        .foregroundColor(.gray)
+                                }
+                            }
+                            .tint(.green)
+                            .padding(14)
+                            .background(Color.gray.opacity(0.2))
+                            .cornerRadius(10)
+                        }
+
+                        // Sound toggle
+                        VStack(alignment: .leading, spacing: 8) {
+                            Toggle(isOn: $preset.playSound) {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text("Play Sound")
+                                        .font(.system(size: 18, weight: .semibold))
+                                        .foregroundColor(.white)
+                                    Text("Alert at the end of each round")
                                         .font(.system(size: 14))
                                         .foregroundColor(.gray)
                                 }

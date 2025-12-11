@@ -7,6 +7,7 @@
 
 import Foundation
 import Combine
+import AudioToolbox
 
 enum TimerState {
     case idle
@@ -831,12 +832,21 @@ final class TimerViewModel: ObservableObject {
         RunLoop.current.add(timer!, forMode: .common)
     }
 
+    private func playPhaseEndSound() {
+        guard let preset = activePreset, preset.playSound else { return }
+        // Play system sound (tri-tone alert)
+        AudioServicesPlaySystemSound(1007)
+    }
+
     private func advancePresetPhase() {
         guard let preset = activePreset, let phaseStart = presetPhaseStartTime else { return }
 
         // Calculate exact end time of previous phase to avoid drift
         let previousPhaseDuration = presetPhase == .work ? preset.workDuration : preset.restDuration
         let exactPhaseEndTime = phaseStart.addingTimeInterval(previousPhaseDuration)
+
+        // Play sound at end of phase
+        playPhaseEndSound()
 
         if presetPhase == .work {
             // Capture the work set
@@ -954,6 +964,7 @@ final class TimerViewModel: ObservableObject {
             if self.state == .cooldown {
                 self.cooldownEndHeartRate = self.currentHeartRate?()
                 self.captureCooldownHeartRate(minute: 2)
+                self.playPhaseEndSound() // Sound at end of cooldown
                 self.stopHeartRateSampling()
                 self.stopCooldownTimer()
                 DispatchQueue.main.async {

@@ -14,14 +14,16 @@ struct TimerPreset: Identifiable, Codable, Equatable {
     var restDuration: TimeInterval // Duration of each rest set in seconds
     var numberOfSets: Int
     var includeCooldown: Bool // Whether to include 2-minute cooldown at the end
+    var playSound: Bool // Whether to play a sound at the end of each round
 
-    init(id: UUID = UUID(), name: String = "", workDuration: TimeInterval = 60, restDuration: TimeInterval = 60, numberOfSets: Int = 5, includeCooldown: Bool = true) {
+    init(id: UUID = UUID(), name: String = "", workDuration: TimeInterval = 60, restDuration: TimeInterval = 60, numberOfSets: Int = 5, includeCooldown: Bool = true, playSound: Bool = true) {
         self.id = id
         self.name = name
         self.workDuration = workDuration
         self.restDuration = restDuration
         self.numberOfSets = numberOfSets
         self.includeCooldown = includeCooldown
+        self.playSound = playSound
     }
 
     var totalDuration: TimeInterval {
