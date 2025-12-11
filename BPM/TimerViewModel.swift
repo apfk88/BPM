@@ -16,6 +16,12 @@ enum TimerState {
     case cooldownPaused
 }
 
+enum PresetPhase {
+    case work
+    case rest
+    case cooldown
+}
+
 struct SetRecord: Identifiable {
     let id = UUID()
     let setNumber: Int
@@ -35,7 +41,107 @@ final class TimerViewModel: ObservableObject {
     @Published var cooldownTime: TimeInterval = 0
     @Published var frozenElapsedTime: TimeInterval = 0 // Total time frozen at cooldown start
     @Published var isTimingRestSet: Bool = false // True when currently timing a rest set
-    
+
+    // Preset mode properties
+    @Published var activePreset: TimerPreset? = nil
+    @Published var presetPhase: PresetPhase = .work
+    @Published var presetCurrentSet: Int = 0 // Current set number (1-indexed)
+    @Published var presetPhaseTimeRemaining: TimeInterval = 0 // Countdown for current phase
+
+    var isPresetMode: Bool {
+        activePreset != nil
+    }
+
+    // Returns placeholder rows for preset preview (works during idle and execution)
+    var presetPlaceholderSets: [SetRecord] {
+        guard let preset = activePreset else { return [] }
+
+        var placeholders: [SetRecord] = []
+        var runningTime: TimeInterval = 0
+
+        for setNum in 1...preset.numberOfSets {
+            // Work set
+            runningTime += preset.workDuration
+            placeholders.append(SetRecord(
+                setNumber: setNum,
+                setTime: preset.workDuration,
+                heartRate: nil,
+                totalTime: runningTime,
+                isRestSet: false,
+                isCooldownSet: false,
+                associatedWorkSetNumber: nil
+            ))
+
+            // Rest set (except after last set)
+            if setNum < preset.numberOfSets {
+                runningTime += preset.restDuration
+                placeholders.append(SetRecord(
+                    setNumber: setNum,
+                    setTime: preset.restDuration,
+                    heartRate: nil,
+                    totalTime: runningTime,
+                    isRestSet: true,
+                    isCooldownSet: false,
+                    associatedWorkSetNumber: setNum
+                ))
+            }
+        }
+
+        // Cooldown sets
+        if preset.includeCooldown {
+            runningTime += 60
+            placeholders.append(SetRecord(
+                setNumber: 1,
+                setTime: 60,
+                heartRate: nil,
+                totalTime: runningTime,
+                isRestSet: true,
+                isCooldownSet: true,
+                associatedWorkSetNumber: nil
+            ))
+            runningTime += 60
+            placeholders.append(SetRecord(
+                setNumber: 2,
+                setTime: 60,
+                heartRate: nil,
+                totalTime: runningTime,
+                isRestSet: true,
+                isCooldownSet: true,
+                associatedWorkSetNumber: nil
+            ))
+        }
+
+        return placeholders
+    }
+
+    // Returns the remaining placeholder sets that haven't been completed yet
+    var remainingPresetPlaceholderSets: [SetRecord] {
+        guard activePreset != nil else { return [] }
+
+        let allPlaceholders = presetPlaceholderSets
+        var skipCount = sets.count
+
+        // If we're currently timing a work or rest set (active row shown separately),
+        // we need to skip one more placeholder to avoid doubling up
+        if state == .running || state == .paused {
+            if !isTimingRestSet {
+                // Currently in work phase - skip the current work set placeholder
+                skipCount += 1
+            }
+            // Note: During rest phase, the rest set is already added to sets array,
+            // so no extra skip needed
+        } else if state == .cooldown || state == .cooldownPaused {
+            // During cooldown, active cooldown row is shown separately
+            skipCount += 1
+        }
+
+        // Return placeholders starting after the completed/active sets
+        if skipCount < allPlaceholders.count {
+            return Array(allPlaceholders.dropFirst(skipCount))
+        }
+        return []
+    }
+
     private var startTime: Date?
     private var pauseStartTime: Date?
     private var timer: Timer?
@@ -53,6 +159,8 @@ final class TimerViewModel: ObservableObject {
     private var heartRateSampleTimer: Timer? // Timer to sample heart rate periodically
     private var cooldownStartHeartRate: Int? // Heart rate at start of cooldown
     private var cooldownEndHeartRate: Int? // Heart rate at end of cooldown (2 minutes)
+    private var presetPhaseStartTime: Date? // When current preset phase started
+    private var presetPhasePausedTime: TimeInterval = 0 // Time paused in current phase
     
     var currentHeartRate: (() -> Int?)?
     
@@ -549,6 +657,327 @@ final class TimerViewModel: ObservableObject {
         cooldownEndHeartRate = nil
         sets.removeAll()
         heartRateSamples.removeAll()
+        // Reset preset state
+        activePreset = nil
+        presetPhase = .work
+        presetCurrentSet = 0
+        presetPhaseTimeRemaining = 0
+        presetPhaseStartTime = nil
+        presetPhasePausedTime = 0
+    }
+
+    // MARK: - Preset Mode
+
+    func loadPreset(_ preset: TimerPreset) {
+        reset()
+        activePreset = preset
+        presetPhase = .work
+        presetCurrentSet = 1
+        presetPhaseTimeRemaining = preset.workDuration
+    }
+
+    func clearPreset() {
+        activePreset = nil
+        presetPhase = .work
+        presetCurrentSet = 0
+        presetPhaseTimeRemaining = 0
+        presetPhaseStartTime = nil
+        presetPhasePausedTime = 0
+    }
+
+    func startPreset() {
+        guard let preset = activePreset, state == .idle || state == .paused else { return }
+
+        if state == .idle {
+            startTime = Date()
+            pauseStartTime = nil
+            setCounter = 0
+            restSetCounter = 0
+            lastSetEndTime = 0
+            isTimingRestSet = false
+            currentRestAssociatedWorkSetNumber = nil
+            sets.removeAll()
+            heartRateSamples.removeAll()
+            presetPhase = .work
+            presetCurrentSet = 1
+            presetPhaseTimeRemaining = preset.workDuration
+            presetPhaseStartTime = Date()
+            presetPhasePausedTime = 0
+            startHeartRateSampling()
+        } else if state == .paused {
+            // Resume from paused state
+            if let pauseStartTime = pauseStartTime {
+                let pauseDuration = Date().timeIntervalSince(pauseStartTime)
+                startTime = (startTime ?? Date()).addingTimeInterval(pauseDuration)
+                presetPhaseStartTime = (presetPhaseStartTime ?? Date()).addingTimeInterval(pauseDuration)
+                self.pauseStartTime = nil
+            }
+            startHeartRateSampling()
+        }
+
+        state = .running
+        startPresetTimer()
+    }
+
+    func pausePreset() {
+        guard state == .running, isPresetMode else { return }
+        state = .paused
+        stopTimer()
+        pauseStartTime = Date()
+        // Save how much time has elapsed in current phase
+        if let phaseStart = presetPhaseStartTime {
+            presetPhasePausedTime = Date().timeIntervalSince(phaseStart)
+        }
+        stopHeartRateSampling()
+    }
+
+    func endPreset() {
+        guard isPresetMode, let preset = activePreset else { return }
+
+        // Capture current set if running
+        if state == .running || state == .paused {
+            if presetPhase == .work {
+                capturePresetSet()
+            } else if presetPhase == .rest {
+                capturePresetRestSet()
+            }
+        }
+
+        if preset.includeCooldown {
+            // Start automatic 2-minute cooldown
+            stopTimer()
+            isTimingRestSet = false
+            currentRestAssociatedWorkSetNumber = nil
+            frozenElapsedTime = elapsedTime
+            cooldownStartHeartRate = currentHeartRate?()
+            restStartTime = Date()
+            state = .cooldown
+            cooldownStartTime = Date()
+            cooldownTime = 0
+            cooldownPauseStartTime = nil
+            presetPhase = .cooldown
+            presetPhaseTimeRemaining = 120 // 2 minute cooldown
+            presetPhaseStartTime = Date()
+            presetPhasePausedTime = 0
+            startPresetCooldownTimer()
+        } else {
+            // No cooldown, just complete immediately
+            stopTimer()
+            stopHeartRateSampling()
+            isTimingRestSet = false
+            currentRestAssociatedWorkSetNumber = nil
+            frozenElapsedTime = elapsedTime
+            state = .idle
+            activePreset = nil
+        }
+    }
+
+    func skipToCooldown() {
+        guard isPresetMode, let preset = activePreset, state == .running || state == .paused else { return }
+        if preset.includeCooldown {
+            endPreset()
+        } else {
+            // No cooldown option, just complete
+            stopPresetAndComplete()
+        }
+    }
+
+    func stopPresetAndComplete() {
+        guard isPresetMode else { return }
+
+        // Capture current set if running
+        if state == .running || state == .paused {
+            if presetPhase == .work {
+                capturePresetSet()
+            } else if presetPhase == .rest {
+                capturePresetRestSet()
+            }
+        }
+
+        // Stop immediately without cooldown
+        stopTimer()
+        stopCooldownTimer()
+        stopHeartRateSampling()
+        isTimingRestSet = false
+        currentRestAssociatedWorkSetNumber = nil
+        frozenElapsedTime = elapsedTime
+        state = .idle
+        activePreset = nil
+    }
+
+    private func startPresetTimer() {
+        timer?.invalidate()
+        timer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
+            guard let self = self, let preset = self.activePreset else { return }
+            DispatchQueue.main.async {
+                guard let startTime = self.startTime else { return }
+
+                self.elapsedTime = Date().timeIntervalSince(startTime)
+                self.currentSetTime = self.elapsedTime - self.lastSetEndTime
+
+                // Update phase countdown
+                if let phaseStart = self.presetPhaseStartTime {
+                    let phaseElapsed = Date().timeIntervalSince(phaseStart)
+                    let phaseDuration = self.presetPhase == .work ? preset.workDuration : preset.restDuration
+                    self.presetPhaseTimeRemaining = max(0, phaseDuration - phaseElapsed)
+
+                    // Check if phase is complete - use >= for precise timing
+                    if phaseElapsed >= phaseDuration {
+                        self.advancePresetPhase()
+                    }
+                }
+            }
+        }
+        RunLoop.current.add(timer!, forMode: .common)
+    }
+
+    private func advancePresetPhase() {
+        guard let preset = activePreset, let phaseStart = presetPhaseStartTime else { return }
+
+        // Calculate exact end time of previous phase to avoid drift
+        let previousPhaseDuration = presetPhase == .work ? preset.workDuration : preset.restDuration
+        let exactPhaseEndTime = phaseStart.addingTimeInterval(previousPhaseDuration)
+
+        if presetPhase == .work {
+            // Capture the work set
+            capturePresetSet()
+
+            if presetCurrentSet >= preset.numberOfSets {
+                // All sets complete, start cooldown
+                endPreset()
+            } else {
+                // Move to rest phase
+                presetPhase = .rest
+                presetPhaseTimeRemaining = preset.restDuration
+                presetPhaseStartTime = exactPhaseEndTime // Use exact time, not Date()
+                presetPausedTime = 0
+                isTimingRestSet = true
+
+                // Create rest set record
+                let heartRate = currentHeartRate?()
+                let restSetRecord = SetRecord(
+                    setNumber: presetCurrentSet,
+                    setTime: 0,
+                    heartRate: heartRate,
+                    totalTime: elapsedTime,
+                    isRestSet: true,
+                    isCooldownSet: false,
+                    associatedWorkSetNumber: presetCurrentSet
+                )
+                sets.append(restSetRecord)
+                currentRestAssociatedWorkSetNumber = presetCurrentSet
+                lastSetEndTime = elapsedTime
+            }
+        } else if presetPhase == .rest {
+            // Capture the rest set
+            capturePresetRestSet()
+
+            // Move to next work phase
+            presetCurrentSet += 1
+            presetPhase = .work
+            presetPhaseTimeRemaining = preset.workDuration
+            presetPhaseStartTime = exactPhaseEndTime // Use exact time, not Date()
+            presetPausedTime = 0
+            isTimingRestSet = false
+            currentRestAssociatedWorkSetNumber = nil
+        }
+    }
+
+    private var presetPausedTime: TimeInterval = 0
+
+    private func capturePresetSet() {
+        guard let startTime = startTime else { return }
+
+        let currentTotalTime = state == .paused ? elapsedTime : Date().timeIntervalSince(startTime)
+        let segmentTime = max(0, currentTotalTime - lastSetEndTime)
+        let heartRate = currentHeartRate?()
+
+        setCounter += 1
+        let workSetRecord = SetRecord(
+            setNumber: setCounter,
+            setTime: segmentTime,
+            heartRate: heartRate,
+            totalTime: currentTotalTime,
+            isRestSet: false,
+            isCooldownSet: false,
+            associatedWorkSetNumber: nil
+        )
+
+        sets.append(workSetRecord)
+        lastSetEndTime = currentTotalTime
+        currentSetTime = 0
+    }
+
+    private func capturePresetRestSet() {
+        guard let startTime = startTime else { return }
+
+        let currentTotalTime = state == .paused ? elapsedTime : Date().timeIntervalSince(startTime)
+        let segmentTime = max(0, currentTotalTime - lastSetEndTime)
+        let heartRate = currentHeartRate?()
+
+        // Update the existing rest set record
+        if let lastRestSetIndex = sets.lastIndex(where: { $0.isRestSet && !$0.isCooldownSet && $0.associatedWorkSetNumber == currentRestAssociatedWorkSetNumber }) {
+            let updatedRestSet = SetRecord(
+                setNumber: currentRestAssociatedWorkSetNumber ?? setCounter,
+                setTime: segmentTime,
+                heartRate: heartRate,
+                totalTime: currentTotalTime,
+                isRestSet: true,
+                isCooldownSet: false,
+                associatedWorkSetNumber: currentRestAssociatedWorkSetNumber
+            )
+            sets[lastRestSetIndex] = updatedRestSet
+        }
+
+        lastSetEndTime = currentTotalTime
+        currentSetTime = 0
+    }
+
+    private func startPresetCooldownTimer() {
+        cooldownTimer?.invalidate()
+        cooldownOneMinuteTimer?.invalidate()
+        cooldownTwoMinuteTimer?.invalidate()
+
+        guard cooldownStartTime != nil else { return }
+
+        // Capture heart rate at 1 minute
+        cooldownOneMinuteTimer = Timer.scheduledTimer(withTimeInterval: 60.0, repeats: false) { [weak self] _ in
+            guard let self = self else { return }
+            if self.state == .cooldown {
+                self.captureCooldownHeartRate(minute: 1)
+            }
+        }
+
+        // Capture heart rate at 2 minutes and complete
+        cooldownTwoMinuteTimer = Timer.scheduledTimer(withTimeInterval: 120.0, repeats: false) { [weak self] _ in
+            guard let self = self else { return }
+            if self.state == .cooldown {
+                self.cooldownEndHeartRate = self.currentHeartRate?()
+                self.captureCooldownHeartRate(minute: 2)
+                self.stopHeartRateSampling()
+                self.stopCooldownTimer()
+                DispatchQueue.main.async {
+                    self.state = .idle
+                    self.activePreset = nil
+                }
+            }
+        }
+
+        // Update cooldown time display
+        cooldownTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
+            guard let self = self else { return }
+            DispatchQueue.main.async {
+                if let cooldownStartTime = self.cooldownStartTime {
+                    self.cooldownTime = Date().timeIntervalSince(cooldownStartTime)
+                    self.presetPhaseTimeRemaining = max(0, 120 - self.cooldownTime)
+                }
+                if let restStartTime = self.restStartTime {
+                    self.currentSetTime = Date().timeIntervalSince(restStartTime)
+                }
+            }
+        }
+        RunLoop.current.add(cooldownTimer!, forMode: .common)
+        startHeartRateSampling()
     }
     
     private func startTimer() {

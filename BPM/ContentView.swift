@@ -93,6 +93,7 @@ struct HeartRateDisplayView: View {
     @State private var collapsedStatDisplay: CollapsedStatDisplay = .max
     @State private var timerBPMDisplay: TimerBPMDisplay = .avg
     @State private var showChart = false
+    @State private var showPresetSheet = false
 
     private var isPad: Bool {
         UIDevice.current.userInterfaceIdiom == .pad
@@ -116,6 +117,18 @@ struct HeartRateDisplayView: View {
             DevicePickerView()
                 .environmentObject(bluetoothManager)
                 .environmentObject(sharingService)
+        }
+        .sheet(isPresented: $showPresetSheet) {
+            PresetConfigurationView(
+                isPresented: $showPresetSheet,
+                currentPresetId: timerViewModel.activePreset?.id,
+                onLoadPreset: { preset in
+                    timerViewModel.loadPreset(preset)
+                },
+                onClearPreset: {
+                    timerViewModel.clearPreset()
+                }
+            )
         }
         .alert("Disconnect Sharing", isPresented: $showDisconnectAlert) {
             Button("Cancel", role: .cancel) { }
@@ -1061,7 +1074,33 @@ struct HeartRateDisplayView: View {
                 }
                 
                 Spacer()
-                
+
+                // Preset name (visible when preset is active)
+                if let preset = timerViewModel.activePreset {
+                    Text(preset.name)
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(.green)
+                        .onTapGesture {
+                            if timerViewModel.state == .idle && timerViewModel.sets.isEmpty {
+                                showPresetSheet = true
+                            }
+                        }
+                }
+
+                // Preset button (only visible when timer is idle/reset and no preset loaded)
+                if timerViewModel.state == .idle && timerViewModel.sets.isEmpty && !timerViewModel.isPresetMode {
+                    Button {
+                        showPresetSheet = true
+                    } label: {
+                        Image(systemName: "list.bullet.rectangle")
+                            .font(.system(size: 20))
+                            .foregroundColor(.white)
+                            .padding(12)
+                            .background(Color.gray.opacity(0.3))
+                            .clipShape(Circle())
+                    }
+                }
+
                 // Chart toggle button
                 Button {
                     showChart.toggle()
@@ -1073,7 +1112,7 @@ struct HeartRateDisplayView: View {
                         .background(Color.gray.opacity(0.3))
                         .clipShape(Circle())
                 }
-                
+
                 Button {
                     // Only show alert if there's workout data to lose
                     if !timerViewModel.sets.isEmpty || timerViewModel.state != .idle {
@@ -1106,16 +1145,16 @@ struct HeartRateDisplayView: View {
             // Stopwatch display with BPM (or completion stats when done)
             stopwatchDisplay(isLandscape: isLandscape)
                 .padding(.top, 12)
-            
+
             // Heart rate chart (when enabled)
             if showChart {
                 HeartRateChartView(timerViewModel: timerViewModel, isLandscape: isLandscape)
                     .padding(.horizontal, isLandscape ? 40 : 20)
                     .padding(.top, 12)
             }
-            
-            // Set tracking table
-            if !timerViewModel.sets.isEmpty || timerViewModel.state == .running || timerViewModel.state == .paused || timerViewModel.state == .cooldown || timerViewModel.state == .cooldownPaused {
+
+            // Set tracking table (also show when preset is loaded to preview structure)
+            if !timerViewModel.sets.isEmpty || timerViewModel.state == .running || timerViewModel.state == .paused || timerViewModel.state == .cooldown || timerViewModel.state == .cooldownPaused || (timerViewModel.isPresetMode && timerViewModel.state == .idle) {
                 setsTable(isLandscape: isLandscape, screenWidth: geometry.size.width)
                     .padding(.horizontal, isLandscape ? 40 : 20)
                     .padding(.top, showChart ? 12 : 8)
@@ -1142,15 +1181,45 @@ struct HeartRateDisplayView: View {
     private func landscapeStopwatchDisplay() -> some View {
         // Always show stats - don't hide them when completed
         let isCooldown = timerViewModel.state == .cooldown || timerViewModel.state == .cooldownPaused
+        let isPresetMode = timerViewModel.isPresetMode
         let totalTime = isCooldown ? timerViewModel.frozenElapsedTime : (timerViewModel.isCompleted ? timerViewModel.frozenElapsedTime : timerViewModel.elapsedTime)
-        let setLabel = isCooldown ? "Cooldown" : (timerViewModel.isCompleted ? "Avg Set" : "Set")
-        
+
+        // Set label changes based on mode
+        let setLabel: String = {
+            if timerViewModel.isCompleted {
+                return "Avg Set"
+            } else if isCooldown {
+                return "Cooldown"
+            } else if isPresetMode {
+                let phase = timerViewModel.presetPhase
+                let setNum = timerViewModel.presetCurrentSet
+                let totalSets = timerViewModel.activePreset?.numberOfSets ?? 0
+                if phase == .work {
+                    return "Work \(setNum)/\(totalSets)"
+                } else if phase == .rest {
+                    return "Rest \(setNum)/\(totalSets)"
+                } else {
+                    return "Cooldown"
+                }
+            } else {
+                return "Set"
+            }
+        }()
+
         // For cooldown, calculate countdown from 2 minutes
-        let cooldownTotal = 120.0 // 2 minutes
-        let displaySetTime: TimeInterval = isCooldown 
-            ? max(0, cooldownTotal - timerViewModel.currentSetTime)
-            : (timerViewModel.isCompleted ? (timerViewModel.avgSetTime ?? 0) : timerViewModel.currentSetTime)
-        
+        // For preset mode, show countdown for current phase
+        let displaySetTime: TimeInterval = {
+            if timerViewModel.isCompleted {
+                return timerViewModel.avgSetTime ?? 0
+            } else if isCooldown || (isPresetMode && timerViewModel.presetPhase == .cooldown) {
+                return timerViewModel.presetPhaseTimeRemaining > 0 ? timerViewModel.presetPhaseTimeRemaining : max(0, 120.0 - timerViewModel.currentSetTime)
+            } else if isPresetMode {
+                return timerViewModel.presetPhaseTimeRemaining
+            } else {
+                return timerViewModel.currentSetTime
+            }
+        }()
+
         // Pre-calculate complex values to help compiler type-checking
         let totalTimeTitle = timerViewModel.isCompleted ? "Total Time" : "Total"
         let setTimeValue: String = {
@@ -1217,15 +1286,45 @@ struct HeartRateDisplayView: View {
     private func portraitStopwatchDisplay() -> some View {
         // Always show stats - don't hide them when completed
         let isCooldown = timerViewModel.state == .cooldown || timerViewModel.state == .cooldownPaused
+        let isPresetMode = timerViewModel.isPresetMode
         let totalTime = isCooldown ? timerViewModel.frozenElapsedTime : (timerViewModel.isCompleted ? timerViewModel.frozenElapsedTime : timerViewModel.elapsedTime)
-        let setLabel = isCooldown ? "Cooldown" : (timerViewModel.isCompleted ? "Avg Set" : "Set")
-        
+
+        // Set label changes based on mode
+        let setLabel: String = {
+            if timerViewModel.isCompleted {
+                return "Avg Set"
+            } else if isCooldown {
+                return "Cooldown"
+            } else if isPresetMode {
+                let phase = timerViewModel.presetPhase
+                let setNum = timerViewModel.presetCurrentSet
+                let totalSets = timerViewModel.activePreset?.numberOfSets ?? 0
+                if phase == .work {
+                    return "Work \(setNum)/\(totalSets)"
+                } else if phase == .rest {
+                    return "Rest \(setNum)/\(totalSets)"
+                } else {
+                    return "Cooldown"
+                }
+            } else {
+                return "Set"
+            }
+        }()
+
         // For cooldown, calculate countdown from 2 minutes
-        let cooldownTotal = 120.0 // 2 minutes
-        let displaySetTime: TimeInterval = isCooldown 
-            ? max(0, cooldownTotal - timerViewModel.currentSetTime)
-            : (timerViewModel.isCompleted ? (timerViewModel.avgSetTime ?? 0) : timerViewModel.currentSetTime)
-        
+        // For preset mode, show countdown for current phase
+        let displaySetTime: TimeInterval = {
+            if timerViewModel.isCompleted {
+                return timerViewModel.avgSetTime ?? 0
+            } else if isCooldown || (isPresetMode && timerViewModel.presetPhase == .cooldown) {
+                return timerViewModel.presetPhaseTimeRemaining > 0 ? timerViewModel.presetPhaseTimeRemaining : max(0, 120.0 - timerViewModel.currentSetTime)
+            } else if isPresetMode {
+                return timerViewModel.presetPhaseTimeRemaining
+            } else {
+                return timerViewModel.currentSetTime
+            }
+        }()
+
         // Pre-calculate complex values
         let totalTimeTitle = timerViewModel.isCompleted ? "Total Time" : "Total"
         let setTimeValue: String = {
@@ -1358,7 +1457,7 @@ struct HeartRateDisplayView: View {
                         .padding(.vertical, 8)
                         .id("header")
                         
-                        // Data rows
+                        // Completed sets (actual recorded data)
                         ForEach(timerViewModel.sets) { set in
                             let isActiveRestSet = timerViewModel.isActiveRestSet(set)
                             let avgBPM = timerViewModel.displayAvgBPM(for: set)
@@ -1367,35 +1466,35 @@ struct HeartRateDisplayView: View {
                             let setTime = timerViewModel.displaySetTime(for: set)
                             let totalTime = timerViewModel.displayTotalTime(for: set)
                             let rowColor: Color = isActiveRestSet ? .white : .gray
-                            
+
                             HStack(spacing: 0) {
                                 Text(timerViewModel.displayLabel(for: set))
                                     .font(.system(size: fontSize, weight: .medium))
                                     .foregroundColor(rowColor)
                                     .frame(width: columnWidth, alignment: .leading)
-                                
+
                                 Text(formatTime(setTime))
                                     .font(.system(size: fontSize, weight: .medium, design: .monospaced))
                                     .foregroundColor(rowColor)
                                     .frame(width: columnWidth, alignment: .leading)
-                                
+
                                 Text(avgBPM.map(String.init) ?? "---")
                                     .font(.system(size: fontSize, weight: .medium, design: .monospaced))
                                     .foregroundColor(rowColor)
                                     .frame(width: columnWidth, alignment: .trailing)
-                                
+
                                 if isLandscape {
                                     Text(minBPM.map(String.init) ?? "---")
                                         .font(.system(size: fontSize, weight: .medium, design: .monospaced))
                                         .foregroundColor(rowColor)
                                         .frame(width: columnWidth, alignment: .trailing)
-                                    
+
                                     Text(maxBPM.map(String.init) ?? "---")
                                         .font(.system(size: fontSize, weight: .medium, design: .monospaced))
                                         .foregroundColor(rowColor)
                                         .frame(width: columnWidth, alignment: .trailing)
                                 }
-                                
+
                                 Text(formatTime(totalTime))
                                     .font(.system(size: fontSize, weight: .medium, design: .monospaced))
                                     .foregroundColor(rowColor)
@@ -1404,6 +1503,14 @@ struct HeartRateDisplayView: View {
                             .padding(.horizontal, 12)
                             .padding(.vertical, 8)
                             .id(set.id)
+                        }
+
+                        // Future placeholder rows for preset mode (grayed out)
+                        if timerViewModel.isPresetMode && timerViewModel.state == .idle && timerViewModel.sets.isEmpty {
+                            // Show all placeholders when not started
+                            ForEach(timerViewModel.presetPlaceholderSets) { set in
+                                presetPlaceholderRow(set: set, fontSize: fontSize, columnWidth: columnWidth, isLandscape: isLandscape)
+                            }
                         }
                         
                         // Active set row (if timer is running or paused)
@@ -1503,9 +1610,16 @@ struct HeartRateDisplayView: View {
                             .padding(.vertical, 8)
                             .id("activeRest")
                         }
+
+                        // Remaining future placeholder rows for preset mode (grayed out, shown after active row)
+                        if timerViewModel.isPresetMode && (timerViewModel.state == .running || timerViewModel.state == .paused || timerViewModel.state == .cooldown || timerViewModel.state == .cooldownPaused) {
+                            ForEach(timerViewModel.remainingPresetPlaceholderSets) { set in
+                                presetPlaceholderRow(set: set, fontSize: fontSize, columnWidth: columnWidth, isLandscape: isLandscape)
+                            }
+                        }
                     }
                 }
-                
+
                 // Pinned header
                 HStack(spacing: 0) {
                     Text("Set")
@@ -1601,14 +1715,16 @@ struct HeartRateDisplayView: View {
         let buttonPadding = isLandscape ? 40.0 : max(20.0, 24.0 * scaleFactor)
         let buttonFontSize = isLandscape ? 16.0 : max(16.0, 18.0 * scaleFactor)
         let buttonPaddingSize = isLandscape ? 12.0 : max(12.0, 16.0 * scaleFactor)
-        let isCooldownDisabled = timerViewModel.state == .idle
+        let isCooldownDisabled = timerViewModel.state == .idle && !timerViewModel.isPresetMode
         let isInCooldownMode = timerViewModel.isInCooldownMode
         let isCompleted = timerViewModel.isCompleted
-        
-        // Work Set is available while the workout timer is running (both work and rest phases)
+        let isPresetMode = timerViewModel.isPresetMode
+
+        // Work Set and Rest Set are completely disabled in preset mode
+        // Otherwise: Work Set is available while the workout timer is running (both work and rest phases)
         // Rest Set is available only during work phases
-        let workSetDisabled = timerViewModel.state != .running || isInCooldownMode || isCompleted
-        let restSetDisabled = timerViewModel.state != .running || isInCooldownMode || timerViewModel.isTimingRestSet || isCompleted
+        let workSetDisabled = isPresetMode || timerViewModel.state != .running || isInCooldownMode || isCompleted
+        let restSetDisabled = isPresetMode || timerViewModel.state != .running || isInCooldownMode || timerViewModel.isTimingRestSet || isCompleted
         
         if isLandscape {
             // Landscape: single row with all buttons
@@ -1616,30 +1732,63 @@ struct HeartRateDisplayView: View {
                 // Start/Pause/Reset button
                 Button {
                     if timerViewModel.state == .running {
-                        timerViewModel.stop()
+                        if isPresetMode {
+                            timerViewModel.pausePreset()
+                        } else {
+                            timerViewModel.stop()
+                        }
+                    } else if timerViewModel.state == .cooldown {
+                        // Pause cooldown (works for both preset and non-preset)
+                        timerViewModel.toggleCooldown()
+                    } else if timerViewModel.state == .cooldownPaused {
+                        // Resume cooldown
+                        timerViewModel.toggleCooldown()
                     } else if isCompleted {
                         // Reset button - just reset, don't start
                         timerViewModel.reset()
+                    } else if timerViewModel.state == .paused {
+                        if isPresetMode {
+                            timerViewModel.startPreset()
+                        } else {
+                            timerViewModel.start()
+                        }
                     } else {
-                        timerViewModel.start()
+                        if isPresetMode {
+                            timerViewModel.startPreset()
+                        } else {
+                            timerViewModel.start()
+                        }
                     }
                 } label: {
-                    Text(isCompleted ? "Reset" : (timerViewModel.state == .running ? "Pause" : "Start"))
+                    let buttonText: String = {
+                        if isCompleted { return "Reset" }
+                        if timerViewModel.state == .running || timerViewModel.state == .cooldown { return "Pause" }
+                        if timerViewModel.state == .paused || timerViewModel.state == .cooldownPaused { return "Resume" }
+                        return "Start"
+                    }()
+                    Text(buttonText)
                         .font(.system(size: buttonFontSize, weight: .semibold))
-                        .foregroundColor((isInCooldownMode || isCompleted) ? .white : .white)
+                        .foregroundColor(.white)
                         .frame(maxWidth: .infinity)
                         .padding(.horizontal, buttonPaddingSize * 1.5)
                         .padding(.vertical, buttonPaddingSize)
                         .background(Color.gray.opacity(0.3))
                         .cornerRadius(buttonPaddingSize)
                 }
-                .disabled(isInCooldownMode)
                 .frame(maxWidth: .infinity)
-                
+
                 // End button
                 Button {
                     if timerViewModel.state == .cooldown || timerViewModel.state == .cooldownPaused {
                         timerViewModel.stopCooldownAndComplete()
+                    } else if isPresetMode {
+                        // In preset mode, End stops the workout entirely (skips cooldown)
+                        if timerViewModel.state == .running || timerViewModel.state == .paused {
+                            timerViewModel.stopPresetAndComplete()
+                        } else {
+                            // Preset loaded but not started - just clear it
+                            timerViewModel.clearPreset()
+                        }
                     } else {
                         if timerViewModel.state == .running || timerViewModel.state == .paused {
                             timerViewModel.captureSet()
@@ -1649,131 +1798,18 @@ struct HeartRateDisplayView: View {
                 } label: {
                     Text("End")
                         .font(.system(size: buttonFontSize, weight: .semibold))
-                        .foregroundColor((timerViewModel.state == .idle && timerViewModel.sets.isEmpty) || isCompleted ? .gray.opacity(0.5) : .white)
+                        .foregroundColor((timerViewModel.state == .idle && timerViewModel.sets.isEmpty && !isPresetMode) || isCompleted ? .gray.opacity(0.5) : .white)
                         .frame(maxWidth: .infinity)
                         .padding(.horizontal, buttonPaddingSize * 1.5)
                         .padding(.vertical, buttonPaddingSize)
-                        .background((timerViewModel.state == .idle && timerViewModel.sets.isEmpty) || isCompleted ? Color.gray.opacity(0.1) : Color.gray.opacity(0.3))
+                        .background((timerViewModel.state == .idle && timerViewModel.sets.isEmpty && !isPresetMode) || isCompleted ? Color.gray.opacity(0.1) : Color.gray.opacity(0.3))
                         .cornerRadius(buttonPaddingSize)
                 }
-                .disabled((timerViewModel.state == .idle && timerViewModel.sets.isEmpty) || isCompleted)
+                .disabled((timerViewModel.state == .idle && timerViewModel.sets.isEmpty && !isPresetMode) || isCompleted)
                 .frame(maxWidth: .infinity)
-                
-                // HRR button
-                Button {
-                    if timerViewModel.state == .cooldown || timerViewModel.state == .cooldownPaused {
-                        timerViewModel.toggleCooldown()
-                    } else {
-                        if timerViewModel.state == .running || timerViewModel.state == .paused {
-                            timerViewModel.captureSet()
-                        }
-                        timerViewModel.end()
-                    }
-                } label: {
-                    Text("Cool")
-                        .font(.system(size: buttonFontSize, weight: .semibold))
-                        .foregroundColor(isCooldownDisabled || isInCooldownMode || isCompleted ? .gray.opacity(0.5) : .white)
-                        .frame(maxWidth: .infinity)
-                        .padding(.horizontal, buttonPaddingSize * 1.5)
-                        .padding(.vertical, buttonPaddingSize)
-                        .background((isCooldownDisabled || isInCooldownMode || isCompleted) ? Color.gray.opacity(0.1) : Color.gray.opacity(0.3))
-                        .cornerRadius(buttonPaddingSize)
-                }
-                .disabled(isCooldownDisabled || isInCooldownMode || isCompleted)
-                .frame(maxWidth: .infinity)
-                
-                // Work Set button
-                Button {
-                    timerViewModel.captureSet()
-                } label: {
-                    HStack(spacing: 4) {
-                        Image(systemName: "plus")
-                            .font(.system(size: buttonFontSize, weight: .semibold))
-                        Text("Work Set")
-                            .font(.system(size: buttonFontSize, weight: .semibold))
-                    }
-                    .foregroundColor(workSetDisabled ? .gray.opacity(0.5) : .white)
-                    .frame(maxWidth: .infinity)
-                    .padding(.horizontal, buttonPaddingSize * 1.5)
-                    .padding(.vertical, buttonPaddingSize)
-                    .background(workSetDisabled ? Color.gray.opacity(0.1) : Color.gray.opacity(0.3))
-                    .cornerRadius(buttonPaddingSize)
-                }
-                .disabled(workSetDisabled)
-                .frame(maxWidth: .infinity)
-                
-                // Rest Set button
-                Button {
-                    timerViewModel.captureRestSet()
-                } label: {
-                    HStack(spacing: 4) {
-                        Image(systemName: "plus")
-                            .font(.system(size: buttonFontSize, weight: .semibold))
-                        Text("Rest Set")
-                            .font(.system(size: buttonFontSize, weight: .semibold))
-                    }
-                    .foregroundColor(restSetDisabled ? .gray.opacity(0.5) : .white)
-                    .frame(maxWidth: .infinity)
-                    .padding(.horizontal, buttonPaddingSize * 1.5)
-                    .padding(.vertical, buttonPaddingSize)
-                    .background(restSetDisabled ? Color.gray.opacity(0.1) : Color.gray.opacity(0.3))
-                    .cornerRadius(buttonPaddingSize)
-                }
-                .disabled(restSetDisabled)
-                .frame(maxWidth: .infinity)
-            }
-            .padding(.horizontal, buttonPadding)
-            .padding(.vertical, 20)
-            .background(Color.black.opacity(0.8))
-        } else {
-            // Portrait: two rows
-            VStack(spacing: buttonSpacing) {
-                // Top row: Start/Pause/Reset, End, HRR
-                HStack(spacing: buttonSpacing) {
-                    Button {
-                        if timerViewModel.state == .running {
-                            timerViewModel.stop()
-                        } else if isCompleted {
-                            // Reset button - just reset, don't start
-                            timerViewModel.reset()
-                        } else {
-                            timerViewModel.start()
-                        }
-                    } label: {
-                        Text(isCompleted ? "Reset" : (timerViewModel.state == .running ? "Pause" : "Start"))
-                            .font(.system(size: buttonFontSize, weight: .semibold))
-                            .foregroundColor(.white)
-                            .frame(maxWidth: .infinity)
-                            .padding(.horizontal, buttonPaddingSize * 2)
-                            .padding(.vertical, buttonPaddingSize)
-                            .background(Color.gray.opacity(0.3))
-                            .cornerRadius(buttonPaddingSize)
-                    }
-                    .disabled(isInCooldownMode)
-                    .frame(maxWidth: .infinity)
-                    
-                    Button {
-                        if timerViewModel.state == .cooldown || timerViewModel.state == .cooldownPaused {
-                            timerViewModel.stopCooldownAndComplete()
-                        } else {
-                            if timerViewModel.state == .running || timerViewModel.state == .paused {
-                                timerViewModel.captureSet()
-                            }
-                            timerViewModel.stopAndComplete()
-                        }
-                    } label: {
-                        Text("End")
-                            .font(.system(size: buttonFontSize, weight: .semibold))
-                            .foregroundColor((timerViewModel.state == .idle && timerViewModel.sets.isEmpty) || isCompleted ? .gray.opacity(0.5) : .white)
-                            .frame(maxWidth: .infinity)
-                            .padding(.horizontal, buttonPaddingSize * 2)
-                            .padding(.vertical, buttonPaddingSize)
-                            .background((timerViewModel.state == .idle && timerViewModel.sets.isEmpty) || isCompleted ? Color.gray.opacity(0.1) : Color.gray.opacity(0.3))
-                            .cornerRadius(buttonPaddingSize)
-                    }
-                    .disabled((timerViewModel.state == .idle && timerViewModel.sets.isEmpty) || isCompleted)
-                    .frame(maxWidth: .infinity)
-                    
+
+                // Cool button (hidden in preset mode)
+                if !isPresetMode {
                     Button {
                         if timerViewModel.state == .cooldown || timerViewModel.state == .cooldownPaused {
                             timerViewModel.toggleCooldown()
@@ -1788,7 +1824,7 @@ struct HeartRateDisplayView: View {
                             .font(.system(size: buttonFontSize, weight: .semibold))
                             .foregroundColor(isCooldownDisabled || isInCooldownMode || isCompleted ? .gray.opacity(0.5) : .white)
                             .frame(maxWidth: .infinity)
-                            .padding(.horizontal, buttonPaddingSize * 2)
+                            .padding(.horizontal, buttonPaddingSize * 1.5)
                             .padding(.vertical, buttonPaddingSize)
                             .background((isCooldownDisabled || isInCooldownMode || isCompleted) ? Color.gray.opacity(0.1) : Color.gray.opacity(0.3))
                             .cornerRadius(buttonPaddingSize)
@@ -1796,9 +1832,9 @@ struct HeartRateDisplayView: View {
                     .disabled(isCooldownDisabled || isInCooldownMode || isCompleted)
                     .frame(maxWidth: .infinity)
                 }
-                
-                // Bottom row: Work Set, Rest Set
-                HStack(spacing: buttonSpacing) {
+
+                // Work Set button (hidden in preset mode)
+                if !isPresetMode {
                     Button {
                         timerViewModel.captureSet()
                     } label: {
@@ -1810,14 +1846,15 @@ struct HeartRateDisplayView: View {
                         }
                         .foregroundColor(workSetDisabled ? .gray.opacity(0.5) : .white)
                         .frame(maxWidth: .infinity)
-                        .padding(.horizontal, buttonPaddingSize * 2)
+                        .padding(.horizontal, buttonPaddingSize * 1.5)
                         .padding(.vertical, buttonPaddingSize)
                         .background(workSetDisabled ? Color.gray.opacity(0.1) : Color.gray.opacity(0.3))
                         .cornerRadius(buttonPaddingSize)
                     }
                     .disabled(workSetDisabled)
                     .frame(maxWidth: .infinity)
-                    
+
+                    // Rest Set button
                     Button {
                         timerViewModel.captureRestSet()
                     } label: {
@@ -1829,7 +1866,7 @@ struct HeartRateDisplayView: View {
                         }
                         .foregroundColor(restSetDisabled ? .gray.opacity(0.5) : .white)
                         .frame(maxWidth: .infinity)
-                        .padding(.horizontal, buttonPaddingSize * 2)
+                        .padding(.horizontal, buttonPaddingSize * 1.5)
                         .padding(.vertical, buttonPaddingSize)
                         .background(restSetDisabled ? Color.gray.opacity(0.1) : Color.gray.opacity(0.3))
                         .cornerRadius(buttonPaddingSize)
@@ -1841,21 +1878,218 @@ struct HeartRateDisplayView: View {
             .padding(.horizontal, buttonPadding)
             .padding(.vertical, 20)
             .background(Color.black.opacity(0.8))
+        } else {
+            // Portrait: two rows (or one row in preset mode)
+            VStack(spacing: buttonSpacing) {
+                // Top row: Start/Pause/Reset, End, Cool (Cool hidden in preset mode)
+                HStack(spacing: buttonSpacing) {
+                    Button {
+                        if timerViewModel.state == .running {
+                            if isPresetMode {
+                                timerViewModel.pausePreset()
+                            } else {
+                                timerViewModel.stop()
+                            }
+                        } else if timerViewModel.state == .cooldown {
+                            // Pause cooldown (works for both preset and non-preset)
+                            timerViewModel.toggleCooldown()
+                        } else if timerViewModel.state == .cooldownPaused {
+                            // Resume cooldown
+                            timerViewModel.toggleCooldown()
+                        } else if isCompleted {
+                            // Reset button - just reset, don't start
+                            timerViewModel.reset()
+                        } else if timerViewModel.state == .paused {
+                            if isPresetMode {
+                                timerViewModel.startPreset()
+                            } else {
+                                timerViewModel.start()
+                            }
+                        } else {
+                            if isPresetMode {
+                                timerViewModel.startPreset()
+                            } else {
+                                timerViewModel.start()
+                            }
+                        }
+                    } label: {
+                        let buttonText: String = {
+                            if isCompleted { return "Reset" }
+                            if timerViewModel.state == .running || timerViewModel.state == .cooldown { return "Pause" }
+                            if timerViewModel.state == .paused || timerViewModel.state == .cooldownPaused { return "Resume" }
+                            return "Start"
+                        }()
+                        Text(buttonText)
+                            .font(.system(size: buttonFontSize, weight: .semibold))
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding(.horizontal, buttonPaddingSize * 2)
+                            .padding(.vertical, buttonPaddingSize)
+                            .background(Color.gray.opacity(0.3))
+                            .cornerRadius(buttonPaddingSize)
+                    }
+                    .frame(maxWidth: .infinity)
+
+                    Button {
+                        if timerViewModel.state == .cooldown || timerViewModel.state == .cooldownPaused {
+                            timerViewModel.stopCooldownAndComplete()
+                        } else if isPresetMode {
+                            // In preset mode, End stops the workout entirely (skips cooldown)
+                            if timerViewModel.state == .running || timerViewModel.state == .paused {
+                                timerViewModel.stopPresetAndComplete()
+                            } else {
+                                // Preset loaded but not started - just clear it
+                                timerViewModel.clearPreset()
+                            }
+                        } else {
+                            if timerViewModel.state == .running || timerViewModel.state == .paused {
+                                timerViewModel.captureSet()
+                            }
+                            timerViewModel.stopAndComplete()
+                        }
+                    } label: {
+                        Text("End")
+                            .font(.system(size: buttonFontSize, weight: .semibold))
+                            .foregroundColor((timerViewModel.state == .idle && timerViewModel.sets.isEmpty && !isPresetMode) || isCompleted ? .gray.opacity(0.5) : .white)
+                            .frame(maxWidth: .infinity)
+                            .padding(.horizontal, buttonPaddingSize * 2)
+                            .padding(.vertical, buttonPaddingSize)
+                            .background((timerViewModel.state == .idle && timerViewModel.sets.isEmpty && !isPresetMode) || isCompleted ? Color.gray.opacity(0.1) : Color.gray.opacity(0.3))
+                            .cornerRadius(buttonPaddingSize)
+                    }
+                    .disabled((timerViewModel.state == .idle && timerViewModel.sets.isEmpty && !isPresetMode) || isCompleted)
+                    .frame(maxWidth: .infinity)
+
+                    // Cool button (hidden in preset mode)
+                    if !isPresetMode {
+                        Button {
+                            if timerViewModel.state == .cooldown || timerViewModel.state == .cooldownPaused {
+                                timerViewModel.toggleCooldown()
+                            } else {
+                                if timerViewModel.state == .running || timerViewModel.state == .paused {
+                                    timerViewModel.captureSet()
+                                }
+                                timerViewModel.end()
+                            }
+                        } label: {
+                            Text("Cool")
+                                .font(.system(size: buttonFontSize, weight: .semibold))
+                                .foregroundColor(isCooldownDisabled || isInCooldownMode || isCompleted ? .gray.opacity(0.5) : .white)
+                                .frame(maxWidth: .infinity)
+                                .padding(.horizontal, buttonPaddingSize * 2)
+                                .padding(.vertical, buttonPaddingSize)
+                                .background((isCooldownDisabled || isInCooldownMode || isCompleted) ? Color.gray.opacity(0.1) : Color.gray.opacity(0.3))
+                                .cornerRadius(buttonPaddingSize)
+                        }
+                        .disabled(isCooldownDisabled || isInCooldownMode || isCompleted)
+                        .frame(maxWidth: .infinity)
+                    }
+                }
+
+                // Bottom row: Work Set, Rest Set (hidden in preset mode)
+                if !isPresetMode {
+                    HStack(spacing: buttonSpacing) {
+                        Button {
+                            timerViewModel.captureSet()
+                        } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: "plus")
+                                    .font(.system(size: buttonFontSize, weight: .semibold))
+                                Text("Work Set")
+                                    .font(.system(size: buttonFontSize, weight: .semibold))
+                            }
+                            .foregroundColor(workSetDisabled ? .gray.opacity(0.5) : .white)
+                            .frame(maxWidth: .infinity)
+                            .padding(.horizontal, buttonPaddingSize * 2)
+                            .padding(.vertical, buttonPaddingSize)
+                            .background(workSetDisabled ? Color.gray.opacity(0.1) : Color.gray.opacity(0.3))
+                            .cornerRadius(buttonPaddingSize)
+                        }
+                        .disabled(workSetDisabled)
+                        .frame(maxWidth: .infinity)
+
+                        Button {
+                            timerViewModel.captureRestSet()
+                        } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: "plus")
+                                    .font(.system(size: buttonFontSize, weight: .semibold))
+                                Text("Rest Set")
+                                    .font(.system(size: buttonFontSize, weight: .semibold))
+                            }
+                            .foregroundColor(restSetDisabled ? .gray.opacity(0.5) : .white)
+                            .frame(maxWidth: .infinity)
+                            .padding(.horizontal, buttonPaddingSize * 2)
+                            .padding(.vertical, buttonPaddingSize)
+                            .background(restSetDisabled ? Color.gray.opacity(0.1) : Color.gray.opacity(0.3))
+                            .cornerRadius(buttonPaddingSize)
+                        }
+                        .disabled(restSetDisabled)
+                        .frame(maxWidth: .infinity)
+                    }
+                }
+            }
+            .padding(.horizontal, buttonPadding)
+            .padding(.vertical, 20)
+            .background(Color.black.opacity(0.8))
         }
     }
     
+    @ViewBuilder
+    private func presetPlaceholderRow(set: SetRecord, fontSize: CGFloat, columnWidth: CGFloat, isLandscape: Bool) -> some View {
+        let rowColor: Color = .gray.opacity(0.4)
+
+        HStack(spacing: 0) {
+            Text(timerViewModel.displayLabel(for: set))
+                .font(.system(size: fontSize, weight: .medium))
+                .foregroundColor(rowColor)
+                .frame(width: columnWidth, alignment: .leading)
+
+            Text(formatTime(set.setTime))
+                .font(.system(size: fontSize, weight: .medium, design: .monospaced))
+                .foregroundColor(rowColor)
+                .frame(width: columnWidth, alignment: .leading)
+
+            Text("---")
+                .font(.system(size: fontSize, weight: .medium, design: .monospaced))
+                .foregroundColor(rowColor)
+                .frame(width: columnWidth, alignment: .trailing)
+
+            if isLandscape {
+                Text("---")
+                    .font(.system(size: fontSize, weight: .medium, design: .monospaced))
+                    .foregroundColor(rowColor)
+                    .frame(width: columnWidth, alignment: .trailing)
+
+                Text("---")
+                    .font(.system(size: fontSize, weight: .medium, design: .monospaced))
+                    .foregroundColor(rowColor)
+                    .frame(width: columnWidth, alignment: .trailing)
+            }
+
+            Text(formatTime(set.totalTime))
+                .font(.system(size: fontSize, weight: .medium, design: .monospaced))
+                .foregroundColor(rowColor)
+                .frame(width: columnWidth, alignment: .trailing)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .id("placeholder-\(set.id)")
+    }
+
     private func formatTime(_ time: TimeInterval) -> String {
         let totalSeconds = Int(time)
         let hours = totalSeconds / 3600
         let minutes = (totalSeconds % 3600) / 60
         let seconds = totalSeconds % 60
         let milliseconds = Int((time.truncatingRemainder(dividingBy: 1)) * 10)
-        
+
         if hours > 0 {
             return String(format: "%d:%02d:%02d.%d", hours, minutes, seconds, milliseconds)
         } else {
             return String(format: "%d:%02d.%d", minutes, seconds, milliseconds)
         }
     }
+
 }
 
