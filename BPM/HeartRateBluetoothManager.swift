@@ -929,24 +929,9 @@ extension HeartRateBluetoothManager: CBPeripheralDelegate {
     }
     
     private func generateFakeHeartRate() {
-        // Generate realistic heart rate variations
-        // Base heart rate oscillates between 60-100 BPM
-        let variation = Int.random(in: -5...5) // Random variation
-        
-        // Update base direction occasionally
-        if Int.random(in: 0...10) < 2 {
-            fakeHeartRateDirection *= -1
-        }
-        
-        // Apply direction change
-        fakeHeartRateBase += fakeHeartRateDirection * Int.random(in: 1...3)
-        
-        // Keep within realistic bounds
-        fakeHeartRateBase = max(60, min(100, fakeHeartRateBase))
-        
-        // Add variation
-        let heartRate = fakeHeartRateBase + variation
-        let clampedHeartRate = max(55, min(105, heartRate))
+        // Generate high variability heart rate data for testing
+        // Randomly select between 80 and 200 BPM
+        let clampedHeartRate = Int.random(in: 80...200)
         
         // addHeartRateSample must be called on main thread for @Published properties
         // Timer callbacks are already on the thread that scheduled them (main thread)

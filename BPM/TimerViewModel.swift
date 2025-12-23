@@ -1284,6 +1284,32 @@ final class TimerViewModel: ObservableObject {
         return elapsedTime
     }
     
+    // MARK: - Time in Zone Tracking
+
+    /// Returns time spent in each heart rate zone based on heart rate samples
+    func timeInZones(config: HeartRateZoneConfig) -> [ZoneTimeData] {
+        var zoneDurations: [HeartRateZone: TimeInterval] = [:]
+
+        // Initialize all zones to 0
+        for zone in HeartRateZone.allCases {
+            zoneDurations[zone] = 0
+        }
+
+        // Each sample represents approximately 1 second of time
+        // (since we sample at 1 Hz in startHeartRateSampling)
+        let sampleInterval: TimeInterval = 1.0
+
+        for sample in heartRateSamples {
+            if let zone = HeartRateZone.zone(for: sample.value, config: config) {
+                zoneDurations[zone, default: 0] += sampleInterval
+            }
+        }
+
+        return HeartRateZone.allCases.map { zone in
+            ZoneTimeData(zone: zone, duration: zoneDurations[zone] ?? 0)
+        }
+    }
+
     deinit {
         timer?.invalidate()
         cooldownTimer?.invalidate()

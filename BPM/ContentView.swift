@@ -93,6 +93,7 @@ struct HeartRateDisplayView: View {
     @State private var collapsedStatDisplay: CollapsedStatDisplay = .max
     @State private var timerBPMDisplay: TimerBPMDisplay = .avg
     @State private var showChart = false
+    @State private var showZones = false
     @State private var showPresetSheet = false
     @State private var showPaywall = false
     @State private var showZoneConfig = false
@@ -1321,12 +1322,30 @@ struct HeartRateDisplayView: View {
             }
         }
     }
-    
+
+    @ViewBuilder
+    private func landscapeZoneColumn() -> some View {
+        let zone = zoneStorage.currentZone(for: displayedHeartRate)
+        VStack(alignment: .trailing, spacing: 4) {
+            Text("Zone")
+                .font(.system(size: 14, weight: .medium))
+                .foregroundColor(.gray)
+            Text(zone?.displayName ?? "---")
+                .font(.system(size: 24, weight: .bold, design: .monospaced))
+                .foregroundColor(zone?.color ?? .gray)
+                .frame(minWidth: 50, alignment: .trailing)
+        }
+        .contentShape(Rectangle())
+        .onTapGesture {
+            showZoneConfig = true
+        }
+    }
+
     @ViewBuilder
     private func timerModeLayout(geometry: GeometryProxy, isLandscape: Bool) -> some View {
         VStack(spacing: 0) {
-            // Top bar with device picker, chart toggle, and clear button
-            HStack(spacing: 16) {
+            // Top bar with device picker, chart toggle, zone toggle, and clear button
+            HStack(spacing: 8) {
                 Button {
                     showDevicePicker = true
                 } label: {
@@ -1357,7 +1376,7 @@ struct HeartRateDisplayView: View {
                     Button {
                         showPresetSheet = true
                     } label: {
-                        Image(systemName: "list.bullet.rectangle")
+                        Image(systemName: "timer")
                             .font(.system(size: 20))
                             .foregroundColor(.white)
                             .padding(12)
@@ -1374,6 +1393,18 @@ struct HeartRateDisplayView: View {
                         .font(.system(size: 20))
                         .foregroundColor(showChart ? .green : .white)
                         .padding(12)
+                        .background(Color.gray.opacity(0.3))
+                        .clipShape(Circle())
+                }
+
+                // Zone time toggle button
+                Button {
+                    showZones.toggle()
+                } label: {
+                    Image(systemName: showZones ? "z.circle.fill" : "z.circle")
+                        .font(.system(size: 24))
+                        .foregroundColor(showZones ? .green : .white)
+                        .padding(10)
                         .background(Color.gray.opacity(0.3))
                         .clipShape(Circle())
                 }
@@ -1418,11 +1449,18 @@ struct HeartRateDisplayView: View {
                     .padding(.top, 12)
             }
 
-            // Set tracking table (also show when preset is loaded to preview structure)
+            // Time in Zone view (when enabled)
+            if showZones {
+                TimeInZoneView(timerViewModel: timerViewModel, zoneStorage: zoneStorage, isLandscape: isLandscape)
+                    .padding(.horizontal, isLandscape ? 40 : 20)
+                    .padding(.top, showChart ? 12 : 8)
+            }
+
+            // Set tracking table
             if !timerViewModel.sets.isEmpty || timerViewModel.state == .running || timerViewModel.state == .paused || timerViewModel.state == .cooldown || timerViewModel.state == .cooldownPaused || (timerViewModel.isPresetMode && timerViewModel.state == .idle) {
                 setsTable(isLandscape: isLandscape, screenWidth: geometry.size.width)
                     .padding(.horizontal, isLandscape ? 40 : 20)
-                    .padding(.top, showChart ? 12 : 8)
+                    .padding(.top, (showChart || showZones) ? 12 : 8)
             }
             
             Spacer(minLength: 0)
@@ -1498,7 +1536,7 @@ struct HeartRateDisplayView: View {
         let maxBPMValue = timerViewModel.maxHeartRate.map(String.init) ?? "---"
         let avgBPMValue = timerViewModel.avgHeartRate.map(String.init) ?? "---"
         
-        // Landscape: show Total, Set, Avg Rest, Current BPM/HRR, Max BPM, Avg BPM
+        // Landscape: show Total, Set, Avg Rest, Current BPM/HRR, Max BPM, Avg BPM, Zone
         VStack(spacing: 12) {
             HStack(spacing: 16) {
                 landscapeStatColumn(
@@ -1506,42 +1544,46 @@ struct HeartRateDisplayView: View {
                     value: formatTime(totalTime),
                     alignment: .leading
                 )
-                
+
                 Spacer()
-                
+
                 landscapeStatColumn(
                     title: setLabel,
                     value: setTimeValue,
                     alignment: .center
                 )
-                
+
                 Spacer()
-                
+
                 landscapeStatColumn(
                     title: "Avg Rest",
                     value: avgRestValue,
                     alignment: .center
                 )
-                
+
                 Spacer()
-                
+
                 landscapeBPMOrHRRColumn(isCompleted: timerViewModel.isCompleted)
-                
+
                 Spacer()
-                
+
                 landscapeStatColumn(
                     title: "Max BPM",
                     value: maxBPMValue,
                     alignment: .center
                 )
-                
+
                 Spacer()
-                
+
                 landscapeStatColumn(
                     title: "Avg BPM",
                     value: avgBPMValue,
-                    alignment: .trailing
+                    alignment: .center
                 )
+
+                Spacer()
+
+                landscapeZoneColumn()
             }
             .padding(.horizontal, 20)
         }
