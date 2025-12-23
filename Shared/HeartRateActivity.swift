@@ -3,55 +3,71 @@ import ActivityKit
 import os.log
 import UIKit
 
+/// Zone information for Live Activity display
+struct ZoneInfo: Codable, Hashable {
+    let name: String      // e.g., "Z1", "Z2", etc.
+    let colorName: String // "gray", "green", "orange", "purple", "red"
+
+    static let zone1 = ZoneInfo(name: "Z1", colorName: "gray")
+    static let zone2 = ZoneInfo(name: "Z2", colorName: "green")
+    static let zone3 = ZoneInfo(name: "Z3", colorName: "orange")
+    static let zone4 = ZoneInfo(name: "Z4", colorName: "purple")
+    static let zone5 = ZoneInfo(name: "Z5", colorName: "red")
+}
+
 @available(iOS 16.1, iOSApplicationExtension 16.1, *)
 struct HeartRateActivityAttributes: ActivityAttributes {
     public struct ContentState: Codable, Hashable {
-        let bpm: Int
+        let bpm: Int?  // nil means disconnected/no data - display dashes
         let average: Int?
         let maximum: Int?
         let minimum: Int?
+        let zone: ZoneInfo?
         let isSharing: Bool
         let isViewing: Bool
         let hasError: Bool
 
-        init(bpm: Int, average: Int?, maximum: Int?, minimum: Int?, isSharing: Bool = false, isViewing: Bool = false, hasError: Bool = false) {
+        init(bpm: Int?, average: Int?, maximum: Int?, minimum: Int?, zone: ZoneInfo? = nil, isSharing: Bool = false, isViewing: Bool = false, hasError: Bool = false) {
             self.bpm = bpm
             self.average = average
             self.maximum = maximum
             self.minimum = minimum
+            self.zone = zone
             self.isSharing = isSharing
             self.isViewing = isViewing
             self.hasError = hasError
         }
-        
+
         enum CodingKeys: String, CodingKey {
-            case bpm, average, maximum, minimum, isSharing, isViewing, hasError
+            case bpm, average, maximum, minimum, zone, isSharing, isViewing, hasError
         }
-        
+
         init(from decoder: Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
-            bpm = try container.decode(Int.self, forKey: .bpm)
+            bpm = try container.decodeIfPresent(Int.self, forKey: .bpm)
             average = try container.decodeIfPresent(Int.self, forKey: .average)
             maximum = try container.decodeIfPresent(Int.self, forKey: .maximum)
             minimum = try container.decodeIfPresent(Int.self, forKey: .minimum)
+            zone = try container.decodeIfPresent(ZoneInfo.self, forKey: .zone)
             isSharing = try container.decodeIfPresent(Bool.self, forKey: .isSharing) ?? false
             isViewing = try container.decodeIfPresent(Bool.self, forKey: .isViewing) ?? false
             hasError = try container.decodeIfPresent(Bool.self, forKey: .hasError) ?? false
         }
-        
+
         func encode(to encoder: Encoder) throws {
             var container = encoder.container(keyedBy: CodingKeys.self)
-            try container.encode(bpm, forKey: .bpm)
+            try container.encodeIfPresent(bpm, forKey: .bpm)
             try container.encodeIfPresent(average, forKey: .average)
             try container.encodeIfPresent(maximum, forKey: .maximum)
             try container.encodeIfPresent(minimum, forKey: .minimum)
+            try container.encodeIfPresent(zone, forKey: .zone)
             try container.encode(isSharing, forKey: .isSharing)
             try container.encode(isViewing, forKey: .isViewing)
             try container.encode(hasError, forKey: .hasError)
         }
 
         var trendDescription: String {
-            guard let average else { return "" }
+            guard let bpm, let average else { return "" }
             if bpm > average + 3 {
                 return "Rising"
             } else if bpm < average - 3 {
@@ -100,7 +116,7 @@ final class HeartRateActivityController {
         isRequestingActivity = false
     }
 
-    func updateActivity(bpm: Int, average: Int?, maximum: Int?, minimum: Int?, isSharing: Bool = false, isViewing: Bool = false, hasError: Bool = false) {
+    func updateActivity(bpm: Int?, average: Int?, maximum: Int?, minimum: Int?, zone: ZoneInfo? = nil, isSharing: Bool = false, isViewing: Bool = false, hasError: Bool = false) {
         guard ActivityAuthorizationInfo().areActivitiesEnabled else { return }
 
         // Restore activity if we don't have one stored (e.g., after app restart)
@@ -113,6 +129,7 @@ final class HeartRateActivityController {
             average: average,
             maximum: maximum,
             minimum: minimum,
+            zone: zone,
             isSharing: isSharing,
             isViewing: isViewing,
             hasError: hasError

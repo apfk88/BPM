@@ -147,24 +147,6 @@ struct PresetConfigurationView: View {
             }
             .listStyle(.plain)
             .scrollContentBackground(.hidden)
-
-            // Clear Preset button (only shown when a preset is loaded)
-            if currentPresetId != nil {
-                Button {
-                    onClearPreset()
-                    isPresented = false
-                } label: {
-                    Text("Clear Preset")
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundColor(.white)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 14)
-                        .background(Color.gray.opacity(0.3))
-                        .cornerRadius(12)
-                }
-                .padding(.horizontal, 20)
-                .padding(.bottom, 20)
-            }
         }
     }
 }
@@ -206,7 +188,7 @@ struct PresetRowView: View {
 
             Text("Total: \(preset.formattedTotalDuration)")
                 .font(.system(size: 14, weight: .medium))
-                .foregroundColor(.green)
+                .foregroundColor(.gray)
         }
         .padding(.vertical, 8)
     }

@@ -313,7 +313,7 @@ class SharingService: ObservableObject {
         #endif
     }
     
-    func updateHeartRate(_ bpm: Int, max: Int?, avg: Int?, min: Int?) {
+    func updateHeartRate(_ bpm: Int?, max: Int?, avg: Int?, min: Int?) {
         guard isSharing, let token = shareToken else { return }
 
         Task {
@@ -323,7 +323,13 @@ class SharingService: ObservableObject {
             request.httpMethod = "POST"
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
-            var body: [String: Any] = ["token": token, "bpm": bpm]
+            var body: [String: Any] = ["token": token]
+            // Send bpm as null when disconnected so viewers see dashes
+            if let bpm = bpm {
+                body["bpm"] = bpm
+            } else {
+                body["bpm"] = NSNull()
+            }
             if let max = max {
                 body["max"] = max
             }
@@ -334,10 +340,10 @@ class SharingService: ObservableObject {
                 body["min"] = min
             }
             request.httpBody = try? JSONSerialization.data(withJSONObject: body)
-            
+
             do {
                 let (_, response) = try await URLSession.shared.data(for: request)
-                
+
                 if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode != 200 {
                     await MainActor.run {
                         if httpResponse.statusCode == 401 {
@@ -475,6 +481,7 @@ class SharingService: ObservableObject {
                                 average: self.friendAvgHeartRate,
                                 maximum: self.friendMaxHeartRate,
                                 minimum: self.friendMinHeartRate,
+                                zone: nil, // Don't show zone for friend's heart rate
                                 isSharing: false,
                                 isViewing: true,
                                 hasError: true
@@ -518,13 +525,13 @@ class SharingService: ObservableObject {
                     // Update activity when viewing friend's heart rate
                     #if canImport(ActivityKit)
                     if #available(iOS 16.1, *) {
-                        // Always update activity, even if bpm is nil (to clear error state)
-                        let bpm = heartRateResponse.bpm ?? (self.friendHeartRate ?? 0)
+                        // Pass nil bpm to show dashes when friend's monitor is disconnected
                         HeartRateActivityController.shared.updateActivity(
-                            bpm: bpm,
+                            bpm: heartRateResponse.bpm,
                             average: heartRateResponse.avg,
                             maximum: heartRateResponse.max,
                             minimum: heartRateResponse.min,
+                            zone: nil, // Don't show zone for friend's heart rate
                             isSharing: false,
                             isViewing: true,
                             hasError: false

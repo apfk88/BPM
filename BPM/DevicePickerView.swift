@@ -127,14 +127,17 @@ struct DevicePickerView: View {
 
     @ViewBuilder
     private var deviceList: some View {
-        if bluetoothManager.isScanning && bluetoothManager.availableDevices.isEmpty {
+        // Check if we have any devices (real or simulator)
+        let hasDevices = !bluetoothManager.availableDevices.isEmpty || bluetoothManager.simulatorDevice != nil
+
+        if bluetoothManager.isScanning && !hasDevices {
             VStack(spacing: 20) {
                 ProgressView()
                 Text("Scanning for heart rate monitors…")
                     .foregroundColor(.secondary)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else if bluetoothManager.availableDevices.isEmpty {
+        } else if !hasDevices {
             VStack(spacing: 12) {
                 Image(systemName: "antenna.radiowaves.left.and.right")
                     .font(.system(size: 60))
@@ -150,10 +153,19 @@ struct DevicePickerView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
-            List(bluetoothManager.availableDevices) { device in
-                DeviceRow(device: device)
-                    .environmentObject(bluetoothManager)
-                    .environmentObject(sharingService)
+            List {
+                // Show simulator device if available
+                if let simDevice = bluetoothManager.simulatorDevice {
+                    SimulatorDeviceRow(device: simDevice)
+                        .environmentObject(bluetoothManager)
+                        .environmentObject(sharingService)
+                }
+                // Show real devices
+                ForEach(bluetoothManager.availableDevices) { device in
+                    DeviceRow(device: device)
+                        .environmentObject(bluetoothManager)
+                        .environmentObject(sharingService)
+                }
             }
         }
     }
@@ -170,7 +182,7 @@ struct DevicePickerView: View {
 
             Spacer()
 
-            if bluetoothManager.connectedDevice != nil {
+            if bluetoothManager.connectedDevice != nil || bluetoothManager.isSimulatorConnected {
                 Button("Disconnect") {
                     bluetoothManager.disconnect()
                 }
@@ -316,6 +328,52 @@ private struct DeviceRow: View {
                 Spacer()
 
                 if isConnected {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundColor(.green)
+                        .font(.title2)
+                }
+            }
+            .padding(.vertical, 8)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+/// Row for displaying the simulator fake device
+private struct SimulatorDeviceRow: View {
+    @EnvironmentObject private var bluetoothManager: HeartRateBluetoothManager
+    @EnvironmentObject private var sharingService: SharingService
+    @Environment(\.dismiss) private var dismiss
+    let device: SimulatorDevice
+
+    var body: some View {
+        Button {
+            if bluetoothManager.isSimulatorConnected {
+                bluetoothManager.disconnectSimulator()
+            } else {
+                sharingService.stopViewing()
+                bluetoothManager.connectSimulator()
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    dismiss()
+                }
+            }
+        } label: {
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(device.name)
+                        .font(.headline)
+                        .foregroundColor(.primary)
+
+                    Text("Simulated Device")
+                        .font(.caption)
+                        .foregroundColor(.orange)
+                }
+
+                Spacer()
+
+                if bluetoothManager.isSimulatorConnected {
                     Image(systemName: "checkmark.circle.fill")
                         .foregroundColor(.green)
                         .font(.title2)

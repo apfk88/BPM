@@ -68,6 +68,12 @@ struct DiscoveredPeripheral: Identifiable, Equatable {
     }
 }
 
+/// Represents a simulated heart rate device for testing in the simulator
+struct SimulatorDevice: Identifiable, Equatable {
+    let id = UUID()
+    let name = "Simulator HR Monitor"
+}
+
 final class HeartRateBluetoothManager: NSObject, ObservableObject {
     @Published var availableDevices: [DiscoveredPeripheral] = []
     @Published var connectedDevice: CBPeripheral?
@@ -78,6 +84,15 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
     @Published var connectionStatus: String = "Not connected"
     @Published var supportsRRIntervals: Bool = false
     @Published private(set) var rrIntervals: [RRInterval] = []
+
+    // Simulator-specific properties
+    @Published var simulatorDevice: SimulatorDevice?
+    @Published var isSimulatorConnected = false
+
+    /// Returns true if there's an active data source (real device connected or simulator connected)
+    var hasActiveDataSource: Bool {
+        connectedDevice != nil || isSimulatorConnected
+    }
 
     private var centralManager: CBCentralManager!
     private let heartRateServiceUUID = CBUUID(string: "180D")
@@ -107,6 +122,14 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
     private let fakeDataUpdateInterval: TimeInterval = 2.0 // Update every 2 seconds
     private let simulatorDeviceIdentifier = UUID() // Fixed identifier for simulator device
 
+    // Auto-reconnect properties
+    private var lastConnectedPeripheralIdentifier: UUID?
+    private var isUserInitiatedDisconnect = false
+    private var reconnectTimer: Timer?
+    private var reconnectAttempts = 0
+    private let maxReconnectAttempts = 100
+    private let reconnectDelay: TimeInterval = 2.0
+
     override init() {
         super.init()
         let options: [String: Any] = [
@@ -132,20 +155,22 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
 
     deinit {
         fakeDataTimer?.invalidate()
+        reconnectTimer?.invalidate()
         NotificationCenter.default.removeObserver(self)
         endBackgroundTask()
     }
 
     func startScanning() {
-        // In simulator, start fake data generation instead of real Bluetooth scanning
+        // In simulator, show fake device in list instead of real Bluetooth scanning
         if isSimulator {
             guard !isScanning else { return }
             isScanning = true
             pendingScanRequest = false
-            startFakeDataGeneration()
+            // Show a fake device that can be "connected"
+            simulatorDevice = SimulatorDevice()
             return
         }
-        
+
         guard centralManager != nil else { return }
         guard centralManager.state == .poweredOn else {
             pendingScanRequest = true
@@ -155,25 +180,47 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
 
         isScanning = true
         pendingScanRequest = false
-        
+
         // Preserve connected device in the list when starting a new scan
         if let connected = connectedDevice {
             availableDevices = availableDevices.filter { $0.id == connected.identifier }
         } else {
             availableDevices = []
         }
-        
+
         // Scan without service filtering to discover devices that don't advertise the Heart Rate Service UUID
         // Some heart rate monitors only expose the service after connection
         centralManager.scanForPeripherals(withServices: nil, options: [CBCentralManagerScanOptionAllowDuplicatesKey: false])
     }
 
+    /// Connect to the simulator fake device
+    func connectSimulator() {
+        guard isSimulator, simulatorDevice != nil else { return }
+        isSimulatorConnected = true
+        connectionStatus = "Connected (Simulator)"
+        startFakeDataGeneration()
+    }
+
+    /// Disconnect from the simulator fake device
+    func disconnectSimulator() {
+        guard isSimulator else { return }
+        isSimulatorConnected = false
+        connectionStatus = "Not connected"
+        stopFakeDataGeneration()
+        currentHeartRate = nil
+        heartRateSamples.removeAll()
+        rrIntervals.removeAll()
+    }
+
     func stopScanning() {
-        // Stop fake data generation if in simulator
+        // In simulator, just stop scanning (don't affect connection)
         if isSimulator {
             guard isScanning else { return }
             isScanning = false
-            stopFakeDataGeneration()
+            // Don't clear simulatorDevice - keep it visible if connected
+            if !isSimulatorConnected {
+                simulatorDevice = nil
+            }
             return
         }
 
@@ -210,7 +257,8 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
 
     func connect(to device: CBPeripheral) {
         stopScanning()
-        
+        cancelReconnectTimer()
+
         // Check device state - if already connected to another device, we can't connect
         if device.state == .connected {
             let msg = "Device is already connected to another device (e.g., your treadmill). Please disconnect it first."
@@ -219,11 +267,14 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
             connectionStatus = "Device busy - disconnect from other device"
             return
         }
-        
+
         connectionStatus = "Connecting..."
         addDebugMessage("Connecting to \(device.name ?? device.identifier.uuidString)... (current state: \(deviceStateDescription(device.state)))")
         connectedDevice = device
-        
+        lastConnectedPeripheralIdentifier = device.identifier
+        isUserInitiatedDisconnect = false
+        reconnectAttempts = 0
+
         // Ensure connected device is in the available devices list
         if !availableDevices.contains(where: { $0.id == device.identifier }) {
             let discoveredPeripheral = DiscoveredPeripheral(
@@ -234,7 +285,7 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
             )
             availableDevices.append(discoveredPeripheral)
         }
-        
+
         centralManager.connect(device, options: nil)
     }
     
@@ -254,10 +305,17 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
     }
 
     func disconnect() {
-        if !isSimulator {
-            if let device = connectedDevice {
-                centralManager.cancelPeripheralConnection(device)
-            }
+        if isSimulator {
+            disconnectSimulator()
+            return
+        }
+
+        isUserInitiatedDisconnect = true
+        cancelReconnectTimer()
+        lastConnectedPeripheralIdentifier = nil
+
+        if let device = connectedDevice {
+            centralManager.cancelPeripheralConnection(device)
         }
         connectedDevice = nil
         currentHeartRate = nil
@@ -331,11 +389,13 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
 #if canImport(ActivityKit)
             if #available(iOS 16.1, *) {
                 Task { @MainActor in
+                    let zone = HeartRateZoneStorage.shared.currentZone(for: value)
                     HeartRateActivityController.shared.updateActivity(
                         bpm: value,
                         average: avg,
                         maximum: max,
                         minimum: min,
+                        zone: zone?.zoneInfo,
                         isSharing: sharingService.isSharing,
                         isViewing: sharingService.isViewing
                     )
@@ -454,6 +514,11 @@ extension HeartRateBluetoothManager: CBCentralManagerDelegate {
     }
 
     func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
+        // Reset reconnect state on successful connection
+        reconnectAttempts = 0
+        cancelReconnectTimer()
+        isUserInitiatedDisconnect = false
+
         let msg = "Connected to \(peripheral.name ?? peripheral.identifier.uuidString)"
         print(msg)
         addDebugMessage(msg)
@@ -465,13 +530,44 @@ extension HeartRateBluetoothManager: CBCentralManagerDelegate {
     }
 
     func centralManager(_ central: CBCentralManager, didDisconnectPeripheral peripheral: CBPeripheral, error: Error?) {
-        if connectedDevice?.identifier == peripheral.identifier {
+        let wasConnectedDevice = connectedDevice?.identifier == peripheral.identifier
+        let willAttemptReconnect = !isUserInitiatedDisconnect && lastConnectedPeripheralIdentifier == peripheral.identifier
+
+        if wasConnectedDevice {
             let msg = error != nil ? "Disconnected: \(error!.localizedDescription)" : "Disconnected"
             print(msg)
             addDebugMessage(msg)
-            connectionStatus = "Disconnected"
             connectedDevice = nil
             currentHeartRate = nil
+
+            // Clear heart rate for sharing viewers (show dashes)
+            sharingService.updateHeartRate(nil, max: nil, avg: nil, min: nil)
+
+            // Update Live Activity to show disconnected state
+#if canImport(ActivityKit)
+            if #available(iOS 16.1, *) {
+                Task { @MainActor in
+                    HeartRateActivityController.shared.updateActivity(
+                        bpm: nil,
+                        average: nil,
+                        maximum: nil,
+                        minimum: nil,
+                        zone: nil,
+                        isSharing: sharingService.isSharing,
+                        isViewing: sharingService.isViewing
+                    )
+                }
+            }
+#endif
+
+            // Attempt auto-reconnect if this wasn't a user-initiated disconnect
+            if willAttemptReconnect {
+                connectionStatus = "Disconnected - Reconnecting..."
+                scheduleReconnect(to: peripheral)
+                return
+            }
+
+            connectionStatus = "Disconnected"
         }
 
         startScanning()
@@ -500,15 +596,23 @@ extension HeartRateBluetoothManager: CBCentralManagerDelegate {
         } else {
             msg = "Failed to connect: Unknown error. Device may be connected to another device."
         }
-        
+
         print(msg)
         addDebugMessage(msg)
-        connectionStatus = "Connection failed - device may be in use"
-        
+
         if connectedDevice?.identifier == peripheral.identifier {
             connectedDevice = nil
         }
-        
+
+        // If we were trying to auto-reconnect, schedule another attempt
+        if !isUserInitiatedDisconnect && lastConnectedPeripheralIdentifier == peripheral.identifier {
+            connectionStatus = "Connection failed - Retrying..."
+            scheduleReconnect(to: peripheral)
+            return
+        }
+
+        connectionStatus = "Connection failed - device may be in use"
+
         // Retry scanning after a short delay
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
             self?.startScanning()
@@ -723,8 +827,66 @@ extension HeartRateBluetoothManager: CBPeripheralDelegate {
         return parseHeartRateData(from: data).heartRate
     }
     
+    // MARK: - Auto-Reconnect
+
+    private func scheduleReconnect(to peripheral: CBPeripheral) {
+        guard reconnectAttempts < maxReconnectAttempts else {
+            let msg = "Max reconnect attempts (\(maxReconnectAttempts)) reached. Please reconnect manually."
+            print(msg)
+            addDebugMessage(msg)
+            connectionStatus = "Disconnected - Reconnect failed"
+            lastConnectedPeripheralIdentifier = nil
+            reconnectAttempts = 0
+            startScanning()
+            return
+        }
+
+        reconnectAttempts += 1
+        let msg = "Scheduling reconnect attempt \(reconnectAttempts)/\(maxReconnectAttempts) in \(reconnectDelay)s..."
+        print(msg)
+        addDebugMessage(msg)
+
+        // Keep the background task alive during reconnection attempts
+        beginBackgroundTaskIfNeeded()
+
+        reconnectTimer = Timer.scheduledTimer(withTimeInterval: reconnectDelay, repeats: false) { [weak self] _ in
+            self?.attemptReconnect(to: peripheral)
+        }
+    }
+
+    private func attemptReconnect(to peripheral: CBPeripheral) {
+        guard centralManager.state == .poweredOn else {
+            let msg = "Bluetooth not ready, will retry when powered on"
+            print(msg)
+            addDebugMessage(msg)
+            pendingScanRequest = true
+            return
+        }
+
+        guard lastConnectedPeripheralIdentifier == peripheral.identifier else {
+            let msg = "Reconnect cancelled - different device selected"
+            print(msg)
+            addDebugMessage(msg)
+            return
+        }
+
+        let msg = "Attempting to reconnect (attempt \(reconnectAttempts)/\(maxReconnectAttempts))..."
+        print(msg)
+        addDebugMessage(msg)
+        connectionStatus = "Reconnecting (\(reconnectAttempts)/\(maxReconnectAttempts))..."
+
+        // Store reference and attempt connection
+        connectedDevice = peripheral
+        centralManager.connect(peripheral, options: nil)
+    }
+
+    private func cancelReconnectTimer() {
+        reconnectTimer?.invalidate()
+        reconnectTimer = nil
+    }
+
     // MARK: - Simulator Test Mode
-    
+
     private func startFakeDataGeneration() {
         // Ensure we're on main thread
         DispatchQueue.main.async { [weak self] in

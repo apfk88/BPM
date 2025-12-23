@@ -15,8 +15,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   if (req.method === 'POST') {
     const { token, bpm, max, avg, min } = req.body;
 
-    if (!token || typeof bpm !== 'number') {
-      return res.status(400).json({ error: 'Missing token or bpm' });
+    // bpm can be a number or null (null means disconnected/no data)
+    if (!token || (bpm !== null && typeof bpm !== 'number')) {
+      return res.status(400).json({ error: 'Missing token or invalid bpm' });
     }
 
     const code = await kv.get(`token:${token}`);

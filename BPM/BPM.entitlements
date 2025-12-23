@@ -6,5 +6,9 @@
         <true/>
         <key>com.apple.developer.bluetooth-peripheral</key>
         <true/>
+        <key>com.apple.developer.in-app-payments</key>
+        <array>
+                <string>merchant.com.bpmapp.client</string>
+        </array>
 </dict>
 </plist>

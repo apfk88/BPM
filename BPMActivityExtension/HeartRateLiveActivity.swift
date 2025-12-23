@@ -17,7 +17,7 @@ struct HeartRateLiveActivity: Widget {
                         Text("BPM")
                             .font(.caption)
                             .foregroundStyle(.secondary)
-                        Text("\(context.state.bpm)")
+                        Text(context.state.bpm.map { "\($0)" } ?? "--")
                             .font(.system(size: 44, weight: .bold, design: .monospaced))
                     }
                 }
@@ -48,7 +48,7 @@ struct HeartRateLiveActivity: Widget {
                     return .white
                 }()
 
-                Text("\(context.state.bpm)")
+                Text(context.state.bpm.map { "\($0)" } ?? "--")
                     .font(.system(size: 20, weight: .semibold, design: .monospaced))
                     .foregroundColor(textColor)
             } compactTrailing: {
@@ -63,7 +63,7 @@ struct HeartRateLiveActivity: Widget {
                     return .white
                 }()
 
-                Text("\(context.state.bpm)")
+                Text(context.state.bpm.map { "\($0)" } ?? "--")
                     .font(.system(size: 12, weight: .semibold, design: .monospaced))
                     .foregroundColor(textColor)
             }
@@ -93,16 +93,16 @@ private struct HeartRateLiveActivityView: View {
                         .font(.system(size: 28))
                         .foregroundColor(content.isViewing ? .green : .white)
                 }
-                
-                // BPM number
-                Text("\(content.bpm)")
+
+                // BPM number (show "--" when disconnected)
+                Text(content.bpm.map { "\($0)" } ?? "--")
                     .font(.system(size: 56, weight: .bold, design: .monospaced))
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
             }
-            
+
             Spacer()
-            
+
             // Stats on the right, horizontal
             HStack(spacing: 20) {
                 if let max = content.maximum {
@@ -113,6 +113,9 @@ private struct HeartRateLiveActivityView: View {
                 }
                 if let avg = content.average {
                     StatValue(label: "Avg", value: avg)
+                }
+                if let zone = content.zone {
+                    ZoneValue(zone: zone)
                 }
             }
         }
@@ -149,6 +152,36 @@ private struct StatValue: View {
                 .lineLimit(1)
             Text("\(value)")
                 .font(.system(size: 24, weight: .bold, design: .monospaced))
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+        }
+    }
+}
+
+@available(iOSApplicationExtension 16.1, *)
+private struct ZoneValue: View {
+    let zone: ZoneInfo
+
+    private var zoneColor: Color {
+        switch zone.colorName {
+        case "gray": return .gray
+        case "green": return .green
+        case "orange": return .orange
+        case "purple": return .purple
+        case "red": return .red
+        default: return .white
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Zone")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+            Text(zone.name)
+                .font(.system(size: 24, weight: .bold, design: .monospaced))
+                .foregroundColor(zoneColor)
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
         }

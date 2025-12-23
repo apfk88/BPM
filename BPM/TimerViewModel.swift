@@ -8,6 +8,7 @@
 import Foundation
 import Combine
 import AudioToolbox
+import AVFoundation
 
 enum TimerState {
     case idle
@@ -162,7 +163,8 @@ final class TimerViewModel: ObservableObject {
     private var cooldownEndHeartRate: Int? // Heart rate at end of cooldown (2 minutes)
     private var presetPhaseStartTime: Date? // When current preset phase started
     private var presetPhasePausedTime: TimeInterval = 0 // Time paused in current phase
-    
+    private var audioPlayer: AVAudioPlayer? // For playing sounds that bypass silent mode
+
     var currentHeartRate: (() -> Int?)?
     
     var avgSetTime: TimeInterval? {
@@ -834,8 +836,41 @@ final class TimerViewModel: ObservableObject {
 
     private func playPhaseEndSound() {
         guard let preset = activePreset, preset.playSound else { return }
-        // Play system sound (tri-tone alert)
-        AudioServicesPlaySystemSound(1007)
+
+        // Configure audio session to play sound even when device is silenced
+        do {
+            try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, options: [.duckOthers])
+            try AVAudioSession.sharedInstance().setActive(true)
+        } catch {
+            // Fall back to system sound if audio session fails
+            AudioServicesPlaySystemSound(1013) // bell
+            return
+        }
+
+        // Work ending -> 1 bell (rest time)
+        // Rest ending -> 2 bells (work time)
+        let bellCount = presetPhase == .work ? 1 : 2
+        playBells(count: bellCount)
+    }
+
+    private func playBells(count: Int, current: Int = 0) {
+        guard current < count else { return }
+
+        let soundURL = URL(fileURLWithPath: "/System/Library/Audio/UISounds/sms-received1.caf")
+        do {
+            audioPlayer = try AVAudioPlayer(contentsOf: soundURL)
+            audioPlayer?.prepareToPlay()
+            audioPlayer?.play()
+
+            if current + 1 < count {
+                // Schedule next bell after a short delay
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+                    self?.playBells(count: count, current: current + 1)
+                }
+            }
+        } catch {
+            AudioServicesPlaySystemSound(1013)
+        }
     }
 
     private func advancePresetPhase() {
@@ -863,20 +898,19 @@ final class TimerViewModel: ObservableObject {
                 presetPausedTime = 0
                 isTimingRestSet = true
 
-                // Create rest set record
+                // Create rest set record - use lastSetEndTime which is set to exact duration
                 let heartRate = currentHeartRate?()
                 let restSetRecord = SetRecord(
                     setNumber: presetCurrentSet,
                     setTime: 0,
                     heartRate: heartRate,
-                    totalTime: elapsedTime,
+                    totalTime: lastSetEndTime,
                     isRestSet: true,
                     isCooldownSet: false,
                     associatedWorkSetNumber: presetCurrentSet
                 )
                 sets.append(restSetRecord)
                 currentRestAssociatedWorkSetNumber = presetCurrentSet
-                lastSetEndTime = elapsedTime
             }
         } else if presetPhase == .rest {
             // Capture the rest set
@@ -896,13 +930,18 @@ final class TimerViewModel: ObservableObject {
     private var presetPausedTime: TimeInterval = 0
 
     private func capturePresetSet() {
-        guard let startTime = startTime else { return }
+        guard let preset = activePreset else { return }
 
-        let currentTotalTime = state == .paused ? elapsedTime : Date().timeIntervalSince(startTime)
-        let segmentTime = max(0, currentTotalTime - lastSetEndTime)
+        // Use exact preset duration instead of actual elapsed time to avoid drift
+        let segmentTime = preset.workDuration
         let heartRate = currentHeartRate?()
 
         setCounter += 1
+
+        // Calculate total time based on completed sets
+        let previousTotalTime = sets.last?.totalTime ?? 0
+        let currentTotalTime = previousTotalTime + segmentTime
+
         let workSetRecord = SetRecord(
             setNumber: setCounter,
             setTime: segmentTime,
@@ -919,11 +958,15 @@ final class TimerViewModel: ObservableObject {
     }
 
     private func capturePresetRestSet() {
-        guard let startTime = startTime else { return }
+        guard let preset = activePreset else { return }
 
-        let currentTotalTime = state == .paused ? elapsedTime : Date().timeIntervalSince(startTime)
-        let segmentTime = max(0, currentTotalTime - lastSetEndTime)
+        // Use exact preset duration instead of actual elapsed time to avoid drift
+        let segmentTime = preset.restDuration
         let heartRate = currentHeartRate?()
+
+        // Calculate total time based on last set
+        let previousTotalTime = sets.last?.totalTime ?? 0
+        let currentTotalTime = previousTotalTime + segmentTime
 
         // Update the existing rest set record
         if let lastRestSetIndex = sets.lastIndex(where: { $0.isRestSet && !$0.isCooldownSet && $0.associatedWorkSetNumber == currentRestAssociatedWorkSetNumber }) {

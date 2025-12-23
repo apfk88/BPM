@@ -1,0 +1,104 @@
+{
+  "identifier" : "5E0A9C8B-6D4F-4E2A-B8C1-3F7D9A1E5B2C",
+  "nonRenewingSubscriptions" : [
+
+  ],
+  "products" : [
+
+  ],
+  "settings" : {
+    "_applicationInternalID" : "6740611044",
+    "_developerTeamID" : "HQXE8W9HH3",
+    "_failTransactionsEnabled" : false,
+    "_lastSynchronizedDate" : 756691200,
+    "_locale" : "en_US",
+    "_storefront" : "USA",
+    "_storeKitErrors" : [
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "Load Products"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "Purchase"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "Verification"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "App Store Sync"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "Subscription Status"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "App Transaction"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "Manage Subscriptions Sheet"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "Refund Request Sheet"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "Offer Code Redeem Sheet"
+      }
+    ]
+  },
+  "subscriptionGroups" : [
+    {
+      "id" : "BPMSharingGroup",
+      "localizations" : [
+
+      ],
+      "name" : "BPM Sharing",
+      "subscriptions" : [
+        {
+          "adHocOffers" : [
+
+          ],
+          "codeOffers" : [
+
+          ],
+          "displayPrice" : "0.99",
+          "familyShareable" : false,
+          "groupNumber" : 1,
+          "internalID" : "com.bpmapp.client.sharing.monthly",
+          "introductoryOffer" : null,
+          "localizations" : [
+            {
+              "description" : "Live stream your heart rate to another BPM user",
+              "displayName" : "BPM Sharing",
+              "locale" : "en_US"
+            }
+          ],
+          "productID" : "com.bpmapp.client.sharing.monthly",
+          "recurringSubscriptionPeriod" : "P1M",
+          "referenceName" : "Monthly Sharing",
+          "subscriptionGroupID" : "BPMSharingGroup",
+          "type" : "RecurringSubscription"
+        }
+      ]
+    }
+  ],
+  "version" : {
+    "major" : 3,
+    "minor" : 0
+  }
+}

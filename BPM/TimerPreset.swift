@@ -50,6 +50,7 @@ final class PresetStorage: ObservableObject {
     @Published var presets: [TimerPreset] = []
 
     private let userDefaultsKey = "timerPresets"
+    private let seededKey = "timerPresetsSeeded"
 
     private init() {
         loadPresets()
@@ -70,11 +71,41 @@ final class PresetStorage: ObservableObject {
     }
 
     private func loadPresets() {
-        guard let data = UserDefaults.standard.data(forKey: userDefaultsKey),
-              let decoded = try? JSONDecoder().decode([TimerPreset].self, from: data) else {
+        // Check if we have existing presets
+        if let data = UserDefaults.standard.data(forKey: userDefaultsKey),
+           let decoded = try? JSONDecoder().decode([TimerPreset].self, from: data) {
+            presets = decoded
             return
         }
-        presets = decoded
+
+        // No saved presets - seed defaults on first launch only
+        if !UserDefaults.standard.bool(forKey: seededKey) {
+            seedDefaultPresets()
+        }
+    }
+
+    private func seedDefaultPresets() {
+        let defaults = [
+            TimerPreset(
+                name: "Norwegian 4x4",
+                workDuration: 240,  // 4 minutes
+                restDuration: 180,  // 3 minutes
+                numberOfSets: 4,
+                includeCooldown: true,
+                playSound: true
+            ),
+            TimerPreset(
+                name: "10x1",
+                workDuration: 60,   // 1 minute
+                restDuration: 60,   // 1 minute
+                numberOfSets: 10,
+                includeCooldown: false,
+                playSound: true
+            )
+        ]
+        presets = defaults
+        persistPresets()
+        UserDefaults.standard.set(true, forKey: seededKey)
     }
 
     private func persistPresets() {

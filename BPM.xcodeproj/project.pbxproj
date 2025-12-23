@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		412019AB2EFA57960014B446 /* StoreKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 412019AA2EFA57960014B446 /* StoreKit.framework */; };
 		41EB7C092EB8547D003F2D59 /* BPMActivityExtension.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = 41EB7C002EB8547D003F2D59 /* BPMActivityExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
@@ -42,6 +43,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		412019AA2EFA57960014B446 /* StoreKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = StoreKit.framework; path = System/Library/Frameworks/StoreKit.framework; sourceTree = SDKROOT; };
 		41EB7BC02EB8547B003F2D59 /* BPM.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BPM.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		41EB7BD42EB8547C003F2D59 /* BPMTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = BPMTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		41EB7BDE2EB8547C003F2D59 /* BPMUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = BPMUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -104,6 +106,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				412019AB2EFA57960014B446 /* StoreKit.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -131,6 +134,14 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		412019A92EFA57960014B446 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				412019AA2EFA57960014B446 /* StoreKit.framework */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
 		41EB7BB72EB8547B003F2D59 = {
 			isa = PBXGroup;
 			children = (
@@ -139,6 +150,7 @@
 				41EB7BE12EB8547C003F2D59 /* BPMUITests */,
 				41EB7C012EB8547D003F2D59 /* BPMActivityExtension */,
 				41EB7C1A2EB8547D003F2D59 /* Shared */,
+				412019A92EFA57960014B446 /* Frameworks */,
 				41EB7BC12EB8547B003F2D59 /* Products */,
 			);
 			sourceTree = "<group>";

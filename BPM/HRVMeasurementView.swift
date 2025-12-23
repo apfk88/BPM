@@ -30,6 +30,10 @@ struct HRVMeasurementView: View {
     private var heartButtonColor: Color {
         (sharingService.isViewing) ? .green : .white
     }
+
+    private var heartIconName: String {
+        bluetoothManager.connectedDevice != nil ? "heart.fill" : "heart"
+    }
     
     private var buttonText: String {
         if viewModel.hasError {
@@ -54,7 +58,7 @@ struct HRVMeasurementView: View {
                         Button {
                             showDevicePicker = true
                         } label: {
-                            Image(systemName: "heart.fill")
+                            Image(systemName: heartIconName)
                                 .font(.system(size: 20))
                                 .foregroundColor(heartButtonColor)
                                 .padding(12)

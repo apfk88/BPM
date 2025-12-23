@@ -94,6 +94,10 @@ struct HeartRateDisplayView: View {
     @State private var timerBPMDisplay: TimerBPMDisplay = .avg
     @State private var showChart = false
     @State private var showPresetSheet = false
+    @State private var showPaywall = false
+    @State private var showZoneConfig = false
+    @StateObject private var subscriptionManager = SubscriptionManager.shared
+    @StateObject private var zoneStorage = HeartRateZoneStorage.shared
 
     private var isPad: Bool {
         UIDevice.current.userInterfaceIdiom == .pad
@@ -129,6 +133,12 @@ struct HeartRateDisplayView: View {
                     timerViewModel.clearPreset()
                 }
             )
+        }
+        .sheet(isPresented: $showPaywall) {
+            SharePaywallView()
+        }
+        .sheet(isPresented: $showZoneConfig) {
+            HeartRateZoneConfigView(isPresented: $showZoneConfig)
         }
         .alert("Disconnect Sharing", isPresented: $showDisconnectAlert) {
             Button("Cancel", role: .cancel) { }
@@ -253,17 +263,19 @@ struct HeartRateDisplayView: View {
             timerModeLayout(geometry: geometry, isLandscape: true)
         } else if useSideLayout {
             HStack(spacing: 0) {
-                // BPM display on the left, taking most of the space
-                heartRateDisplay(size: geometry.size, isLandscape: true)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                
-                // Stats/buttons bar on the right side, vertically arranged
+                // Left side: BPM display with stats below
                 VStack(spacing: 0) {
-                    Spacer()
-                    statsBar(isLandscape: true, screenWidth: geometry.size.width)
-                        .padding(.trailing, geometry.safeAreaInsets.trailing)
-                    Spacer()
+                    Spacer(minLength: isPad ? 40 : 20)
+                    heartRateDisplay(size: geometry.size, isLandscape: true)
+                    landscapeStatsRow(screenWidth: geometry.size.width)
+                        .padding(.bottom, isPad ? 40 : 20)
+                    Spacer(minLength: isPad ? 80 : 40)
                 }
+                .frame(maxWidth: .infinity)
+
+                // Right side: Buttons vertically arranged
+                landscapeButtonsColumn(screenWidth: geometry.size.width)
+                    .padding(.trailing, geometry.safeAreaInsets.trailing)
             }
             .overlay(alignment: .top) {
                 VStack(spacing: 8) {
@@ -322,9 +334,19 @@ struct HeartRateDisplayView: View {
     @ViewBuilder
     private func heartRateDisplay(size: CGSize, isLandscape: Bool) -> some View {
         // Base font size anchored to screen height, but cap by width to fit 3 digits comfortably
-        let baseFontSize = isLandscape
-            ? min(size.width * 0.25, size.height * 0.6)
-            : size.height * 0.65
+        // iPad in landscape gets larger sizing
+        let baseFontSize: CGFloat = {
+            if isLandscape {
+                if isPad {
+                    // iPad landscape: allow bigger BPM display
+                    return min(size.width * 0.35, size.height * 0.7)
+                } else {
+                    return min(size.width * 0.25, size.height * 0.6)
+                }
+            } else {
+                return size.height * 0.65
+            }
+        }()
 
         // Measure width of the widest expected value (three digits) at the base font size
         let referenceText = "888"
@@ -332,7 +354,16 @@ struct HeartRateDisplayView: View {
         let baseWidth = referenceText.size(withAttributes: [.font: baseUIFont]).width
 
         // Leave some horizontal padding so the number never abuts the edges
-        let horizontalAllowance = isLandscape ? size.width * 0.4 : size.width * 0.9
+        // iPad in landscape gets more allowance since BPM is on left side
+        let horizontalAllowance: CGFloat = {
+            if isLandscape && isPad {
+                return size.width * 0.5
+            } else if isLandscape {
+                return size.width * 0.4
+            } else {
+                return size.width * 0.9
+            }
+        }()
         let fittedFontSize = baseWidth > 0
             ? min(baseFontSize, horizontalAllowance / baseWidth * baseFontSize)
             : baseFontSize
@@ -358,6 +389,10 @@ struct HeartRateDisplayView: View {
 
     private var heartButtonColor: Color {
         (appMode == .friendCode && sharingService.isViewing) ? .green : .white
+    }
+
+    private var heartIconName: String {
+        bluetoothManager.connectedDevice != nil ? "heart.fill" : "heart"
     }
 
     private func formattedShareCode(_ code: String) -> String {
@@ -439,7 +474,7 @@ struct HeartRateDisplayView: View {
     }
 
     private var shouldShowConnectionPrompt: Bool {
-        let hasDeviceConnection = bluetoothManager.connectedDevice != nil
+        let hasDeviceConnection = bluetoothManager.hasActiveDataSource
         let hasFriendConnection = sharingService.isViewing && sharingService.friendCode != nil
         return !hasDeviceConnection && !hasFriendConnection
     }
@@ -458,32 +493,39 @@ struct HeartRateDisplayView: View {
                 if isLandscape {
                     // Landscape mode - stats centered, buttons in 2x2 grid
                     VStack(spacing: max(16.0, 20.0 * scaleFactor)) {
-                        // Stats row: Avg, Min, Max - centered and evenly distributed
+                        // Stats row: Avg, Min, Max, Zone - equal width columns
                         HStack(spacing: 0) {
-                            Spacer()
                             statColumn(
-                                title: "Avg BPM",
+                                title: "Avg",
                                 value: bluetoothManager.avgHeartRateLastHour,
                                 scaleFactor: 1.0,
                                 isLandscape: true
                             )
-                            Spacer()
+                            .frame(maxWidth: .infinity)
                             statColumn(
-                                title: "Min BPM",
+                                title: "Min",
                                 value: bluetoothManager.minHeartRateLastHour,
                                 scaleFactor: 1.0,
                                 isLandscape: true
                             )
-                            Spacer()
+                            .frame(maxWidth: .infinity)
                             statColumn(
-                                title: "Max BPM",
+                                title: "Max",
                                 value: bluetoothManager.maxHeartRateLastHour,
                                 scaleFactor: 1.0,
                                 isLandscape: true
                             )
-                            Spacer()
+                            .frame(maxWidth: .infinity)
+                            zoneStatColumn(
+                                heartRate: displayedHeartRate,
+                                scaleFactor: 1.0,
+                                isLandscape: true
+                            ) {
+                                showZoneConfig = true
+                            }
+                            .frame(maxWidth: .infinity)
                         }
-                        
+
                         // Buttons in 2x2 grid
                         VStack(spacing: max(12.0, 16.0 * scaleFactor)) {
                             HStack(spacing: max(12.0, 16.0 * scaleFactor)) {
@@ -491,7 +533,7 @@ struct HeartRateDisplayView: View {
                                     showDevicePicker = true
                                 } label: {
                                     VStack(spacing: 4) {
-                                        Image(systemName: "heart.fill")
+                                        Image(systemName: heartIconName)
                                             .font(.system(size: scaledButtonSize))
                                         Text("Device")
                                             .font(.system(size: max(12.0, 14.0 * scaleFactor), weight: .medium))
@@ -504,21 +546,26 @@ struct HeartRateDisplayView: View {
                                             .fill(Color.gray.opacity(0.3))
                                     )
                                 }
-                                
+
                                 Button {
                                     if sharingService.isSharing {
                                         showDisconnectAlert = true
                                     } else {
-                                        if bluetoothManager.connectedDevice == nil {
-                                            sharingService.errorMessage = "Please connect a heart rate device before sharing."
-                                            sharingService.errorContext = .sharing
-                                        } else {
-                                            Task {
-                                                do {
-                                                    try await sharingService.startSharing()
-                                                } catch {
-                                                    // Error handled by sharingService
+                                        Task {
+                                            let canShare = await subscriptionManager.canShare()
+                                            if canShare {
+                                                if !bluetoothManager.hasActiveDataSource {
+                                                    sharingService.errorMessage = "Please connect a heart rate device before sharing."
+                                                    sharingService.errorContext = .sharing
+                                                } else {
+                                                    do {
+                                                        try await sharingService.startSharing()
+                                                    } catch {
+                                                        // Error handled by sharingService
+                                                    }
                                                 }
+                                            } else {
+                                                showPaywall = true
                                             }
                                         }
                                     }
@@ -526,8 +573,14 @@ struct HeartRateDisplayView: View {
                                     VStack(spacing: 4) {
                                         Image(systemName: "antenna.radiowaves.left.and.right")
                                             .font(.system(size: scaledButtonSize))
-                                        Text("Share")
-                                            .font(.system(size: max(12.0, 14.0 * scaleFactor), weight: .medium))
+                                        HStack(spacing: 2) {
+                                            if !subscriptionManager.isSubscribed && !sharingService.isSharing {
+                                                Image(systemName: "lock.fill")
+                                                    .font(.system(size: max(8, 10 * scaleFactor)))
+                                            }
+                                            Text("Share")
+                                        }
+                                        .font(.system(size: max(12.0, 14.0 * scaleFactor), weight: .medium))
                                     }
                                     .foregroundColor(sharingService.isSharing ? .green : .white)
                                     .frame(maxWidth: .infinity)
@@ -538,7 +591,7 @@ struct HeartRateDisplayView: View {
                                     )
                                 }
                             }
-                            
+
                             HStack(spacing: max(12.0, 16.0 * scaleFactor)) {
                                 Button {
                                     isTimerMode.toggle()
@@ -593,39 +646,46 @@ struct HeartRateDisplayView: View {
                 } else {
                     // Portrait mode - stats above buttons
                     VStack(spacing: max(12.0, 16.0 * scaleFactor)) {
-                        // Stats row: Avg, Min, Max - centered and evenly distributed
+                        // Stats row: Avg, Min, Max, Zone - equal width columns
                         HStack(spacing: 0) {
-                            Spacer()
                             statColumn(
-                                title: "Avg BPM",
+                                title: "Avg",
                                 value: bluetoothManager.avgHeartRateLastHour,
                                 scaleFactor: scaleFactor,
                                 isLandscape: false
                             )
-                            Spacer()
+                            .frame(maxWidth: .infinity)
                             statColumn(
-                                title: "Min BPM",
+                                title: "Min",
                                 value: bluetoothManager.minHeartRateLastHour,
                                 scaleFactor: scaleFactor,
                                 isLandscape: false
                             )
-                            Spacer()
+                            .frame(maxWidth: .infinity)
                             statColumn(
-                                title: "Max BPM",
+                                title: "Max",
                                 value: bluetoothManager.maxHeartRateLastHour,
                                 scaleFactor: scaleFactor,
                                 isLandscape: false
                             )
-                            Spacer()
+                            .frame(maxWidth: .infinity)
+                            zoneStatColumn(
+                                heartRate: displayedHeartRate,
+                                scaleFactor: scaleFactor,
+                                isLandscape: false
+                            ) {
+                                showZoneConfig = true
+                            }
+                            .frame(maxWidth: .infinity)
                         }
-                        
-                        // Buttons row with labels
-                        HStack(spacing: max(8.0, 12.0 * scaleFactor)) {
+
+                        // Buttons row with labels - equal width
+                        HStack(spacing: max(6.0, 8.0 * scaleFactor)) {
                             Button {
                                 showDevicePicker = true
                             } label: {
                                 VStack(spacing: 4) {
-                                    Image(systemName: "heart.fill")
+                                    Image(systemName: heartIconName)
                                         .font(.system(size: scaledButtonSize))
                                     Text("Device")
                                         .font(.system(size: max(10.0, 12.0 * scaleFactor), weight: .medium))
@@ -638,21 +698,26 @@ struct HeartRateDisplayView: View {
                                         .fill(Color.gray.opacity(0.3))
                                 )
                             }
-                            
+
                             Button {
                                 if sharingService.isSharing {
                                     showDisconnectAlert = true
                                 } else {
-                                    if bluetoothManager.connectedDevice == nil {
-                                        sharingService.errorMessage = "Please connect a heart rate device before sharing."
-                                        sharingService.errorContext = .sharing
-                                    } else {
-                                        Task {
-                                            do {
-                                                try await sharingService.startSharing()
-                                            } catch {
-                                                // Error handled by sharingService
+                                    Task {
+                                        let canShare = await subscriptionManager.canShare()
+                                        if canShare {
+                                            if !bluetoothManager.hasActiveDataSource {
+                                                sharingService.errorMessage = "Please connect a heart rate device before sharing."
+                                                sharingService.errorContext = .sharing
+                                            } else {
+                                                do {
+                                                    try await sharingService.startSharing()
+                                                } catch {
+                                                    // Error handled by sharingService
+                                                }
                                             }
+                                        } else {
+                                            showPaywall = true
                                         }
                                     }
                                 }
@@ -660,8 +725,14 @@ struct HeartRateDisplayView: View {
                                 VStack(spacing: 4) {
                                     Image(systemName: "antenna.radiowaves.left.and.right")
                                         .font(.system(size: scaledButtonSize))
-                                    Text("Share")
-                                        .font(.system(size: max(10.0, 12.0 * scaleFactor), weight: .medium))
+                                    HStack(spacing: 2) {
+                                        if !subscriptionManager.isSubscribed && !sharingService.isSharing {
+                                            Image(systemName: "lock.fill")
+                                                .font(.system(size: max(8, 10 * scaleFactor)))
+                                        }
+                                        Text("Share")
+                                    }
+                                    .font(.system(size: max(10.0, 12.0 * scaleFactor), weight: .medium))
                                 }
                                 .foregroundColor(sharingService.isSharing ? .green : .white)
                                 .frame(maxWidth: .infinity)
@@ -671,7 +742,7 @@ struct HeartRateDisplayView: View {
                                         .fill(Color.gray.opacity(0.3))
                                 )
                             }
-                            
+
                             Button {
                                 isTimerMode.toggle()
                                 if !isTimerMode {
@@ -727,32 +798,31 @@ struct HeartRateDisplayView: View {
                 if isLandscape {
                     // Landscape mode - stats centered, buttons in 2x2 grid
                     VStack(spacing: max(16.0, 20.0 * scaleFactor)) {
-                        // Stats row: Avg, Min, Max - centered and evenly distributed
+                        // Stats row: Avg, Min, Max - equal width columns
                         HStack(spacing: 0) {
-                            Spacer()
                             statColumn(
-                                title: "Avg BPM",
+                                title: "Avg",
                                 value: sharingService.friendAvgHeartRate,
                                 scaleFactor: 1.0,
                                 isLandscape: true
                             )
-                            Spacer()
+                            .frame(maxWidth: .infinity)
                             statColumn(
-                                title: "Min BPM",
+                                title: "Min",
                                 value: sharingService.friendMinHeartRate,
                                 scaleFactor: 1.0,
                                 isLandscape: true
                             )
-                            Spacer()
+                            .frame(maxWidth: .infinity)
                             statColumn(
-                                title: "Max BPM",
+                                title: "Max",
                                 value: sharingService.friendMaxHeartRate,
                                 scaleFactor: 1.0,
                                 isLandscape: true
                             )
-                            Spacer()
+                            .frame(maxWidth: .infinity)
                         }
-                        
+
                         // Buttons in 2x2 grid
                         VStack(spacing: max(12.0, 16.0 * scaleFactor)) {
                             HStack(spacing: max(12.0, 16.0 * scaleFactor)) {
@@ -760,7 +830,7 @@ struct HeartRateDisplayView: View {
                                     showDevicePicker = true
                                 } label: {
                                     VStack(spacing: 4) {
-                                        Image(systemName: "heart.fill")
+                                        Image(systemName: heartIconName)
                                             .font(.system(size: scaledButtonSize))
                                         Text("Device")
                                             .font(.system(size: max(12.0, 14.0 * scaleFactor), weight: .medium))
@@ -773,7 +843,7 @@ struct HeartRateDisplayView: View {
                                             .fill(Color.gray.opacity(0.3))
                                     )
                                 }
-                                
+
                                 Button {
                                     // Disabled - no action
                                 } label: {
@@ -848,39 +918,38 @@ struct HeartRateDisplayView: View {
                 } else {
                     // Portrait mode - stats above buttons
                     VStack(spacing: max(12.0, 16.0 * scaleFactor)) {
-                        // Stats row: Avg, Min, Max - centered and evenly distributed
+                        // Stats row: Avg, Min, Max - equal width columns
                         HStack(spacing: 0) {
-                            Spacer()
                             statColumn(
-                                title: "Avg BPM",
+                                title: "Avg",
                                 value: sharingService.friendAvgHeartRate,
                                 scaleFactor: scaleFactor,
                                 isLandscape: false
                             )
-                            Spacer()
+                            .frame(maxWidth: .infinity)
                             statColumn(
-                                title: "Min BPM",
+                                title: "Min",
                                 value: sharingService.friendMinHeartRate,
                                 scaleFactor: scaleFactor,
                                 isLandscape: false
                             )
-                            Spacer()
+                            .frame(maxWidth: .infinity)
                             statColumn(
-                                title: "Max BPM",
+                                title: "Max",
                                 value: sharingService.friendMaxHeartRate,
                                 scaleFactor: scaleFactor,
                                 isLandscape: false
                             )
-                            Spacer()
+                            .frame(maxWidth: .infinity)
                         }
-                        
-                        // Buttons row with labels
-                        HStack(spacing: max(8.0, 12.0 * scaleFactor)) {
+
+                        // Buttons row with labels - equal width
+                        HStack(spacing: max(6.0, 8.0 * scaleFactor)) {
                             Button {
                                 showDevicePicker = true
                             } label: {
                                 VStack(spacing: 4) {
-                                    Image(systemName: "heart.fill")
+                                    Image(systemName: heartIconName)
                                         .font(.system(size: scaledButtonSize))
                                     Text("Device")
                                         .font(.system(size: max(10.0, 12.0 * scaleFactor), weight: .medium))
@@ -893,7 +962,7 @@ struct HeartRateDisplayView: View {
                                         .fill(Color.gray.opacity(0.3))
                                 )
                             }
-                            
+
                             Button {
                                 // Disabled - no action
                             } label: {
@@ -912,7 +981,7 @@ struct HeartRateDisplayView: View {
                                 )
                             }
                             .disabled(true)
-                            
+
                             Button {
                                 isTimerMode.toggle()
                                 if !isTimerMode {
@@ -934,7 +1003,7 @@ struct HeartRateDisplayView: View {
                                         .fill(Color.gray.opacity(0.3))
                                 )
                             }
-                            
+
                             Button {
                                 isHRVMode.toggle()
                                 if !isHRVMode {
@@ -996,7 +1065,26 @@ struct HeartRateDisplayView: View {
             }
         }
     }
-    
+
+    private func zoneStatColumn(heartRate: Int?, scaleFactor: Double, isLandscape: Bool, onTap: @escaping () -> Void) -> some View {
+        let labelSize: CGFloat = 14.0
+        let valueSize: CGFloat = isLandscape ? 24.0 : 32.0
+        let zone = zoneStorage.currentZone(for: heartRate)
+
+        return VStack(spacing: 4 * scaleFactor) {
+            Text("Zone")
+                .font(.system(size: labelSize, weight: .medium))
+                .foregroundColor(.gray)
+            Text(zone?.displayName ?? "---")
+                .font(.system(size: valueSize, weight: .bold, design: .monospaced))
+                .foregroundColor(zone?.color ?? .gray)
+                .frame(minWidth: 40 * scaleFactor)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .contentShape(Rectangle())
+        .onTapGesture(perform: onTap)
+    }
+
     private func shouldShowError(for mode: AppMode) -> Bool {
         guard let context = sharingService.errorContext else {
             return true
@@ -1016,7 +1104,184 @@ struct HeartRateDisplayView: View {
             value = nextValue()
         }
     }
-    
+
+    // MARK: - Landscape Side Layout
+
+    @ViewBuilder
+    private func landscapeStatsRow(screenWidth: CGFloat) -> some View {
+        HStack(spacing: 0) {
+            statColumn(
+                title: "Avg",
+                value: appMode == .myDevice ? bluetoothManager.avgHeartRateLastHour : sharingService.friendAvgHeartRate,
+                scaleFactor: 1.0,
+                isLandscape: true
+            )
+            .frame(maxWidth: .infinity)
+            statColumn(
+                title: "Min",
+                value: appMode == .myDevice ? bluetoothManager.minHeartRateLastHour : sharingService.friendMinHeartRate,
+                scaleFactor: 1.0,
+                isLandscape: true
+            )
+            .frame(maxWidth: .infinity)
+            statColumn(
+                title: "Max",
+                value: appMode == .myDevice ? bluetoothManager.maxHeartRateLastHour : sharingService.friendMaxHeartRate,
+                scaleFactor: 1.0,
+                isLandscape: true
+            )
+            .frame(maxWidth: .infinity)
+            if appMode == .myDevice {
+                zoneStatColumn(
+                    heartRate: displayedHeartRate,
+                    scaleFactor: 1.0,
+                    isLandscape: true
+                ) {
+                    showZoneConfig = true
+                }
+                .frame(maxWidth: .infinity)
+            }
+        }
+        .padding(.horizontal, 20)
+    }
+
+    @ViewBuilder
+    private func landscapeButtonsColumn(screenWidth: CGFloat) -> some View {
+        let buttonSize: CGFloat = 28.0
+        let buttonPadding: CGFloat = 12.0
+        let fontSize: CGFloat = 12.0
+
+        VStack(spacing: 12) {
+            Button {
+                showDevicePicker = true
+            } label: {
+                VStack(spacing: 4) {
+                    Image(systemName: heartIconName)
+                        .font(.system(size: buttonSize))
+                    Text("Device")
+                        .font(.system(size: fontSize, weight: .medium))
+                }
+                .foregroundColor(heartButtonColor)
+                .frame(width: 80)
+                .padding(.vertical, buttonPadding)
+                .background(
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(Color.gray.opacity(0.3))
+                )
+            }
+
+            if appMode == .myDevice {
+                Button {
+                    if sharingService.isSharing {
+                        showDisconnectAlert = true
+                    } else {
+                        Task {
+                            let canShare = await subscriptionManager.canShare()
+                            if canShare {
+                                if !bluetoothManager.hasActiveDataSource {
+                                    sharingService.errorMessage = "Please connect a heart rate device before sharing."
+                                    sharingService.errorContext = .sharing
+                                } else {
+                                    do {
+                                        try await sharingService.startSharing()
+                                    } catch {
+                                        // Error handled by sharingService
+                                    }
+                                }
+                            } else {
+                                showPaywall = true
+                            }
+                        }
+                    }
+                } label: {
+                    VStack(spacing: 4) {
+                        Image(systemName: "antenna.radiowaves.left.and.right")
+                            .font(.system(size: buttonSize))
+                        HStack(spacing: 2) {
+                            if !subscriptionManager.isSubscribed && !sharingService.isSharing {
+                                Image(systemName: "lock.fill")
+                                    .font(.system(size: 8))
+                            }
+                            Text("Share")
+                        }
+                        .font(.system(size: fontSize, weight: .medium))
+                    }
+                    .foregroundColor(sharingService.isSharing ? .green : .white)
+                    .frame(width: 80)
+                    .padding(.vertical, buttonPadding)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(Color.gray.opacity(0.3))
+                    )
+                }
+            } else {
+                Button {
+                    // Disabled in friend mode
+                } label: {
+                    VStack(spacing: 4) {
+                        Image(systemName: "antenna.radiowaves.left.and.right")
+                            .font(.system(size: buttonSize))
+                        Text("Share")
+                            .font(.system(size: fontSize, weight: .medium))
+                    }
+                    .foregroundColor(.gray)
+                    .frame(width: 80)
+                    .padding(.vertical, buttonPadding)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(Color.gray.opacity(0.2))
+                    )
+                }
+                .disabled(true)
+            }
+
+            Button {
+                isTimerMode.toggle()
+                if !isTimerMode {
+                    timerViewModel.reset()
+                }
+            } label: {
+                VStack(spacing: 4) {
+                    Image(systemName: "stopwatch")
+                        .renderingMode(.template)
+                        .font(.system(size: buttonSize))
+                    Text("Timer")
+                        .font(.system(size: fontSize, weight: .medium))
+                }
+                .foregroundColor(isTimerMode ? .green : .white)
+                .frame(width: 80)
+                .padding(.vertical, buttonPadding)
+                .background(
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(Color.gray.opacity(0.3))
+                )
+            }
+
+            Button {
+                isHRVMode.toggle()
+                if !isHRVMode {
+                    hrvViewModel.reset()
+                }
+            } label: {
+                VStack(spacing: 4) {
+                    Image(systemName: "waveform.path.ecg")
+                        .renderingMode(.template)
+                        .font(.system(size: buttonSize))
+                    Text("HRV")
+                        .font(.system(size: fontSize, weight: .medium))
+                }
+                .foregroundColor(isHRVMode ? .green : .white)
+                .frame(width: 80)
+                .padding(.vertical, buttonPadding)
+                .background(
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(Color.gray.opacity(0.3))
+                )
+            }
+        }
+        .padding(.vertical, 20)
+    }
+
     // MARK: - Timer Mode UI
     
     @ViewBuilder
@@ -1065,14 +1330,14 @@ struct HeartRateDisplayView: View {
                 Button {
                     showDevicePicker = true
                 } label: {
-                    Image(systemName: "heart.fill")
+                    Image(systemName: heartIconName)
                         .font(.system(size: 20))
                         .foregroundColor(heartButtonColor)
                         .padding(12)
                         .background(Color.gray.opacity(0.3))
                         .clipShape(Circle())
                 }
-                
+
                 Spacer()
 
                 // Preset name (visible when preset is active)
@@ -1763,7 +2028,7 @@ struct HeartRateDisplayView: View {
                     let buttonText: String = {
                         if isCompleted { return "Reset" }
                         if timerViewModel.state == .running || timerViewModel.state == .cooldown { return "Pause" }
-                        if timerViewModel.state == .paused || timerViewModel.state == .cooldownPaused { return "Resume" }
+                        if timerViewModel.state == .paused || timerViewModel.state == .cooldownPaused { return "Start" }
                         return "Start"
                     }()
                     Text(buttonText)
@@ -1916,7 +2181,7 @@ struct HeartRateDisplayView: View {
                         let buttonText: String = {
                             if isCompleted { return "Reset" }
                             if timerViewModel.state == .running || timerViewModel.state == .cooldown { return "Pause" }
-                            if timerViewModel.state == .paused || timerViewModel.state == .cooldownPaused { return "Resume" }
+                            if timerViewModel.state == .paused || timerViewModel.state == .cooldownPaused { return "Start" }
                             return "Start"
                         }()
                         Text(buttonText)
