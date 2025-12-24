@@ -9,10 +9,14 @@ import SwiftUI
 import StoreKit
 
 struct SharePaywallView: View {
-    @StateObject private var subscriptionManager = SubscriptionManager.shared
+    @ObservedObject private var subscriptionManager = SubscriptionManager.shared
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.openURL) private var openURL
     @State private var isPurchasing = false
     @State private var showError = false
+
+    private let privacyPolicyURL = "https://apfk88.github.io/BPM/"
+    private let termsOfUseURL = "https://www.apple.com/legal/internet-services/itunes/dev/stdeula/"
 
     var body: some View {
         NavigationView {
@@ -85,6 +89,29 @@ struct SharePaywallView: View {
                         }
                         .font(.footnote)
                         .foregroundColor(.secondary)
+
+                        HStack(spacing: 16) {
+                            Button("Terms of Use") {
+                                if let url = URL(string: termsOfUseURL) {
+                                    openURL(url)
+                                }
+                            }
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+
+                            Text("•")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+
+                            Button("Privacy Policy") {
+                                if let url = URL(string: privacyPolicyURL) {
+                                    openURL(url)
+                                }
+                            }
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        }
+                        .padding(.top, 8)
                     } else if subscriptionManager.isLoading {
                         ProgressView()
                     } else {

@@ -97,7 +97,7 @@ struct HeartRateDisplayView: View {
     @State private var showPresetSheet = false
     @State private var showPaywall = false
     @State private var showZoneConfig = false
-    @StateObject private var subscriptionManager = SubscriptionManager.shared
+    @ObservedObject private var subscriptionManager = SubscriptionManager.shared
     @StateObject private var zoneStorage = HeartRateZoneStorage.shared
 
     private var isPad: Bool {
@@ -1073,9 +1073,13 @@ struct HeartRateDisplayView: View {
         let zone = zoneStorage.currentZone(for: heartRate)
 
         return VStack(spacing: 4 * scaleFactor) {
-            Text("Zone")
-                .font(.system(size: labelSize, weight: .medium))
-                .foregroundColor(.gray)
+            HStack(spacing: 2) {
+                Text("Zone")
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 10, weight: .medium))
+            }
+            .font(.system(size: labelSize, weight: .medium))
+            .foregroundColor(.gray)
             Text(zone?.displayName ?? "---")
                 .font(.system(size: valueSize, weight: .bold, design: .monospaced))
                 .foregroundColor(zone?.color ?? .gray)
