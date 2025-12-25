@@ -86,6 +86,7 @@ struct HeartRateDisplayView: View {
     @State private var isTimerMode = false
     @State private var isHRVMode = false
     @State private var showClearAlert = false
+    @State private var showResetAlert = false
     @State private var showDisconnectAlert = false
     @State private var portraitBottomContentHeight: CGFloat = 0
     @State private var landscapeBottomContentHeight: CGFloat = 0
@@ -1442,7 +1443,15 @@ struct HeartRateDisplayView: View {
             } message: {
                 Text("Are you sure you want to clear all timer data? This cannot be undone.")
             }
-            
+            .alert("Reset Timer", isPresented: $showResetAlert) {
+                Button("Cancel", role: .cancel) { }
+                Button("Reset", role: .destructive) {
+                    timerViewModel.reset()
+                }
+            } message: {
+                Text("Are you sure you want to reset? This will clear all timer data.")
+            }
+
             // Stopwatch display with BPM (or completion stats when done)
             stopwatchDisplay(isLandscape: isLandscape)
                 .padding(.top, 12)
@@ -2052,8 +2061,8 @@ struct HeartRateDisplayView: View {
                         // Resume cooldown
                         timerViewModel.toggleCooldown()
                     } else if isCompleted {
-                        // Reset button - just reset, don't start
-                        timerViewModel.reset()
+                        // Reset button - show confirmation alert
+                        showResetAlert = true
                     } else if timerViewModel.state == .paused {
                         if isPresetMode {
                             timerViewModel.startPreset()
@@ -2205,8 +2214,8 @@ struct HeartRateDisplayView: View {
                             // Resume cooldown
                             timerViewModel.toggleCooldown()
                         } else if isCompleted {
-                            // Reset button - just reset, don't start
-                            timerViewModel.reset()
+                            // Reset button - show confirmation alert
+                            showResetAlert = true
                         } else if timerViewModel.state == .paused {
                             if isPresetMode {
                                 timerViewModel.startPreset()
