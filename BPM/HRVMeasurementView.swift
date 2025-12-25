@@ -28,11 +28,17 @@ struct HRVMeasurementView: View {
     }
     
     private var heartButtonColor: Color {
-        (sharingService.isViewing) ? .green : .white
+        if bluetoothManager.hasActiveDataSource {
+            return .green
+        } else if sharingService.isViewing {
+            return .green
+        } else {
+            return .white
+        }
     }
 
     private var heartIconName: String {
-        bluetoothManager.connectedDevice != nil ? "heart.fill" : "heart"
+        bluetoothManager.hasActiveDataSource ? "heart.fill" : "heart"
     }
     
     private var buttonText: String {

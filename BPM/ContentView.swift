@@ -389,11 +389,17 @@ struct HeartRateDisplayView: View {
     }
 
     private var heartButtonColor: Color {
-        (appMode == .friendCode && sharingService.isViewing) ? .green : .white
+        if bluetoothManager.hasActiveDataSource {
+            return .green
+        } else if appMode == .friendCode && sharingService.isViewing {
+            return .green
+        } else {
+            return .white
+        }
     }
 
     private var heartIconName: String {
-        bluetoothManager.connectedDevice != nil ? "heart.fill" : "heart"
+        bluetoothManager.hasActiveDataSource ? "heart.fill" : "heart"
     }
 
     private func formattedShareCode(_ code: String) -> String {
@@ -1363,30 +1369,25 @@ struct HeartRateDisplayView: View {
 
                 Spacer()
 
-                // Preset name (visible when preset is active)
-                if let preset = timerViewModel.activePreset {
-                    Text(preset.name)
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundColor(.green)
-                        .onTapGesture {
-                            if timerViewModel.state == .idle && timerViewModel.sets.isEmpty {
-                                showPresetSheet = true
-                            }
-                        }
-                }
-
-                // Preset button (only visible when timer is idle/reset and no preset loaded)
-                if timerViewModel.state == .idle && timerViewModel.sets.isEmpty && !timerViewModel.isPresetMode {
+                // Preset button (always visible when preset active, tappable only when idle/reset)
+                if timerViewModel.state == .idle && timerViewModel.sets.isEmpty {
                     Button {
                         showPresetSheet = true
                     } label: {
-                        Image(systemName: "timer")
+                        Image(systemName: timerViewModel.isPresetMode ? "star.fill" : "star")
                             .font(.system(size: 20))
-                            .foregroundColor(.white)
+                            .foregroundColor(timerViewModel.isPresetMode ? .green : .white)
                             .padding(12)
                             .background(Color.gray.opacity(0.3))
                             .clipShape(Circle())
                     }
+                } else if timerViewModel.isPresetMode {
+                    Image(systemName: "star.fill")
+                        .font(.system(size: 20))
+                        .foregroundColor(.green)
+                        .padding(12)
+                        .background(Color.gray.opacity(0.3))
+                        .clipShape(Circle())
                 }
 
                 // Chart toggle button
@@ -1405,10 +1406,10 @@ struct HeartRateDisplayView: View {
                 Button {
                     showZones.toggle()
                 } label: {
-                    Image(systemName: showZones ? "z.circle.fill" : "z.circle")
-                        .font(.system(size: 24))
+                    Image(systemName: showZones ? "chart.pie.fill" : "chart.pie")
+                        .font(.system(size: 20))
                         .foregroundColor(showZones ? .green : .white)
-                        .padding(10)
+                        .padding(12)
                         .background(Color.gray.opacity(0.3))
                         .clipShape(Circle())
                 }
@@ -1531,12 +1532,12 @@ struct HeartRateDisplayView: View {
         let totalTimeTitle = timerViewModel.isCompleted ? "Total Time" : "Total"
         let setTimeValue: String = {
             if timerViewModel.isCompleted {
-                return timerViewModel.avgSetTime.map(formatTime) ?? "---"
+                return timerViewModel.avgSetTime.map { formatTime($0) } ?? "---"
             } else {
                 return formatTime(displaySetTime)
             }
         }()
-        let avgRestValue = timerViewModel.avgRestTime.map(formatTime) ?? "---"
+        let avgRestValue = timerViewModel.avgRestTime.map { formatTime($0) } ?? "---"
         let maxBPMValue = timerViewModel.maxHeartRate.map(String.init) ?? "---"
         let avgBPMValue = timerViewModel.avgHeartRate.map(String.init) ?? "---"
         
@@ -1545,7 +1546,7 @@ struct HeartRateDisplayView: View {
             HStack(spacing: 16) {
                 landscapeStatColumn(
                     title: totalTimeTitle,
-                    value: formatTime(totalTime),
+                    value: formatTime(totalTime, showTenths: false),
                     alignment: .leading
                 )
 
@@ -1640,7 +1641,7 @@ struct HeartRateDisplayView: View {
         let totalTimeTitle = timerViewModel.isCompleted ? "Total Time" : "Total"
         let setTimeValue: String = {
             if timerViewModel.isCompleted {
-                return timerViewModel.avgSetTime.map(formatTime) ?? "---"
+                return timerViewModel.avgSetTime.map { formatTime($0) } ?? "---"
             } else {
                 return formatTime(displaySetTime)
             }
@@ -1673,40 +1674,36 @@ struct HeartRateDisplayView: View {
         
         // Portrait: show Total, Set, BPM (realtime while running, Avg/Max/HRR when completed)
         VStack(spacing: 12) {
-            HStack(spacing: 20) {
-                VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 0) {
+                VStack(spacing: 4) {
                     Text(totalTimeTitle)
                         .font(.system(size: 14, weight: .medium))
                         .foregroundColor(.gray)
-                    Text(formatTime(totalTime))
+                    Text(formatTime(totalTime, showTenths: false))
                         .font(.system(size: 32, weight: .bold, design: .monospaced))
                         .foregroundColor(.white)
-                        .frame(minWidth: 120, alignment: .leading)
                 }
-                
-                Spacer()
-                
-                VStack(alignment: .center, spacing: 4) {
+                .frame(maxWidth: .infinity)
+
+                VStack(spacing: 4) {
                     Text(setLabel)
                         .font(.system(size: 14, weight: .medium))
                         .foregroundColor(.gray)
                     Text(setTimeValue)
                         .font(.system(size: 32, weight: .bold, design: .monospaced))
                         .foregroundColor(.white)
-                        .frame(minWidth: 120, alignment: .center)
                 }
-                
-                Spacer()
-                
-                VStack(alignment: .trailing, spacing: 4) {
+                .frame(maxWidth: .infinity)
+
+                VStack(spacing: 4) {
                     Text(bpmTitle)
                         .font(.system(size: 14, weight: .medium))
                         .foregroundColor(.gray)
                     Text(bpmValue)
                         .font(.system(size: 32, weight: .bold, design: .monospaced))
                         .foregroundColor(.white)
-                        .frame(minWidth: 60, alignment: .trailing)
                 }
+                .frame(maxWidth: .infinity)
                 .contentShape(Rectangle())
                 .onTapGesture {
                     if timerViewModel.isCompleted {
@@ -1714,7 +1711,7 @@ struct HeartRateDisplayView: View {
                     }
                 }
             }
-            .padding(.horizontal, 20)
+            .padding(.horizontal, 8)
         }
     }
     
@@ -2388,17 +2385,19 @@ struct HeartRateDisplayView: View {
         .id("placeholder-\(set.id)")
     }
 
-    private func formatTime(_ time: TimeInterval) -> String {
+    private func formatTime(_ time: TimeInterval, showTenths: Bool = true) -> String {
         let totalSeconds = Int(time)
         let hours = totalSeconds / 3600
         let minutes = (totalSeconds % 3600) / 60
         let seconds = totalSeconds % 60
-        let milliseconds = Int((time.truncatingRemainder(dividingBy: 1)) * 10)
+        let tenths = Int((time.truncatingRemainder(dividingBy: 1)) * 10)
 
         if hours > 0 {
-            return String(format: "%d:%02d:%02d.%d", hours, minutes, seconds, milliseconds)
+            return String(format: "%d:%02d:%02d", hours, minutes, seconds)
+        } else if !showTenths || minutes >= 10 {
+            return String(format: "%d:%02d", minutes, seconds)
         } else {
-            return String(format: "%d:%02d.%d", minutes, seconds, milliseconds)
+            return String(format: "%d:%02d.%d", minutes, seconds, tenths)
         }
     }
 

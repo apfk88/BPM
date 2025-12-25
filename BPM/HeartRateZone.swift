@@ -71,7 +71,7 @@ enum HeartRateZone: Int, CaseIterable {
 
     var color: Color {
         switch self {
-        case .zone1: return .gray
+        case .zone1: return .white
         case .zone2: return .green
         case .zone3: return .orange
         case .zone4: return .purple
