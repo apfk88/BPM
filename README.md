@@ -23,7 +23,7 @@ The marketing site and backend are deployed together on Vercel, with the static 
 - **Quick device picker**: Tap the antenna icon to select or switch devices.
 - **On-screen stats**: Max and average over the last hour.
 - **Workout-friendly**: Dark, landscape UI and idle timer disabled while active.
-- **Share your heart rate**: Generate a share code and let friends view your live BPM remotely.
+- **Share your heart rate**: Generate a share code and let friends view your live BPM remotely (requires an active subscription to start sharing; viewing others is free).
 - **View friend's heart rate**: Enter a friend's code to see their live heart rate updates.
 
 ### Requirements
@@ -32,6 +32,7 @@ The marketing site and backend are deployed together on Vercel, with the static 
 - **iOS**: Deployment target set to 17.0 (adjustable in project settings).
 - **Hardware**: A real iPhone/iPad with Bluetooth LE (CoreBluetooth does not work in the simulator).
 - **Heart rate strap**: Any BLE device that implements the Heart Rate Service (e.g., Polar H10, Wahoo TICKR, Garmin HRM, etc.). HRV measurements require a strap that streams RR intervals (Polar H10 or equivalent).
+- **IAP**: Sharing requires a StoreKit 2 subscription product configured in App Store Connect (use `BPM/Configuration.storekit` for local testing).
 
 ### Getting Started
 1. Clone the repo:
@@ -101,6 +102,10 @@ You can change permission later in iOS Settings → Privacy & Security → Bluet
 ### Sharing Setup
 
 The app uses a backend service to share heart rate data. To enable sharing:
+
+0. **Subscription**:
+   - Sharing is gated by an in-app subscription; viewing other users' heart rates is free.
+   - For local dev, attach `BPM/Configuration.storekit` to the scheme (Product -> Scheme -> Edit Scheme -> StoreKit Configuration).
 
 1. **Deploy the backend** (see `backend/README.md`):
    - The backend is a Next.js app using Vercel KV (Upstash Redis).
