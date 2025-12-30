@@ -122,16 +122,8 @@ The app uses a backend service to share heart rate data. To enable sharing:
 - When sharing is enabled, heart rate data is sent to your backend service (requires your own deployment).
 - Samples are held in-memory and trimmed to the last hour.
 
-### Roadmap (ideas)
-- Optional persistence of sessions and trends.
-- HealthKit export/import.
-- Complications/widgets and lock screen live activity.
-- Background scanning and reconnect heuristics.
-
 ### Contributing
 Issues and pull requests are welcome. For non-trivial changes, please open an issue first to discuss what you’d like to change.
 
 ### Acknowledgements
 - Bluetooth SIG GATT Heart Rate Service Specification (UUID 0x180D / 0x2A37).
-
-
