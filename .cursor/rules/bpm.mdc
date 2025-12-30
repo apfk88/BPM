@@ -1,0 +1,40 @@
+---
+alwaysApply: true
+---
+# BPM App Cursor Rules
+
+## Public Repo Reminder
+
+This is a public repo so make sure nothing sensitive is committed.
+
+## API URL Configuration
+
+The app automatically selects the API URL based on the git branch name:
+- **Staging branches** (branches starting with "staging"): Uses `https://staging.bpmtracker.app`
+- **Production branches**: Uses `https://bpmtracker.app`
+
+This is handled by the build script `scripts/set-api-url.sh` which runs during Xcode builds and sets the `BPM_API_BASE_URL` key in `Info.plist`.
+
+### Manual Override
+
+You can override the API URL at runtime by setting a UserDefaults key:
+```swift
+UserDefaults.standard.set("https://your-custom-url.com", forKey: "BPM_API_BASE_URL")
+```
+
+### Build Script Setup
+
+The build script must be added to the Xcode project's build phases:
+1. Open the project in Xcode
+2. Select the BPM target
+3. Go to Build Phases
+4. Click "+" and add "New Run Script Phase"
+5. Add the script: `${SRCROOT}/scripts/set-api-url.sh`
+6. Ensure it runs before "Compile Sources"
+
+## Code Style
+
+- Use SwiftUI for UI components
+- Follow Swift naming conventions
+- Prefer `@MainActor` for UI-related code
+- Use `#if canImport(ActivityKit)` guards for ActivityKit features
