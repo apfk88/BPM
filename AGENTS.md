@@ -47,3 +47,16 @@
 
 ## Agent-Specific Instructions
 - Local agent allowlist (if enforced): `xcodebuild`, `git add`, `git push`, `ls`, `find`. Request additional permissions if needed.
+
+## Note: App Store Connect CLI upload (BPM)
+- Archive: `xcodebuild -project BPM.xcodeproj -scheme BPM -configuration Release -destination 'generic/platform=iOS' -archivePath build/BPM.xcarchive archive -allowProvisioningUpdates`
+- Export (App Store):
+  - ExportOptions.plist:
+    - method = app-store (Xcode warns deprecated; can use app-store-connect)
+    - signingStyle = automatic
+    - stripSwiftSymbols = true
+    - uploadSymbols = true
+  - `xcodebuild -exportArchive -archivePath build/BPM.xcarchive -exportPath build/export -exportOptionsPlist build/ExportOptions.plist -allowProvisioningUpdates`
+- Upload (ASC API key):
+  - Place key at `~/.appstoreconnect/private_keys/AuthKey_<KEYID>.p8`
+  - `xcrun altool --upload-app -f build/export/BPM.ipa -t ios --apiKey <KEYID> --apiIssuer <ISSUER_ID>`
