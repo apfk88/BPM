@@ -153,7 +153,8 @@ private struct StatValue: View {
             Text("\(value)")
                 .font(.system(size: 24, weight: .bold, design: .monospaced))
                 .lineLimit(1)
-                .minimumScaleFactor(0.8)
+                .minimumScaleFactor(0.6)
+                .allowsTightening(true)
         }
     }
 }
@@ -183,7 +184,8 @@ private struct ZoneValue: View {
                 .font(.system(size: 24, weight: .bold, design: .monospaced))
                 .foregroundColor(zoneColor)
                 .lineLimit(1)
-                .minimumScaleFactor(0.8)
+                .minimumScaleFactor(0.6)
+                .allowsTightening(true)
         }
     }
 }
