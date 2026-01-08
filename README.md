@@ -90,6 +90,16 @@ You can change permission later in iOS Settings → Privacy & Security → Bluet
 - Unit and UI test targets are included.
 - In Xcode: Product → Test (or Cmd+U).
 
+### Release (App Store Connect)
+- Bump `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION` in `BPM.xcodeproj/project.pbxproj`.
+- Archive:
+  - `xcodebuild -project BPM.xcodeproj -scheme BPM -configuration Release -destination 'generic/platform=iOS' -archivePath build/BPM.xcarchive archive -allowProvisioningUpdates`
+- Export:
+  - `xcodebuild -exportArchive -archivePath build/BPM.xcarchive -exportPath build/export -exportOptionsPlist build/ExportOptions.plist -allowProvisioningUpdates`
+- Upload (API key):
+  - Place key at `~/.appstoreconnect/private_keys/AuthKey_<KEYID>.p8`
+  - `xcrun altool --upload-app -f build/export/BPM.ipa -t ios --apiKey <KEYID> --apiIssuer <ISSUER_ID>`
+
 ### Troubleshooting
 - **No devices found**:
   - Ensure the strap is on your body (many devices only advertise when worn).
