@@ -95,6 +95,7 @@ struct HeartRateDisplayView: View {
     @State private var timerBPMDisplay: TimerBPMDisplay = .avg
     @State private var showChart = false
     @State private var showZones = false
+    @State private var showSessionZones = false
     @State private var showPresetSheet = false
     @State private var showPaywall = false
     @State private var showZoneConfig = false
@@ -227,9 +228,10 @@ struct HeartRateDisplayView: View {
         } else if isTimerMode {
             timerModeLayout(geometry: geometry, isLandscape: false)
         } else {
+            let bpmOffset = -portraitBottomContentHeight / 2 - geometry.size.height * 0.1
             ZStack {
                 heartRateDisplay(size: geometry.size, isLandscape: false)
-                    .offset(y: -portraitBottomContentHeight / 2 - geometry.size.height * 0.1)
+                    .offset(y: bpmOffset)
             }
             .overlay(alignment: .bottom) {
                 VStack(spacing: 0) {
@@ -269,8 +271,15 @@ struct HeartRateDisplayView: View {
                 VStack(spacing: 0) {
                     Spacer(minLength: isPad ? 40 : 20)
                     heartRateDisplay(size: geometry.size, isLandscape: true)
+                    if appMode == .myDevice, showSessionZones {
+                        Spacer(minLength: isPad ? 16 : 12)
+                    }
                     landscapeStatsRow(screenWidth: geometry.size.width)
-                        .padding(.bottom, isPad ? 40 : 20)
+                        .padding(.bottom, showSessionZones && appMode == .myDevice ? (isPad ? 20 : 12) : (isPad ? 40 : 20))
+                    if appMode == .myDevice, showSessionZones {
+                        sessionZoneSection(isLandscape: true, horizontalPadding: 20)
+                            .padding(.bottom, isPad ? 24 : 16)
+                    }
                     Spacer(minLength: isPad ? 80 : 40)
                 }
                 .frame(maxWidth: .infinity)
@@ -287,9 +296,10 @@ struct HeartRateDisplayView: View {
                 }
             }
         } else {
+            let bpmOffset = -landscapeBottomContentHeight / 2
             ZStack {
                 heartRateDisplay(size: geometry.size, isLandscape: true)
-                    .offset(y: -landscapeBottomContentHeight / 2)
+                    .offset(y: bpmOffset)
             }
             .overlay(alignment: .bottom) {
                 VStack(spacing: 0) {
@@ -501,37 +511,44 @@ struct HeartRateDisplayView: View {
                 if isLandscape {
                     // Landscape mode - stats centered, buttons in 2x2 grid
                     VStack(spacing: max(16.0, 20.0 * scaleFactor)) {
-                        // Stats row: Avg, Min, Max, Zone - equal width columns
-                        HStack(spacing: 0) {
-                            statColumn(
-                                title: "Avg",
-                                value: bluetoothManager.avgHeartRateLastHour,
-                                scaleFactor: 1.0,
-                                isLandscape: true
-                            )
-                            .frame(maxWidth: .infinity)
-                            statColumn(
-                                title: "Min",
-                                value: bluetoothManager.minHeartRateLastHour,
-                                scaleFactor: 1.0,
-                                isLandscape: true
-                            )
-                            .frame(maxWidth: .infinity)
-                            statColumn(
-                                title: "Max",
-                                value: bluetoothManager.maxHeartRateLastHour,
-                                scaleFactor: 1.0,
-                                isLandscape: true
-                            )
-                            .frame(maxWidth: .infinity)
-                            zoneStatColumn(
-                                heartRate: displayedHeartRate,
-                                scaleFactor: 1.0,
-                                isLandscape: true
-                            ) {
-                                showZoneConfig = true
+                        VStack(spacing: showSessionZones ? 4.0 : 0.0) {
+                            // Stats row: Avg, Min, Max, Zone - equal width columns
+                            HStack(spacing: 0) {
+                                statColumn(
+                                    title: "Avg",
+                                    value: bluetoothManager.avgHeartRateLastHour,
+                                    scaleFactor: 1.0,
+                                    isLandscape: true
+                                )
+                                .frame(maxWidth: .infinity)
+                                statColumn(
+                                    title: "Min",
+                                    value: bluetoothManager.minHeartRateLastHour,
+                                    scaleFactor: 1.0,
+                                    isLandscape: true
+                                )
+                                .frame(maxWidth: .infinity)
+                                statColumn(
+                                    title: "Max",
+                                    value: bluetoothManager.maxHeartRateLastHour,
+                                    scaleFactor: 1.0,
+                                    isLandscape: true
+                                )
+                                .frame(maxWidth: .infinity)
+                                zoneStatColumn(
+                                    heartRate: displayedHeartRate,
+                                    scaleFactor: 1.0,
+                                    isLandscape: true,
+                                    isExpanded: showSessionZones
+                                ) {
+                                    toggleSessionZones()
+                                }
+                                .frame(maxWidth: .infinity)
                             }
-                            .frame(maxWidth: .infinity)
+
+                            if showSessionZones {
+                                sessionZoneSection(isLandscape: true, horizontalPadding: 0)
+                            }
                         }
 
                         // Buttons in 2x2 grid
@@ -654,37 +671,44 @@ struct HeartRateDisplayView: View {
                 } else {
                     // Portrait mode - stats above buttons
                     VStack(spacing: max(12.0, 16.0 * scaleFactor)) {
-                        // Stats row: Avg, Min, Max, Zone - equal width columns
-                        HStack(spacing: 0) {
-                            statColumn(
-                                title: "Avg",
-                                value: bluetoothManager.avgHeartRateLastHour,
-                                scaleFactor: scaleFactor,
-                                isLandscape: false
-                            )
-                            .frame(maxWidth: .infinity)
-                            statColumn(
-                                title: "Min",
-                                value: bluetoothManager.minHeartRateLastHour,
-                                scaleFactor: scaleFactor,
-                                isLandscape: false
-                            )
-                            .frame(maxWidth: .infinity)
-                            statColumn(
-                                title: "Max",
-                                value: bluetoothManager.maxHeartRateLastHour,
-                                scaleFactor: scaleFactor,
-                                isLandscape: false
-                            )
-                            .frame(maxWidth: .infinity)
-                            zoneStatColumn(
-                                heartRate: displayedHeartRate,
-                                scaleFactor: scaleFactor,
-                                isLandscape: false
-                            ) {
-                                showZoneConfig = true
+                        VStack(spacing: showSessionZones ? 4.0 : 0.0) {
+                            // Stats row: Avg, Min, Max, Zone - equal width columns
+                            HStack(spacing: 0) {
+                                statColumn(
+                                    title: "Avg",
+                                    value: bluetoothManager.avgHeartRateLastHour,
+                                    scaleFactor: scaleFactor,
+                                    isLandscape: false
+                                )
+                                .frame(maxWidth: .infinity)
+                                statColumn(
+                                    title: "Min",
+                                    value: bluetoothManager.minHeartRateLastHour,
+                                    scaleFactor: scaleFactor,
+                                    isLandscape: false
+                                )
+                                .frame(maxWidth: .infinity)
+                                statColumn(
+                                    title: "Max",
+                                    value: bluetoothManager.maxHeartRateLastHour,
+                                    scaleFactor: scaleFactor,
+                                    isLandscape: false
+                                )
+                                .frame(maxWidth: .infinity)
+                                zoneStatColumn(
+                                    heartRate: displayedHeartRate,
+                                    scaleFactor: scaleFactor,
+                                    isLandscape: false,
+                                    isExpanded: showSessionZones
+                                ) {
+                                    toggleSessionZones()
+                                }
+                                .frame(maxWidth: .infinity)
                             }
-                            .frame(maxWidth: .infinity)
+
+                            if showSessionZones {
+                                sessionZoneSection(isLandscape: false, horizontalPadding: 0)
+                            }
                         }
 
                         // Buttons row with labels - equal width
@@ -1043,6 +1067,42 @@ struct HeartRateDisplayView: View {
             }
     }
 
+    private func toggleSessionZones() {
+        withAnimation(.easeInOut(duration: 0.15)) {
+            showSessionZones.toggle()
+        }
+    }
+
+    @ViewBuilder
+    private func sessionZoneSection(isLandscape: Bool, horizontalPadding: CGFloat) -> some View {
+        let buttonSize: CGFloat = isLandscape ? 11.0 : 12.0
+        let chartTopPadding: CGFloat = isLandscape ? 1.5 : 2.0
+        let chartBottomPadding: CGFloat = isLandscape ? 2.0 : 4.0
+
+        VStack(spacing: isLandscape ? 4 : 6) {
+            SessionTimeInZoneView(
+                bluetoothManager: bluetoothManager,
+                zoneStorage: zoneStorage,
+                isLandscape: isLandscape,
+                verticalPadding: isLandscape ? 4.0 : 6.0
+            )
+            .frame(maxWidth: .infinity)
+            .padding(.top, chartTopPadding)
+            .padding(.bottom, chartBottomPadding)
+
+            Button {
+                showZoneConfig = true
+            } label: {
+                Text("Configure")
+                    .font(.system(size: buttonSize, weight: .semibold))
+                    .foregroundColor(.gray)
+                    .underline()
+            }
+            .frame(maxWidth: .infinity, alignment: .center)
+        }
+        .padding(.horizontal, horizontalPadding)
+    }
+
     private func statColumn(title: String, value: Int?, customText: String? = nil, scaleFactor: Double = 1.0, isLandscape: Bool = false, onTap: (() -> Void)? = nil) -> some View {
         // Use same font sizes as timer bar stats
         let labelSize: CGFloat = 14.0
@@ -1074,7 +1134,7 @@ struct HeartRateDisplayView: View {
         }
     }
 
-    private func zoneStatColumn(heartRate: Int?, scaleFactor: Double, isLandscape: Bool, onTap: @escaping () -> Void) -> some View {
+    private func zoneStatColumn(heartRate: Int?, scaleFactor: Double, isLandscape: Bool, isExpanded: Bool, onTap: @escaping () -> Void) -> some View {
         let labelSize: CGFloat = 14.0
         let valueSize: CGFloat = isLandscape ? 24.0 : 32.0
         let zone = zoneStorage.currentZone(for: heartRate)
@@ -1082,8 +1142,10 @@ struct HeartRateDisplayView: View {
         return VStack(spacing: 4 * scaleFactor) {
             HStack(spacing: 2) {
                 Text("Zone")
-                Image(systemName: "chevron.right")
+                Image(systemName: "chevron.down")
                     .font(.system(size: 10, weight: .medium))
+                    .rotationEffect(.degrees(isExpanded ? 180 : 0))
+                    .animation(.easeInOut(duration: 0.15), value: isExpanded)
             }
             .font(.system(size: labelSize, weight: .medium))
             .foregroundColor(.gray)
@@ -1147,9 +1209,10 @@ struct HeartRateDisplayView: View {
                 zoneStatColumn(
                     heartRate: displayedHeartRate,
                     scaleFactor: 1.0,
-                    isLandscape: true
+                    isLandscape: true,
+                    isExpanded: showSessionZones
                 ) {
-                    showZoneConfig = true
+                    toggleSessionZones()
                 }
                 .frame(maxWidth: .infinity)
             }
@@ -1465,7 +1528,7 @@ struct HeartRateDisplayView: View {
 
             // Time in Zone view (when enabled)
             if showZones {
-                TimeInZoneView(timerViewModel: timerViewModel, zoneStorage: zoneStorage, isLandscape: isLandscape)
+                TimerTimeInZoneView(timerViewModel: timerViewModel, zoneStorage: zoneStorage, isLandscape: isLandscape)
                     .padding(.horizontal, isLandscape ? 40 : 20)
                     .padding(.top, showChart ? 12 : 8)
             }
@@ -2411,4 +2474,3 @@ struct HeartRateDisplayView: View {
     }
 
 }
-

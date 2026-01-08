@@ -426,6 +426,27 @@ extension HeartRateBluetoothManager {
         guard !heartRateSamples.isEmpty else { return nil }
         return heartRateSamples.map { $0.value }.min()
     }
+
+    func timeInZonesLastHour(config: HeartRateZoneConfig) -> [ZoneTimeData] {
+        var zoneDurations: [HeartRateZone: TimeInterval] = [:]
+
+        for zone in HeartRateZone.allCases {
+            zoneDurations[zone] = 0
+        }
+
+        // Match timer sampling behavior: treat each sample as ~1 second.
+        let sampleInterval: TimeInterval = 1.0
+
+        for sample in heartRateSamples {
+            if let zone = HeartRateZone.zone(for: sample.value, config: config) {
+                zoneDurations[zone, default: 0] += sampleInterval
+            }
+        }
+
+        return HeartRateZone.allCases.map { zone in
+            ZoneTimeData(zone: zone, duration: zoneDurations[zone] ?? 0)
+        }
+    }
 }
 
 extension HeartRateBluetoothManager: CBCentralManagerDelegate {
@@ -969,4 +990,3 @@ extension HeartRateBluetoothManager: CBPeripheralDelegate {
         return UInt16(data[1]) << 8 | UInt16(data[0])
     }
 }
-

@@ -2,19 +2,15 @@
 //  TimeInZoneView.swift
 //  BPM
 //
-//  Shows time spent in each heart rate zone during workout
+//  Shows time spent in each heart rate zone
 //
 
 import SwiftUI
 
 struct TimeInZoneView: View {
-    @ObservedObject var timerViewModel: TimerViewModel
-    @ObservedObject var zoneStorage: HeartRateZoneStorage
+    let zoneData: [ZoneTimeData]
     var isLandscape: Bool = false
-
-    private var zoneData: [ZoneTimeData] {
-        timerViewModel.timeInZones(config: zoneStorage.effectiveConfig)
-    }
+    var verticalPadding: CGFloat? = nil
 
     private var totalTime: TimeInterval {
         zoneData.reduce(0) { $0 + $1.duration }
@@ -32,7 +28,35 @@ struct TimeInZoneView: View {
                 )
             }
         }
-        .padding(.vertical, isLandscape ? 8 : 12)
+        .padding(.vertical, verticalPadding ?? (isLandscape ? 8 : 12))
+    }
+}
+
+struct TimerTimeInZoneView: View {
+    @ObservedObject var timerViewModel: TimerViewModel
+    @ObservedObject var zoneStorage: HeartRateZoneStorage
+    var isLandscape: Bool = false
+
+    var body: some View {
+        TimeInZoneView(
+            zoneData: timerViewModel.timeInZones(config: zoneStorage.effectiveConfig),
+            isLandscape: isLandscape
+        )
+    }
+}
+
+struct SessionTimeInZoneView: View {
+    @ObservedObject var bluetoothManager: HeartRateBluetoothManager
+    @ObservedObject var zoneStorage: HeartRateZoneStorage
+    var isLandscape: Bool = false
+    var verticalPadding: CGFloat? = nil
+
+    var body: some View {
+        TimeInZoneView(
+            zoneData: bluetoothManager.timeInZonesLastHour(config: zoneStorage.effectiveConfig),
+            isLandscape: isLandscape,
+            verticalPadding: verticalPadding
+        )
     }
 }
 

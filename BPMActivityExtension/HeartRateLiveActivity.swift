@@ -26,9 +26,6 @@ struct HeartRateLiveActivity: Widget {
                         if let max = context.state.maximum {
                             LabeledValue(title: "MAX", value: max)
                         }
-                        if let min = context.state.minimum {
-                            LabeledValue(title: "MIN", value: min)
-                        }
                     }
                 }
                 DynamicIslandExpandedRegion(.bottom) {
@@ -48,9 +45,16 @@ struct HeartRateLiveActivity: Widget {
                     return .white
                 }()
 
-                Text(context.state.bpm.map { "\($0)" } ?? "--")
-                    .font(.system(size: 20, weight: .semibold, design: .monospaced))
-                    .foregroundColor(textColor)
+                HStack(spacing: 2) {
+                    Image(systemName: "heart.fill")
+                        .font(.system(size: 10, weight: .bold))
+                    Text(context.state.bpm.map { "\($0)" } ?? "--")
+                        .font(.system(size: 22, weight: .bold, design: .monospaced))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                        .allowsTightening(true)
+                }
+                .foregroundColor(textColor)
             } compactTrailing: {
                 EmptyView()
             } minimal: {
@@ -63,9 +67,16 @@ struct HeartRateLiveActivity: Widget {
                     return .white
                 }()
 
-                Text(context.state.bpm.map { "\($0)" } ?? "--")
-                    .font(.system(size: 12, weight: .semibold, design: .monospaced))
-                    .foregroundColor(textColor)
+                HStack(spacing: 2) {
+                    Image(systemName: "heart.fill")
+                        .font(.system(size: 7, weight: .bold))
+                    Text(context.state.bpm.map { "\($0)" } ?? "--")
+                        .font(.system(size: 14, weight: .bold, design: .monospaced))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                        .allowsTightening(true)
+                }
+                .foregroundColor(textColor)
             }
         }
     }
@@ -108,9 +119,6 @@ private struct HeartRateLiveActivityView: View {
                 if let max = content.maximum {
                     StatValue(label: "Max", value: max)
                 }
-                if let min = content.minimum {
-                    StatValue(label: "Min", value: min)
-                }
                 if let avg = content.average {
                     StatValue(label: "Avg", value: avg)
                 }
@@ -151,7 +159,7 @@ private struct StatValue: View {
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
             Text("\(value)")
-                .font(.system(size: 24, weight: .bold, design: .monospaced))
+                .font(.system(size: 22, weight: .bold, design: .monospaced))
                 .lineLimit(1)
                 .minimumScaleFactor(0.6)
                 .allowsTightening(true)
@@ -181,7 +189,7 @@ private struct ZoneValue: View {
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
             Text(zone.name)
-                .font(.system(size: 24, weight: .bold, design: .monospaced))
+                .font(.system(size: 22, weight: .bold, design: .monospaced))
                 .foregroundColor(zoneColor)
                 .lineLimit(1)
                 .minimumScaleFactor(0.6)
