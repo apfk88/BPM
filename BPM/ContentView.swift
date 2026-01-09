@@ -59,22 +59,6 @@ private enum CollapsedStatDisplay {
     }
 }
 
-private enum TimerBPMDisplay {
-    case avg
-    case max
-    case hrr
-
-    mutating func cycle() {
-        switch self {
-        case .avg:
-            self = .max
-        case .max:
-            self = .hrr
-        case .hrr:
-            self = .avg
-        }
-    }
-}
 
 struct HeartRateDisplayView: View {
     @EnvironmentObject var bluetoothManager: HeartRateBluetoothManager
@@ -91,7 +75,6 @@ struct HeartRateDisplayView: View {
     @State private var portraitBottomContentHeight: CGFloat = 0
     @State private var heartRateExtremumDisplay: HeartRateExtremumDisplay = .max
     @State private var collapsedStatDisplay: CollapsedStatDisplay = .max
-    @State private var timerBPMDisplay: TimerBPMDisplay = .avg
     @State private var showChart = false
     @State private var showZones = false
     @State private var showSessionZones = false
@@ -314,6 +297,103 @@ struct HeartRateDisplayView: View {
 
     private var heartIconName: String {
         bluetoothManager.hasActiveDataSource ? "heart.fill" : "heart"
+    }
+
+    @ViewBuilder
+    private func completedSummaryRow(totalTime: TimeInterval) -> some View {
+        let labelSize: CGFloat = 14.0
+        let valueSize: CGFloat = isPad ? 28.0 : 32.0
+        let totalTimeValue = formatTime(totalTime, showTenths: false)
+        let avgSetValue = timerViewModel.avgSetTime.map { formatTime($0, showTenths: false) } ?? "---"
+        let avgBPMValue = timerViewModel.avgHeartRate.map(String.init) ?? "---"
+        let minBPMValue = timerViewModel.minHeartRate.map(String.init) ?? "---"
+        let maxBPMValue = timerViewModel.maxHeartRate.map(String.init) ?? "---"
+        let hrrValue = timerViewModel.heartRateRecovery.map(String.init) ?? "---"
+
+        VStack(spacing: 12) {
+            HStack(spacing: 0) {
+                summaryStatColumn(title: "Total Time", value: totalTimeValue, labelSize: labelSize, valueSize: valueSize)
+        summaryStatColumn(title: "Avg Work Set", value: avgSetValue, labelSize: labelSize, valueSize: valueSize)
+                summaryStatColumn(title: "Avg BPM", value: avgBPMValue, labelSize: labelSize, valueSize: valueSize)
+            }
+            HStack(spacing: 0) {
+                summaryStatColumn(title: "Min BPM", value: minBPMValue, labelSize: labelSize, valueSize: valueSize)
+                summaryStatColumn(title: "Max BPM", value: maxBPMValue, labelSize: labelSize, valueSize: valueSize)
+                summaryStatColumn(title: "HRR", value: hrrValue, labelSize: labelSize, valueSize: valueSize)
+            }
+        }
+        .padding(.horizontal, 12)
+    }
+
+    private func summaryStatColumn(title: String, value: String, labelSize: CGFloat, valueSize: CGFloat) -> some View {
+        VStack(spacing: 2) {
+            Text(title)
+                .font(.system(size: labelSize, weight: .medium))
+                .foregroundColor(.gray)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+            Text(value)
+                .font(.system(size: valueSize, weight: .bold, design: .monospaced))
+                .foregroundColor(.white)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+                .allowsTightening(true)
+        }
+        .frame(maxWidth: .infinity, alignment: .center)
+    }
+
+    private struct LineChartIcon: View {
+        let color: Color
+
+        var body: some View {
+            GeometryReader { geometry in
+                let size = geometry.size
+                let scale = min(size.width / 165.0, size.height / 165.0)
+                let xOffset = (size.width - 165.0 * scale) / 2.0
+                let yOffset = (size.height - 165.0 * scale) / 2.0
+                let lineWidth = 15.0 * scale
+
+                Path { path in
+                    path.move(to: CGPoint(x: xOffset + 17.5 * scale, y: yOffset + 132.0 * scale))
+                    path.addLine(to: CGPoint(x: xOffset + 57.5 * scale, y: yOffset + 78.5 * scale))
+                    path.addLine(to: CGPoint(x: xOffset + 93.0 * scale, y: yOffset + 97.1603 * scale))
+                    path.addLine(to: CGPoint(x: xOffset + 130.0 * scale, y: yOffset + 47.0 * scale))
+                }
+                .stroke(color, lineWidth: lineWidth)
+
+                Path { path in
+                    path.move(to: CGPoint(x: xOffset + 142.108 * scale, y: yOffset + 30.1184 * scale))
+                    path.addLine(to: CGPoint(x: xOffset + 142.728 * scale, y: yOffset + 57.0924 * scale))
+                    path.addLine(to: CGPoint(x: xOffset + 116.253 * scale, y: yOffset + 37.8348 * scale))
+                    path.closeSubpath()
+                }
+                .fill(color)
+            }
+        }
+    }
+
+    private struct BarsChartIcon: View {
+        let color: Color
+
+        var body: some View {
+            GeometryReader { geometry in
+                let size = geometry.size
+                let barHeight = size.height * 0.18
+                let spacing = size.height * 0.14
+                VStack(alignment: .leading, spacing: spacing) {
+                    RoundedRectangle(cornerRadius: barHeight / 2)
+                        .fill(color)
+                        .frame(width: size.width * 0.9, height: barHeight)
+                    RoundedRectangle(cornerRadius: barHeight / 2)
+                        .fill(color)
+                        .frame(width: size.width * 0.7, height: barHeight)
+                    RoundedRectangle(cornerRadius: barHeight / 2)
+                        .fill(color)
+                        .frame(width: size.width * 0.5, height: barHeight)
+                }
+                .frame(width: size.width, height: size.height, alignment: .center)
+            }
+        }
     }
 
     private func formattedShareCode(_ code: String) -> String {
@@ -898,10 +978,9 @@ struct HeartRateDisplayView: View {
                 Button {
                     showChart.toggle()
                 } label: {
-                    Image(systemName: showChart ? "chart.bar.fill" : "chart.bar")
-                        .font(.system(size: 20))
-                        .foregroundColor(showChart ? .green : .white)
-                        .padding(12)
+                    LineChartIcon(color: showChart ? .green : .white)
+                        .frame(width: 24, height: 24)
+                        .padding(10)
                         .background(Color.gray.opacity(0.3))
                         .clipShape(Circle())
                 }
@@ -910,9 +989,8 @@ struct HeartRateDisplayView: View {
                 Button {
                     showZones.toggle()
                 } label: {
-                    Image(systemName: showZones ? "chart.pie.fill" : "chart.pie")
-                        .font(.system(size: 20))
-                        .foregroundColor(showZones ? .green : .white)
+                    BarsChartIcon(color: showZones ? .green : .white)
+                        .frame(width: 20, height: 20)
                         .padding(12)
                         .background(Color.gray.opacity(0.3))
                         .clipShape(Circle())
@@ -973,11 +1051,17 @@ struct HeartRateDisplayView: View {
                     .padding(.top, showChart ? 12 : 8)
             }
 
+            Rectangle()
+                .fill(Color.gray.opacity(0.3))
+                .frame(height: 1)
+                .padding(.horizontal, isLandscape ? 40 : 20)
+                .padding(.top, (showChart || showZones) ? 8 : 6)
+
             // Set tracking table
             if !timerViewModel.sets.isEmpty || timerViewModel.state == .running || timerViewModel.state == .paused || timerViewModel.state == .cooldown || timerViewModel.state == .cooldownPaused || (timerViewModel.isPresetMode && timerViewModel.state == .idle) {
                 setsTable(isLandscape: isLandscape, screenWidth: geometry.size.width)
                     .padding(.horizontal, isLandscape ? 40 : 20)
-                    .padding(.top, (showChart || showZones) ? 12 : 8)
+                    .padding(.top, 8)
             }
             
             Spacer(minLength: 0)
@@ -985,6 +1069,9 @@ struct HeartRateDisplayView: View {
             // Timer control buttons at bottom
             timerControlButtons(isLandscape: isLandscape, screenWidth: geometry.size.width)
                 .padding(.bottom, geometry.safeAreaInsets.bottom)
+        }
+        .transaction { transaction in
+            transaction.animation = nil
         }
     }
     
@@ -1004,105 +1091,90 @@ struct HeartRateDisplayView: View {
         let isPresetMode = timerViewModel.isPresetMode
         let totalTime = isCooldown ? timerViewModel.frozenElapsedTime : (timerViewModel.isCompleted ? timerViewModel.frozenElapsedTime : timerViewModel.elapsedTime)
 
-        // Set label changes based on mode
-        let setLabel: String = {
-            if timerViewModel.isCompleted {
-                return "Avg Set"
-            } else if isCooldown {
-                return "Cooldown"
-            } else if isPresetMode {
-                let phase = timerViewModel.presetPhase
-                let setNum = timerViewModel.presetCurrentSet
-                let totalSets = timerViewModel.activePreset?.numberOfSets ?? 0
-                if phase == .work {
-                    return "Work \(setNum)/\(totalSets)"
-                } else if phase == .rest {
-                    return "Rest \(setNum)/\(totalSets)"
+        if timerViewModel.isCompleted {
+            completedSummaryRow(totalTime: totalTime)
+        } else {
+            // Set label changes based on mode
+            let setLabel: String = "Set Time"
+
+            // For cooldown, calculate countdown from 2 minutes
+            // For preset mode, show countdown for current phase
+            let displaySetTime: TimeInterval = {
+                if timerViewModel.isCompleted {
+                    return timerViewModel.avgSetTime ?? 0
+                } else if isCooldown || (isPresetMode && timerViewModel.presetPhase == .cooldown) {
+                    return timerViewModel.presetPhaseTimeRemaining > 0 ? timerViewModel.presetPhaseTimeRemaining : max(0, 120.0 - timerViewModel.currentSetTime)
+                } else if isPresetMode {
+                    return timerViewModel.presetPhaseTimeRemaining
                 } else {
-                    return "Cooldown"
+                    return timerViewModel.currentSetTime
                 }
-            } else {
-                return "Set"
+            }()
+
+            // Pre-calculate complex values to help compiler type-checking
+            let totalTimeTitle = "Total Time"
+            let setTimeValue: String = {
+                if timerViewModel.isCompleted {
+                    return timerViewModel.avgSetTime.map { formatTime($0) } ?? "---"
+                } else {
+                    return formatTime(displaySetTime)
+                }
+            }()
+            let avgRestValue = timerViewModel.avgRestTime.map { formatTime($0) } ?? "---"
+            let maxBPMValue = timerViewModel.maxHeartRate.map(String.init) ?? "---"
+            let avgBPMValue = timerViewModel.avgHeartRate.map(String.init) ?? "---"
+            
+            // Landscape: show Total, Set, Avg Rest, Current BPM/HRR, Max BPM, Avg BPM, Zone
+            VStack(spacing: 12) {
+                HStack(spacing: 16) {
+                    landscapeStatColumn(
+                        title: totalTimeTitle,
+                        value: formatTime(totalTime, showTenths: false),
+                        alignment: .leading
+                    )
+
+                    Spacer()
+
+                    landscapeStatColumn(
+                        title: setLabel,
+                        value: setTimeValue,
+                        alignment: .center
+                    )
+
+                    Spacer()
+
+                    landscapeStatColumn(
+                        title: "Avg Rest",
+                        value: avgRestValue,
+                        alignment: .center
+                    )
+
+                    Spacer()
+
+                    landscapeBPMOrHRRColumn(isCompleted: timerViewModel.isCompleted)
+
+                    Spacer()
+
+                    landscapeStatColumn(
+                        title: "Max BPM",
+                        value: maxBPMValue,
+                        alignment: .center
+                    )
+
+                    Spacer()
+
+                    landscapeStatColumn(
+                        title: "Avg BPM",
+                        value: avgBPMValue,
+                        alignment: .center
+                    )
+
+                    Spacer()
+
+                    landscapeZoneColumn()
+                }
+                .padding(.horizontal, 20)
             }
-        }()
-
-        // For cooldown, calculate countdown from 2 minutes
-        // For preset mode, show countdown for current phase
-        let displaySetTime: TimeInterval = {
-            if timerViewModel.isCompleted {
-                return timerViewModel.avgSetTime ?? 0
-            } else if isCooldown || (isPresetMode && timerViewModel.presetPhase == .cooldown) {
-                return timerViewModel.presetPhaseTimeRemaining > 0 ? timerViewModel.presetPhaseTimeRemaining : max(0, 120.0 - timerViewModel.currentSetTime)
-            } else if isPresetMode {
-                return timerViewModel.presetPhaseTimeRemaining
-            } else {
-                return timerViewModel.currentSetTime
-            }
-        }()
-
-        // Pre-calculate complex values to help compiler type-checking
-        let totalTimeTitle = timerViewModel.isCompleted ? "Total Time" : "Total"
-        let setTimeValue: String = {
-            if timerViewModel.isCompleted {
-                return timerViewModel.avgSetTime.map { formatTime($0) } ?? "---"
-            } else {
-                return formatTime(displaySetTime)
-            }
-        }()
-        let avgRestValue = timerViewModel.avgRestTime.map { formatTime($0) } ?? "---"
-        let maxBPMValue = timerViewModel.maxHeartRate.map(String.init) ?? "---"
-        let avgBPMValue = timerViewModel.avgHeartRate.map(String.init) ?? "---"
-        
-        // Landscape: show Total, Set, Avg Rest, Current BPM/HRR, Max BPM, Avg BPM, Zone
-        VStack(spacing: 12) {
-            HStack(spacing: 16) {
-                landscapeStatColumn(
-                    title: totalTimeTitle,
-                    value: formatTime(totalTime, showTenths: false),
-                    alignment: .leading
-                )
-
-                Spacer()
-
-                landscapeStatColumn(
-                    title: setLabel,
-                    value: setTimeValue,
-                    alignment: .center
-                )
-
-                Spacer()
-
-                landscapeStatColumn(
-                    title: "Avg Rest",
-                    value: avgRestValue,
-                    alignment: .center
-                )
-
-                Spacer()
-
-                landscapeBPMOrHRRColumn(isCompleted: timerViewModel.isCompleted)
-
-                Spacer()
-
-                landscapeStatColumn(
-                    title: "Max BPM",
-                    value: maxBPMValue,
-                    alignment: .center
-                )
-
-                Spacer()
-
-                landscapeStatColumn(
-                    title: "Avg BPM",
-                    value: avgBPMValue,
-                    alignment: .center
-                )
-
-                Spacer()
-
-                landscapeZoneColumn()
-            }
-            .padding(.horizontal, 20)
         }
     }
     
@@ -1113,117 +1185,80 @@ struct HeartRateDisplayView: View {
         let isPresetMode = timerViewModel.isPresetMode
         let totalTime = isCooldown ? timerViewModel.frozenElapsedTime : (timerViewModel.isCompleted ? timerViewModel.frozenElapsedTime : timerViewModel.elapsedTime)
 
-        // Set label changes based on mode
-        let setLabel: String = {
-            if timerViewModel.isCompleted {
-                return "Avg Set"
-            } else if isCooldown {
-                return "Cooldown"
-            } else if isPresetMode {
-                let phase = timerViewModel.presetPhase
-                let setNum = timerViewModel.presetCurrentSet
-                let totalSets = timerViewModel.activePreset?.numberOfSets ?? 0
-                if phase == .work {
-                    return "Work \(setNum)/\(totalSets)"
-                } else if phase == .rest {
-                    return "Rest \(setNum)/\(totalSets)"
+        if timerViewModel.isCompleted {
+            completedSummaryRow(totalTime: totalTime)
+        } else {
+            // Set label changes based on mode
+            let setLabel: String = "Set Time"
+
+            // For cooldown, calculate countdown from 2 minutes
+            // For preset mode, show countdown for current phase
+            let displaySetTime: TimeInterval = {
+                if timerViewModel.isCompleted {
+                    return timerViewModel.avgSetTime ?? 0
+                } else if isCooldown || (isPresetMode && timerViewModel.presetPhase == .cooldown) {
+                    return timerViewModel.presetPhaseTimeRemaining > 0 ? timerViewModel.presetPhaseTimeRemaining : max(0, 120.0 - timerViewModel.currentSetTime)
+                } else if isPresetMode {
+                    return timerViewModel.presetPhaseTimeRemaining
                 } else {
-                    return "Cooldown"
+                    return timerViewModel.currentSetTime
                 }
-            } else {
-                return "Set"
-            }
-        }()
+            }()
 
-        // For cooldown, calculate countdown from 2 minutes
-        // For preset mode, show countdown for current phase
-        let displaySetTime: TimeInterval = {
-            if timerViewModel.isCompleted {
-                return timerViewModel.avgSetTime ?? 0
-            } else if isCooldown || (isPresetMode && timerViewModel.presetPhase == .cooldown) {
-                return timerViewModel.presetPhaseTimeRemaining > 0 ? timerViewModel.presetPhaseTimeRemaining : max(0, 120.0 - timerViewModel.currentSetTime)
-            } else if isPresetMode {
-                return timerViewModel.presetPhaseTimeRemaining
-            } else {
-                return timerViewModel.currentSetTime
-            }
-        }()
-
-        // Pre-calculate complex values
-        let totalTimeTitle = timerViewModel.isCompleted ? "Total Time" : "Total"
-        let setTimeValue: String = {
-            if timerViewModel.isCompleted {
-                return timerViewModel.avgSetTime.map { formatTime($0) } ?? "---"
-            } else {
-                return formatTime(displaySetTime)
-            }
-        }()
-        
-        // Calculate BPM display values
-        let bpmTitle: String = {
-            if timerViewModel.isCompleted {
-                switch timerBPMDisplay {
-                case .avg: return "Avg BPM"
-                case .max: return "Max BPM"
-                case .hrr: return "HRR"
+            // Pre-calculate complex values
+            let totalTimeTitle = "Total Time"
+            let setTimeValue: String = {
+                if timerViewModel.isCompleted {
+                    return timerViewModel.avgSetTime.map { formatTime($0) } ?? "---"
+                } else {
+                    return formatTime(displaySetTime)
                 }
-            } else {
-                return "BPM"
-            }
-        }()
-        
-        let bpmValue: String = {
-            if timerViewModel.isCompleted {
-                switch timerBPMDisplay {
-                case .avg: return timerViewModel.avgHeartRate.map(String.init) ?? "---"
-                case .max: return timerViewModel.maxHeartRate.map(String.init) ?? "---"
-                case .hrr: return timerViewModel.heartRateRecovery.map(String.init) ?? "---"
-                }
-            } else {
-                return displayedHeartRate.map(String.init) ?? "---"
-            }
-        }()
-        
-        // Portrait: show Total, Set, BPM (realtime while running, Avg/Max/HRR when completed)
-        VStack(spacing: 12) {
-            HStack(spacing: 0) {
-                VStack(spacing: 4) {
-                    Text(totalTimeTitle)
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundColor(.gray)
-                    Text(formatTime(totalTime, showTenths: false))
-                        .font(.system(size: 32, weight: .bold, design: .monospaced))
-                        .foregroundColor(.white)
-                }
-                .frame(maxWidth: .infinity)
-
-                VStack(spacing: 4) {
-                    Text(setLabel)
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundColor(.gray)
-                    Text(setTimeValue)
-                        .font(.system(size: 32, weight: .bold, design: .monospaced))
-                        .foregroundColor(.white)
-                }
-                .frame(maxWidth: .infinity)
-
-                VStack(spacing: 4) {
-                    Text(bpmTitle)
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundColor(.gray)
-                    Text(bpmValue)
-                        .font(.system(size: 32, weight: .bold, design: .monospaced))
-                        .foregroundColor(.white)
-                }
-                .frame(maxWidth: .infinity)
-                .contentShape(Rectangle())
-                .onTapGesture {
-                    if timerViewModel.isCompleted {
-                        timerBPMDisplay.cycle()
+            }()
+            
+            // Calculate BPM display values
+            let bpmTitle: String = "BPM"
+            
+            let bpmValue: String = displayedHeartRate.map(String.init) ?? "---"
+            
+            // Portrait: show Total, Set, BPM (realtime while running)
+            VStack(spacing: 12) {
+                HStack(spacing: 0) {
+                    VStack(alignment: .center, spacing: 4) {
+                        Text(totalTimeTitle)
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(.gray)
+                            .multilineTextAlignment(.center)
+                        Text(formatTime(totalTime, showTenths: false))
+                            .font(.system(size: 32, weight: .bold, design: .monospaced))
+                            .foregroundColor(.white)
                     }
+                    .frame(maxWidth: .infinity, alignment: .center)
+
+                    VStack(alignment: .center, spacing: 4) {
+                        Text(setLabel)
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(.gray)
+                            .multilineTextAlignment(.center)
+                        Text(setTimeValue)
+                            .font(.system(size: 32, weight: .bold, design: .monospaced))
+                            .foregroundColor(.white)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .center)
+
+                    VStack(alignment: .center, spacing: 4) {
+                        Text(bpmTitle)
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(.gray)
+                            .multilineTextAlignment(.center)
+                        Text(bpmValue)
+                            .font(.system(size: 32, weight: .bold, design: .monospaced))
+                            .foregroundColor(.white)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .contentShape(Rectangle())
                 }
+                .padding(.horizontal, 8)
             }
-            .padding(.horizontal, 8)
         }
     }
     
@@ -1231,8 +1266,10 @@ struct HeartRateDisplayView: View {
     private func setsTable(isLandscape: Bool, screenWidth: CGFloat) -> some View {
         let scaleFactor = min(1.0, screenWidth / 375.0)
         let fontSize = isLandscape ? 14.0 : max(16.0, 18.0 * scaleFactor)
+        let headerFontSize: CGFloat = 14.0
+        let columnSpacing: CGFloat = isLandscape ? 6.0 : max(6.0, 8.0 * scaleFactor)
         let columnCount = isLandscape ? 6 : 4 // 6 columns in landscape (add Max BPM and Min BPM), 4 in portrait
-        let columnWidth = (screenWidth - (isLandscape ? 80 : 40) - 24) / CGFloat(columnCount) // Equal width columns
+        let columnWidth = (screenWidth - (isLandscape ? 80 : 40) - 24 - (columnSpacing * CGFloat(columnCount - 1))) / CGFloat(columnCount) // Equal width columns
         let workSetCount = timerViewModel.sets.filter { !$0.isRestSet && !$0.isCooldownSet }.count
         
         ScrollViewReader { proxy in
@@ -1240,38 +1277,38 @@ struct HeartRateDisplayView: View {
                 ScrollView {
                     VStack(spacing: 0) {
                         // Spacer to account for pinned header
-                        HStack(spacing: 0) {
+                        HStack(spacing: columnSpacing) {
                             Text("Set")
-                                .font(.system(size: fontSize, weight: .semibold))
+                                .font(.system(size: headerFontSize, weight: .semibold))
                                 .foregroundColor(.clear)
-                                .frame(width: columnWidth, alignment: .leading)
+                                .frame(width: columnWidth, alignment: .center)
                             
-                            Text("Set Time")
-                                .font(.system(size: fontSize, weight: .semibold))
+                            Text("Time")
+                                .font(.system(size: headerFontSize, weight: .semibold))
                                 .foregroundColor(.clear)
-                                .frame(width: columnWidth, alignment: .leading)
+                                .frame(width: columnWidth, alignment: .center)
                             
                             Text("Avg BPM")
-                                .font(.system(size: fontSize, weight: .semibold))
+                                .font(.system(size: headerFontSize, weight: .semibold))
                                 .foregroundColor(.clear)
-                                .frame(width: columnWidth, alignment: .trailing)
+                                .frame(width: columnWidth, alignment: .center)
                             
                             if isLandscape {
                                 Text("Min BPM")
-                                    .font(.system(size: fontSize, weight: .semibold))
+                                    .font(.system(size: headerFontSize, weight: .semibold))
                                     .foregroundColor(.clear)
-                                    .frame(width: columnWidth, alignment: .trailing)
+                                    .frame(width: columnWidth, alignment: .center)
                                 
                                 Text("Max BPM")
-                                    .font(.system(size: fontSize, weight: .semibold))
+                                    .font(.system(size: headerFontSize, weight: .semibold))
                                     .foregroundColor(.clear)
-                                    .frame(width: columnWidth, alignment: .trailing)
+                                    .frame(width: columnWidth, alignment: .center)
                             }
                             
                             Text("Total")
-                                .font(.system(size: fontSize, weight: .semibold))
+                                .font(.system(size: headerFontSize, weight: .semibold))
                                 .foregroundColor(.clear)
-                                .frame(width: columnWidth, alignment: .trailing)
+                                .frame(width: columnWidth, alignment: .center)
                         }
                         .padding(.horizontal, 12)
                         .padding(.vertical, 8)
@@ -1287,38 +1324,38 @@ struct HeartRateDisplayView: View {
                             let totalTime = timerViewModel.displayTotalTime(for: set)
                             let rowColor: Color = isActiveRestSet ? .white : .gray
 
-                            HStack(spacing: 0) {
+                            HStack(spacing: columnSpacing) {
                                 Text(timerViewModel.displayLabel(for: set))
                                     .font(.system(size: fontSize, weight: .medium))
                                     .foregroundColor(rowColor)
-                                    .frame(width: columnWidth, alignment: .leading)
+                                    .frame(width: columnWidth, alignment: .center)
 
                                 Text(formatTime(setTime))
                                     .font(.system(size: fontSize, weight: .medium, design: .monospaced))
                                     .foregroundColor(rowColor)
-                                    .frame(width: columnWidth, alignment: .leading)
+                                    .frame(width: columnWidth, alignment: .center)
 
                                 Text(avgBPM.map(String.init) ?? "---")
                                     .font(.system(size: fontSize, weight: .medium, design: .monospaced))
                                     .foregroundColor(rowColor)
-                                    .frame(width: columnWidth, alignment: .trailing)
+                                    .frame(width: columnWidth, alignment: .center)
 
                                 if isLandscape {
                                     Text(minBPM.map(String.init) ?? "---")
                                         .font(.system(size: fontSize, weight: .medium, design: .monospaced))
                                         .foregroundColor(rowColor)
-                                        .frame(width: columnWidth, alignment: .trailing)
+                                        .frame(width: columnWidth, alignment: .center)
 
                                     Text(maxBPM.map(String.init) ?? "---")
                                         .font(.system(size: fontSize, weight: .medium, design: .monospaced))
                                         .foregroundColor(rowColor)
-                                        .frame(width: columnWidth, alignment: .trailing)
+                                        .frame(width: columnWidth, alignment: .center)
                                 }
 
                                 Text(formatTime(totalTime))
                                     .font(.system(size: fontSize, weight: .medium, design: .monospaced))
                                     .foregroundColor(rowColor)
-                                    .frame(width: columnWidth, alignment: .trailing)
+                                    .frame(width: columnWidth, alignment: .center)
                             }
                             .padding(.horizontal, 12)
                             .padding(.vertical, 8)
@@ -1329,7 +1366,7 @@ struct HeartRateDisplayView: View {
                         if timerViewModel.isPresetMode && timerViewModel.state == .idle && timerViewModel.sets.isEmpty {
                             // Show all placeholders when not started
                             ForEach(timerViewModel.presetPlaceholderSets) { set in
-                                presetPlaceholderRow(set: set, fontSize: fontSize, columnWidth: columnWidth, isLandscape: isLandscape)
+                                presetPlaceholderRow(set: set, fontSize: fontSize, columnWidth: columnWidth, columnSpacing: columnSpacing, isLandscape: isLandscape)
                             }
                         }
                         
@@ -1343,38 +1380,38 @@ struct HeartRateDisplayView: View {
                             // Calculate min BPM for current set so far
                             let currentMinBPM = timerViewModel.minBPMForCurrentSet()
                             
-                            HStack(spacing: 0) {
+                            HStack(spacing: columnSpacing) {
                                 Text("\(nextSetNumber)")
                                     .font(.system(size: fontSize, weight: .medium))
                                     .foregroundColor(.white)
-                                    .frame(width: columnWidth, alignment: .leading)
+                                    .frame(width: columnWidth, alignment: .center)
                                 
                                 Text(formatTime(timerViewModel.currentSetTime))
                                     .font(.system(size: fontSize, weight: .medium, design: .monospaced))
                                     .foregroundColor(.white)
-                                    .frame(width: columnWidth, alignment: .leading)
+                                    .frame(width: columnWidth, alignment: .center)
                                 
                                 Text(currentAvgBPM.map(String.init) ?? "---")
                                     .font(.system(size: fontSize, weight: .medium, design: .monospaced))
                                     .foregroundColor(.white)
-                                    .frame(width: columnWidth, alignment: .trailing)
+                                    .frame(width: columnWidth, alignment: .center)
                                 
                                 if isLandscape {
                                     Text(currentMinBPM.map(String.init) ?? "---")
                                         .font(.system(size: fontSize, weight: .medium, design: .monospaced))
                                         .foregroundColor(.white)
-                                        .frame(width: columnWidth, alignment: .trailing)
+                                        .frame(width: columnWidth, alignment: .center)
                                     
                                     Text(currentMaxBPM.map(String.init) ?? "---")
                                         .font(.system(size: fontSize, weight: .medium, design: .monospaced))
                                         .foregroundColor(.white)
-                                        .frame(width: columnWidth, alignment: .trailing)
+                                        .frame(width: columnWidth, alignment: .center)
                                 }
                                 
                                 Text(formatTime(timerViewModel.elapsedTime))
                                     .font(.system(size: fontSize, weight: .medium, design: .monospaced))
                                     .foregroundColor(.white)
-                                    .frame(width: columnWidth, alignment: .trailing)
+                                    .frame(width: columnWidth, alignment: .center)
                             }
                             .padding(.horizontal, 12)
                             .padding(.vertical, 8)
@@ -1393,38 +1430,38 @@ struct HeartRateDisplayView: View {
                             let cooldownMaxBPM = currentHR
                             let cooldownMinBPM = currentHR
                             
-                            HStack(spacing: 0) {
+                            HStack(spacing: columnSpacing) {
                                 Text("C\(nextCooldownNumber)")
                                     .font(.system(size: fontSize, weight: .medium))
                                     .foregroundColor(.white)
-                                    .frame(width: columnWidth, alignment: .leading)
+                                    .frame(width: columnWidth, alignment: .center)
                                 
                                 Text(formatTime(timerViewModel.currentSetTime))
                                     .font(.system(size: fontSize, weight: .medium, design: .monospaced))
                                     .foregroundColor(.white)
-                                    .frame(width: columnWidth, alignment: .leading)
+                                    .frame(width: columnWidth, alignment: .center)
                                 
                                 Text(cooldownAvgBPM.map(String.init) ?? "---")
                                     .font(.system(size: fontSize, weight: .medium, design: .monospaced))
                                     .foregroundColor(.white)
-                                    .frame(width: columnWidth, alignment: .trailing)
+                                    .frame(width: columnWidth, alignment: .center)
                                 
                                 if isLandscape {
                                     Text(cooldownMinBPM.map(String.init) ?? "---")
                                         .font(.system(size: fontSize, weight: .medium, design: .monospaced))
                                         .foregroundColor(.white)
-                                        .frame(width: columnWidth, alignment: .trailing)
+                                        .frame(width: columnWidth, alignment: .center)
                                     
                                     Text(cooldownMaxBPM.map(String.init) ?? "---")
                                         .font(.system(size: fontSize, weight: .medium, design: .monospaced))
                                         .foregroundColor(.white)
-                                        .frame(width: columnWidth, alignment: .trailing)
+                                        .frame(width: columnWidth, alignment: .center)
                                 }
                                 
                                 Text(formatTime(totalTime))
                                     .font(.system(size: fontSize, weight: .medium, design: .monospaced))
                                     .foregroundColor(.white)
-                                    .frame(width: columnWidth, alignment: .trailing)
+                                    .frame(width: columnWidth, alignment: .center)
                             }
                             .padding(.horizontal, 12)
                             .padding(.vertical, 8)
@@ -1434,46 +1471,46 @@ struct HeartRateDisplayView: View {
                         // Remaining future placeholder rows for preset mode (grayed out, shown after active row)
                         if timerViewModel.isPresetMode && (timerViewModel.state == .running || timerViewModel.state == .paused || timerViewModel.state == .cooldown || timerViewModel.state == .cooldownPaused) {
                             ForEach(timerViewModel.remainingPresetPlaceholderSets) { set in
-                                presetPlaceholderRow(set: set, fontSize: fontSize, columnWidth: columnWidth, isLandscape: isLandscape)
+                                presetPlaceholderRow(set: set, fontSize: fontSize, columnWidth: columnWidth, columnSpacing: columnSpacing, isLandscape: isLandscape)
                             }
                         }
                     }
                 }
 
                 // Pinned header
-                HStack(spacing: 0) {
-                    Text("Set")
-                        .font(.system(size: fontSize, weight: .semibold))
-                        .foregroundColor(.gray)
-                        .frame(width: columnWidth, alignment: .leading)
-                    
-                    Text("Set Time")
-                        .font(.system(size: fontSize, weight: .semibold))
-                        .foregroundColor(.gray)
-                        .frame(width: columnWidth, alignment: .leading)
-                    
-                    Text("Avg BPM")
-                        .font(.system(size: fontSize, weight: .semibold))
-                        .foregroundColor(.gray)
-                        .frame(width: columnWidth, alignment: .trailing)
-                    
-                    if isLandscape {
-                        Text("Min BPM")
-                            .font(.system(size: fontSize, weight: .semibold))
-                            .foregroundColor(.gray)
-                            .frame(width: columnWidth, alignment: .trailing)
-                        
-                        Text("Max BPM")
-                            .font(.system(size: fontSize, weight: .semibold))
-                            .foregroundColor(.gray)
-                            .frame(width: columnWidth, alignment: .trailing)
-                    }
-                    
-                    Text("Total")
-                        .font(.system(size: fontSize, weight: .semibold))
-                        .foregroundColor(.gray)
-                        .frame(width: columnWidth, alignment: .trailing)
-                }
+                        HStack(spacing: columnSpacing) {
+                            Text("Set")
+                                .font(.system(size: headerFontSize, weight: .semibold))
+                                .foregroundColor(.gray)
+                                .frame(width: columnWidth, alignment: .center)
+                            
+                            Text("Time")
+                                .font(.system(size: headerFontSize, weight: .semibold))
+                                .foregroundColor(.gray)
+                                .frame(width: columnWidth, alignment: .center)
+                            
+                            Text("Avg BPM")
+                                .font(.system(size: headerFontSize, weight: .semibold))
+                                .foregroundColor(.gray)
+                                .frame(width: columnWidth, alignment: .center)
+                            
+                            if isLandscape {
+                                Text("Min BPM")
+                                    .font(.system(size: headerFontSize, weight: .semibold))
+                                    .foregroundColor(.gray)
+                                    .frame(width: columnWidth, alignment: .center)
+                                
+                                Text("Max BPM")
+                                    .font(.system(size: headerFontSize, weight: .semibold))
+                                    .foregroundColor(.gray)
+                                    .frame(width: columnWidth, alignment: .center)
+                            }
+                            
+                            Text("Total")
+                                .font(.system(size: headerFontSize, weight: .semibold))
+                                .foregroundColor(.gray)
+                                .frame(width: columnWidth, alignment: .center)
+                        }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
                 .background(Color.black.opacity(0.9))
@@ -1533,7 +1570,7 @@ struct HeartRateDisplayView: View {
         let scaleFactor = min(1.0, screenWidth / 375.0)
         let buttonSpacing = isLandscape ? 12.0 : max(12.0, 16.0 * scaleFactor)
         let buttonPadding = isLandscape ? 40.0 : max(20.0, 24.0 * scaleFactor)
-        let buttonFontSize = isLandscape ? 16.0 : max(16.0, 18.0 * scaleFactor)
+        let buttonFontSize = isLandscape ? 16.0 : max(14.0, 18.0 * scaleFactor)
         let buttonPaddingSize = isLandscape ? 12.0 : max(12.0, 16.0 * scaleFactor)
         let isCooldownDisabled = timerViewModel.state == .idle && !timerViewModel.isPresetMode
         let isInCooldownMode = timerViewModel.isInCooldownMode
@@ -1742,8 +1779,11 @@ struct HeartRateDisplayView: View {
                         Text(buttonText)
                             .font(.system(size: buttonFontSize, weight: .semibold))
                             .foregroundColor(.white)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
+                            .allowsTightening(true)
                             .frame(maxWidth: .infinity)
-                            .padding(.horizontal, buttonPaddingSize * 2)
+                            .padding(.horizontal, buttonPaddingSize * 1.5)
                             .padding(.vertical, buttonPaddingSize)
                             .background(Color.gray.opacity(0.3))
                             .cornerRadius(buttonPaddingSize)
@@ -1771,8 +1811,11 @@ struct HeartRateDisplayView: View {
                         Text("End")
                             .font(.system(size: buttonFontSize, weight: .semibold))
                             .foregroundColor((timerViewModel.state == .idle && timerViewModel.sets.isEmpty && !isPresetMode) || isCompleted ? .gray.opacity(0.5) : .white)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
+                            .allowsTightening(true)
                             .frame(maxWidth: .infinity)
-                            .padding(.horizontal, buttonPaddingSize * 2)
+                            .padding(.horizontal, buttonPaddingSize * 1.5)
                             .padding(.vertical, buttonPaddingSize)
                             .background((timerViewModel.state == .idle && timerViewModel.sets.isEmpty && !isPresetMode) || isCompleted ? Color.gray.opacity(0.1) : Color.gray.opacity(0.3))
                             .cornerRadius(buttonPaddingSize)
@@ -1795,8 +1838,11 @@ struct HeartRateDisplayView: View {
                             Text("Cool")
                                 .font(.system(size: buttonFontSize, weight: .semibold))
                                 .foregroundColor(isCooldownDisabled || isInCooldownMode || isCompleted ? .gray.opacity(0.5) : .white)
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.8)
+                                .allowsTightening(true)
                                 .frame(maxWidth: .infinity)
-                                .padding(.horizontal, buttonPaddingSize * 2)
+                                .padding(.horizontal, buttonPaddingSize * 1.5)
                                 .padding(.vertical, buttonPaddingSize)
                                 .background((isCooldownDisabled || isInCooldownMode || isCompleted) ? Color.gray.opacity(0.1) : Color.gray.opacity(0.3))
                                 .cornerRadius(buttonPaddingSize)
@@ -1817,10 +1863,13 @@ struct HeartRateDisplayView: View {
                                     .font(.system(size: buttonFontSize, weight: .semibold))
                                 Text("Work Set")
                                     .font(.system(size: buttonFontSize, weight: .semibold))
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.75)
+                                    .allowsTightening(true)
                             }
                             .foregroundColor(workSetDisabled ? .gray.opacity(0.5) : .white)
                             .frame(maxWidth: .infinity)
-                            .padding(.horizontal, buttonPaddingSize * 2)
+                            .padding(.horizontal, buttonPaddingSize * 1.5)
                             .padding(.vertical, buttonPaddingSize)
                             .background(workSetDisabled ? Color.gray.opacity(0.1) : Color.gray.opacity(0.3))
                             .cornerRadius(buttonPaddingSize)
@@ -1836,10 +1885,13 @@ struct HeartRateDisplayView: View {
                                     .font(.system(size: buttonFontSize, weight: .semibold))
                                 Text("Rest Set")
                                     .font(.system(size: buttonFontSize, weight: .semibold))
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.75)
+                                    .allowsTightening(true)
                             }
                             .foregroundColor(restSetDisabled ? .gray.opacity(0.5) : .white)
                             .frame(maxWidth: .infinity)
-                            .padding(.horizontal, buttonPaddingSize * 2)
+                            .padding(.horizontal, buttonPaddingSize * 1.5)
                             .padding(.vertical, buttonPaddingSize)
                             .background(restSetDisabled ? Color.gray.opacity(0.1) : Color.gray.opacity(0.3))
                             .cornerRadius(buttonPaddingSize)
@@ -1856,41 +1908,41 @@ struct HeartRateDisplayView: View {
     }
     
     @ViewBuilder
-    private func presetPlaceholderRow(set: SetRecord, fontSize: CGFloat, columnWidth: CGFloat, isLandscape: Bool) -> some View {
+    private func presetPlaceholderRow(set: SetRecord, fontSize: CGFloat, columnWidth: CGFloat, columnSpacing: CGFloat, isLandscape: Bool) -> some View {
         let rowColor: Color = .gray.opacity(0.4)
 
-        HStack(spacing: 0) {
+        HStack(spacing: columnSpacing) {
             Text(timerViewModel.displayLabel(for: set))
                 .font(.system(size: fontSize, weight: .medium))
                 .foregroundColor(rowColor)
-                .frame(width: columnWidth, alignment: .leading)
+                .frame(width: columnWidth, alignment: .center)
 
             Text(formatTime(set.setTime))
                 .font(.system(size: fontSize, weight: .medium, design: .monospaced))
                 .foregroundColor(rowColor)
-                .frame(width: columnWidth, alignment: .leading)
+                .frame(width: columnWidth, alignment: .center)
 
             Text("---")
                 .font(.system(size: fontSize, weight: .medium, design: .monospaced))
                 .foregroundColor(rowColor)
-                .frame(width: columnWidth, alignment: .trailing)
+                .frame(width: columnWidth, alignment: .center)
 
             if isLandscape {
                 Text("---")
                     .font(.system(size: fontSize, weight: .medium, design: .monospaced))
                     .foregroundColor(rowColor)
-                    .frame(width: columnWidth, alignment: .trailing)
+                    .frame(width: columnWidth, alignment: .center)
 
                 Text("---")
                     .font(.system(size: fontSize, weight: .medium, design: .monospaced))
                     .foregroundColor(rowColor)
-                    .frame(width: columnWidth, alignment: .trailing)
+                    .frame(width: columnWidth, alignment: .center)
             }
 
             Text(formatTime(set.totalTime))
                 .font(.system(size: fontSize, weight: .medium, design: .monospaced))
                 .foregroundColor(rowColor)
-                .frame(width: columnWidth, alignment: .trailing)
+                .frame(width: columnWidth, alignment: .center)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)

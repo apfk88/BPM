@@ -207,7 +207,8 @@ final class TimerViewModel: ObservableObject {
     var maxHeartRate: Int? {
         // Calculate max from all heart rate samples during the workout
         guard !heartRateSamples.isEmpty else {
-            // Fallback to current heart rate if no samples yet
+            // Fallback to current heart rate only while actively running
+            guard state == .running || state == .paused else { return nil }
             return currentHeartRate?()
         }
         let maxFromSamples = heartRateSamples.map { $0.value }.max()
@@ -222,6 +223,27 @@ final class TimerViewModel: ObservableObject {
         }
         
         return maxFromSamples
+    }
+
+    var minHeartRate: Int? {
+        // Calculate min from all heart rate samples during the workout
+        guard !heartRateSamples.isEmpty else {
+            // Fallback to current heart rate only while actively running
+            guard state == .running || state == .paused else { return nil }
+            return currentHeartRate?()
+        }
+        let minFromSamples = heartRateSamples.map { $0.value }.min()
+
+        // Also consider current heart rate if timer is running
+        if state == .running || state == .paused, let currentHR = currentHeartRate?() {
+            if let minFromSamples = minFromSamples {
+                return min(minFromSamples, currentHR)
+            } else {
+                return currentHR
+            }
+        }
+
+        return minFromSamples
     }
     
     var heartRateRecovery: Int? {
@@ -1318,4 +1340,3 @@ final class TimerViewModel: ObservableObject {
         heartRateSampleTimer?.invalidate()
     }
 }
-
