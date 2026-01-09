@@ -917,7 +917,7 @@ extension HeartRateBluetoothManager: CBPeripheralDelegate {
             self.stopFakeDataGeneration()
             
             // Reset fake data state
-            self.fakeHeartRateBase = 75
+            self.fakeHeartRateBase = 100
             self.heartRateSamples.removeAll()
             self.rrIntervals.removeAll()
             self.supportsRRIntervals = true // Simulator supports RR intervals for testing
@@ -950,9 +950,11 @@ extension HeartRateBluetoothManager: CBPeripheralDelegate {
     }
     
     private func generateFakeHeartRate() {
-        // Generate high variability heart rate data for testing
-        // Randomly select between 80 and 200 BPM
-        let clampedHeartRate = Int.random(in: 80...200)
+        // Generate predictable simulator data: start at 100, then +/- 5% each tick
+        let changeFactor = Bool.random() ? 1.05 : 0.95
+        let nextHeartRate = Int((Double(fakeHeartRateBase) * changeFactor).rounded())
+        let clampedHeartRate = max(40, min(220, nextHeartRate))
+        fakeHeartRateBase = clampedHeartRate
         
         // addHeartRateSample must be called on main thread for @Published properties
         // Timer callbacks are already on the thread that scheduled them (main thread)
