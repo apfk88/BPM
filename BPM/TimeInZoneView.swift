@@ -11,6 +11,7 @@ struct TimeInZoneView: View {
     let zoneData: [ZoneTimeData]
     var isLandscape: Bool = false
     var verticalPadding: CGFloat? = nil
+    @State private var showPercentages = false
 
     private var totalTime: TimeInterval {
         zoneData.reduce(0) { $0 + $1.duration }
@@ -24,7 +25,8 @@ struct TimeInZoneView: View {
                     zone: zone,
                     duration: data.duration,
                     totalTime: totalTime,
-                    isLandscape: isLandscape
+                    isLandscape: isLandscape,
+                    showPercentages: $showPercentages
                 )
             }
         }
@@ -65,6 +67,7 @@ private struct ZoneBarRow: View {
     let duration: TimeInterval
     let totalTime: TimeInterval
     let isLandscape: Bool
+    @Binding var showPercentages: Bool
 
     private var percentage: Double {
         guard totalTime > 0 else { return 0 }
@@ -98,10 +101,14 @@ private struct ZoneBarRow: View {
             .frame(height: isLandscape ? 16 : 20)
 
             // Duration text
-            Text(formatDuration(duration))
+            Text(showPercentages ? formatPercentage(percentage) : formatDuration(duration))
                 .font(.system(size: isLandscape ? 11 : 13, weight: .medium, design: .monospaced))
                 .foregroundColor(.white)
                 .frame(width: isLandscape ? 50 : 60, alignment: .trailing)
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    showPercentages.toggle()
+                }
         }
     }
 
@@ -110,6 +117,11 @@ private struct ZoneBarRow: View {
         let minutes = totalSeconds / 60
         let seconds = totalSeconds % 60
         return String(format: "%d:%02d", minutes, seconds)
+    }
+
+    private func formatPercentage(_ value: Double) -> String {
+        let percent = Int((value * 100).rounded())
+        return "\(percent)%"
     }
 }
 
