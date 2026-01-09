@@ -1,136 +1,269 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="description" content="A simple app, vibecoded out of laziness and spite.">
-  <meta property="og:title" content="BPM - See and share your heart rate. That's it.">
-  <meta property="og:description" content="A simple app, vibecoded out of laziness and spite.">
-  <meta property="og:type" content="website">
-  <meta property="og:url" content="https://bpmtracker.app/">
-  <meta property="og:image" content="https://bpmtracker.app/og.png">
-  <meta property="og:image:width" content="2400">
-  <meta property="og:image:height" content="1260">
-  <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:title" content="BPM - See and share your heart rate. That's it.">
-  <meta name="twitter:description" content="A simple app, vibecoded out of laziness and spite.">
-  <meta name="twitter:image" content="https://bpmtracker.app/og.png">
-  <title>BPM - See and share your heart rate. That's it.</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@100..900&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css">
-  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-light-32x32.png?v=20241109">
-  <link rel="icon" type="image/png" sizes="16x16" href="/favicon-light-16x16.png?v=20241109">
-  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-dark-32x32.png?v=20241109" media="(prefers-color-scheme: dark)">
-  <link rel="icon" type="image/png" sizes="16x16" href="/favicon-dark-16x16.png?v=20241109" media="(prefers-color-scheme: dark)">
-  <link rel="apple-touch-icon" href="/apple-icon.png?v=20241109">
-</head>
-<body>
-  <main class="min-h-screen flex flex-col">
-    <!-- Hero Section -->
-    <section class="hero-section">
-      <div class="container">
-        <div class="header-group">
-          <picture>
-            <source srcset="/app-icon-dark.png" media="(prefers-color-scheme: dark)">
-            <img src="/app-icon.png" alt="BPM app icon" class="app-icon" />
-          </picture>
-          <h1 class="title">BPM</h1>
-        </div>
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <meta
+            name="description"
+            content="A simple app, vibecoded out of laziness and spite."
+        />
+        <meta
+            property="og:title"
+            content="BPM - See your heart rate in big numbers. That's it."
+        />
+        <meta
+            property="og:description"
+            content="A simple app, vibecoded out of laziness and spite."
+        />
+        <meta property="og:type" content="website" />
+        <meta property="og:url" content="https://bpmtracker.app/" />
+        <meta property="og:image" content="https://bpmtracker.app/og.png" />
+        <meta property="og:image:width" content="2400" />
+        <meta property="og:image:height" content="1260" />
+        <meta name="twitter:card" content="summary_large_image" />
+        <meta
+            name="twitter:title"
+            content="BPM - See your heart rate in big numbers. That's it."
+        />
+        <meta
+            name="twitter:description"
+            content="A simple app, vibecoded out of laziness and spite."
+        />
+        <meta name="twitter:image" content="https://bpmtracker.app/og.png" />
+        <title>BPM - See your heart rate in big numbers. That's it.</title>
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+        <link
+            href="https://fonts.googleapis.com/css2?family=Geist:wght@100..900&display=swap"
+            rel="stylesheet"
+        />
+        <link rel="stylesheet" href="styles.css" />
+        <link
+            rel="icon"
+            type="image/png"
+            sizes="32x32"
+            href="/favicon-light-32x32.png?v=20241109"
+        />
+        <link
+            rel="icon"
+            type="image/png"
+            sizes="16x16"
+            href="/favicon-light-16x16.png?v=20241109"
+        />
+        <link
+            rel="icon"
+            type="image/png"
+            sizes="32x32"
+            href="/favicon-dark-32x32.png?v=20241109"
+            media="(prefers-color-scheme: dark)"
+        />
+        <link
+            rel="icon"
+            type="image/png"
+            sizes="16x16"
+            href="/favicon-dark-16x16.png?v=20241109"
+            media="(prefers-color-scheme: dark)"
+        />
+        <link rel="apple-touch-icon" href="/apple-icon.png?v=20241109" />
+    </head>
+    <body>
+        <main class="min-h-screen flex flex-col">
+            <!-- Hero Section -->
+            <section class="hero-section">
+                <div class="container">
+                    <div class="header-group">
+                        <picture>
+                            <source
+                                srcset="/app-icon-dark.png"
+                                media="(prefers-color-scheme: dark)"
+                            />
+                            <img
+                                src="/app-icon.png"
+                                alt="BPM app icon"
+                                class="app-icon"
+                            />
+                        </picture>
+                        <h1 class="title">BPM</h1>
+                    </div>
 
-        <!-- Tagline -->
-        <p class="tagline">
-          Your heart rate in big numbers. That's it.
-        </p>
+                    <!-- Tagline -->
+                    <p class="tagline">
+                        Your heart rate in big numbers. That's it.
+                    </p>
 
-        <p class="subtitle">
-          ...ok, you can also share your live heart rate and measure HRV/HRR
-        </p>
+                    <p class="subtitle">
+                        ...ok, you can also share your live heart rate and
+                        measure HRV/HRR
+                    </p>
 
-        <div class="app-store-container">
-          <a href="https://apps.apple.com/us/app/bpm-see-share-heart-rate/id6754830191" aria-label="Download on the App Store" target="_blank" rel="noopener noreferrer">
-            <img src="/app-store-badge.svg" alt="Download on the App Store" class="app-store-badge" />
-          </a>
-        </div>
+                    <div class="app-store-container">
+                        <a
+                            href="https://apps.apple.com/us/app/bpm-see-share-heart-rate/id6754830191"
+                            aria-label="Download on the App Store"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                        >
+                            <img
+                                src="/app-store-badge.svg"
+                                alt="Download on the App Store"
+                                class="app-store-badge"
+                            />
+                        </a>
+                    </div>
 
-        <div class="screenshot-container">
-          <img
-            src="/bpm-hero.png"
-            alt="BPM app screenshots showing heart rate monitoring, HRV measurement, and workout timer views"
-            class="screenshot"
-          />
-        </div>
+                    <div class="screenshot-container">
+                        <img
+                            src="/bpm-hero.png"
+                            alt="BPM app screenshots showing heart rate monitoring, HRV measurement, and workout timer views"
+                            class="screenshot"
+                        />
+                    </div>
 
-        <!-- FAQ Section -->
-        <div class="faq-section">
-          <div class="faq-item">
-            <h3 class="faq-question">How?</h3>
-            <div class="faq-answer">
-              <p>Step 1: Download and open app</p>
-              <p>Step 2: Connect any BLE heart rate monitor (like a Polar H10), or input a friend's share code.</p>
-              <p>Step 3: Look at your heart rate. Do great things.</p>
-              <p>Step 4: Optionally share your live heart rate with someone else like a trainer or a very close friend.</p>
-            </div>
-          </div>
+                    <!-- FAQ Section -->
+                    <div class="faq-section">
+                        <div class="faq-item">
+                            <h3 class="faq-question">How?</h3>
+                            <div class="faq-answer">
+                                <p>Step 1: Download and open app</p>
+                                <p>
+                                    Step 2: Connect any BLE heart rate monitor
+                                    (like a Polar H10), or input a friend's
+                                    share code.
+                                </p>
+                                <p>
+                                    Step 3: Look at your heart rate. Do great
+                                    things.
+                                </p>
+                                <p>
+                                    Step 4: Optionally share your live heart
+                                    rate with someone else like a trainer or a
+                                    very close friend.
+                                </p>
+                            </div>
+                        </div>
 
-          <div class="faq-item">
-            <h3 class="faq-question">Why?</h3>
-            <div class="faq-answer">
-              <p>Wrist-based heart rate monitors aren't accurate, but I couldn't find a simple app for my chest strap monitor that would just show my BPM in big numbers without 48 other features and in-app purchases, so I made this out of spite. I also do remote cardio training and my trainer is always asking for my heart rate, so I built this out of laziness...and spite.</p>
-            </div>
-          </div>
+                        <div class="faq-item">
+                            <h3 class="faq-question">Why?</h3>
+                            <div class="faq-answer">
+                                <p>
+                                    Wrist-based heart rate monitors aren't
+                                    accurate, but I couldn't find a simple app
+                                    for my chest strap monitor that would just
+                                    show my BPM in big numbers without 48 other
+                                    features and in-app purchases, so I made
+                                    this out of spite. I also do remote cardio
+                                    training and my trainer is always asking for
+                                    my heart rate, so I built this out of
+                                    laziness...and spite.
+                                </p>
+                            </div>
+                        </div>
 
-          <div class="faq-item">
-            <h3 class="faq-question">Why isn't sharing free?</h3>
-            <div class="faq-answer">
-              <p>To cover the cost of serving the real-time sharing, which is terribly unoptimized and expensive.</p>
-            </div>
-          </div>
+                        <div class="faq-item">
+                            <h3 class="faq-question">
+                                Why isn't sharing free?
+                            </h3>
+                            <div class="faq-answer">
+                                <p>
+                                    To cover the cost of serving the real-time
+                                    sharing, which is terribly unoptimized and
+                                    expensive.
+                                </p>
+                            </div>
+                        </div>
 
-          <div class="faq-item">
-            <h3 class="faq-question">Which heart rate monitors does this work with?</h3>
-            <div class="faq-answer">
-              <p>This app works with any Bluetooth Low Energy (BLE) heart rate monitor that follows the standard Heart Rate Profile. I've tested it with Polar H10 and Morpheus straps, and it should work with most chest strap monitors that use BLE. Wrist-based monitors aren't recommended since they're not accurate enough for serious training.</p>
-              <p>For HRV measurements you need a strap that streams RR intervals (Polar H10, Garmin HRM-Pro Plus, Whoop Pro worn as a strap, etc.). Other devices will still show BPM but the HRV test will stay disabled.</p>
-            </div>
-          </div>
+                        <div class="faq-item">
+                            <h3 class="faq-question">
+                                Which heart rate monitors does this work with?
+                            </h3>
+                            <div class="faq-answer">
+                                <p>
+                                    This app works with any Bluetooth Low Energy
+                                    (BLE) heart rate monitor that follows the
+                                    standard Heart Rate Profile. I've tested it
+                                    with Polar H10 and Morpheus straps, and it
+                                    should work with most chest strap monitors
+                                    that use BLE. Wrist-based monitors aren't
+                                    recommended since they're not accurate
+                                    enough for serious training.
+                                </p>
+                                <p>
+                                    For HRV measurements you need a strap that
+                                    streams RR intervals (Polar H10, Garmin
+                                    HRM-Pro Plus, Whoop Pro worn as a strap,
+                                    etc.). Other devices will still show BPM but
+                                    the HRV test will stay disabled.
+                                </p>
+                            </div>
+                        </div>
 
-          <div class="faq-item">
-            <h3 class="faq-question">How accurate is the HRV test?</h3>
-            <div class="faq-answer">
-              <p>The app reads the RR-interval payload straight from chest straps like the Polar H10 and computes RMSSD locally. No guesswork from BPM averages, no server processing. Keep the app in the foreground during the two-minute test and you'll get the same data you would from dedicated HRV tools.</p>
-            </div>
-          </div>
+                        <div class="faq-item">
+                            <h3 class="faq-question">
+                                How accurate is the HRV test?
+                            </h3>
+                            <div class="faq-answer">
+                                <p>
+                                    The app reads the RR-interval payload
+                                    straight from chest straps like the Polar
+                                    H10 and computes RMSSD locally. No guesswork
+                                    from BPM averages, no server processing.
+                                    Keep the app in the foreground during the
+                                    two-minute test and you'll get the same data
+                                    you would from dedicated HRV tools.
+                                </p>
+                            </div>
+                        </div>
 
-          <div class="faq-item">
-            <h3 class="faq-question">Where do I report bugs?</h3>
-            <div class="faq-answer">
-              <p>The project is open source so file an issue <a href="https://github.com/apfk88/BPM" target="_blank" rel="noopener noreferrer">there</a> or <a href="mailto:vibecodeinc@proton.me">email me</a>.</p>
-            </div>
-          </div>
-        </div>
-      </div>
-    </section>
+                        <div class="faq-item">
+                            <h3 class="faq-question">
+                                Where do I report bugs?
+                            </h3>
+                            <div class="faq-answer">
+                                <p>
+                                    The project is open source so file an issue
+                                    <a
+                                        href="https://github.com/apfk88/BPM"
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        >there</a
+                                    >
+                                    or
+                                    <a href="mailto:vibecodeinc@proton.me"
+                                        >email me</a
+                                    >.
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
 
-    <footer class="footer">
-      <div class="container">
-        <nav class="footer-nav">
-          <a href="/privacy.html" class="footer-link">Privacy Policy</a>
-          <a href="mailto:vibecodeinc@proton.me" class="footer-link">Support</a>
-          <a
-            href="https://github.com/apfk88/BPM"
-            class="footer-link"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            GitHub
-          </a>
-        </nav>
-        <p class="footer-tagline">BPM is 100% grass-fed, organic vibe-code.</p>
-      </div>
-    </footer>
-  </main>
-  <script defer src="/_vercel/insights/script.js"></script>
-</body>
+            <footer class="footer">
+                <div class="container">
+                    <nav class="footer-nav">
+                        <a href="/privacy.html" class="footer-link"
+                            >Privacy Policy</a
+                        >
+                        <a
+                            href="mailto:vibecodeinc@proton.me"
+                            class="footer-link"
+                            >Support</a
+                        >
+                        <a
+                            href="https://github.com/apfk88/BPM"
+                            class="footer-link"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                        >
+                            GitHub
+                        </a>
+                    </nav>
+                    <p class="footer-tagline">
+                        BPM is 100% grass-fed, organic vibe-code.
+                    </p>
+                </div>
+            </footer>
+        </main>
+        <script defer src="/_vercel/insights/script.js"></script>
+    </body>
 </html>
