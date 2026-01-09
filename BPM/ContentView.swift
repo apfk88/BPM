@@ -89,7 +89,6 @@ struct HeartRateDisplayView: View {
     @State private var showResetAlert = false
     @State private var showDisconnectAlert = false
     @State private var portraitBottomContentHeight: CGFloat = 0
-    @State private var landscapeBottomContentHeight: CGFloat = 0
     @State private var heartRateExtremumDisplay: HeartRateExtremumDisplay = .max
     @State private var collapsedStatDisplay: CollapsedStatDisplay = .max
     @State private var timerBPMDisplay: TimerBPMDisplay = .avg
@@ -108,16 +107,9 @@ struct HeartRateDisplayView: View {
 
     var body: some View {
         GeometryReader { geometry in
-            let isLandscape = geometry.size.width > geometry.size.height
-            
             ZStack {
                 Color.black.ignoresSafeArea()
-
-                if isLandscape {
-                    landscapeLayout(geometry: geometry, useSideLayout: !isPad)
-                } else {
-                    portraitLayout(geometry: geometry)
-                }
+                portraitLayout(geometry: geometry)
             }
         }
         .sheet(isPresented: $showDevicePicker) {
@@ -230,12 +222,12 @@ struct HeartRateDisplayView: View {
         } else {
             let bpmOffset = -portraitBottomContentHeight / 2 - geometry.size.height * 0.1
             ZStack {
-                heartRateDisplay(size: geometry.size, isLandscape: false)
+                heartRateDisplay(size: geometry.size)
                     .offset(y: bpmOffset)
             }
             .overlay(alignment: .bottom) {
                 VStack(spacing: 0) {
-                    statsBar(isLandscape: false, screenWidth: geometry.size.width)
+                    statsBar(screenWidth: geometry.size.width)
                         .padding(.bottom, geometry.safeAreaInsets.bottom)
                 }
                 .background(
@@ -255,74 +247,6 @@ struct HeartRateDisplayView: View {
         }
     }
     
-    @ViewBuilder
-    private func landscapeLayout(geometry: GeometryProxy, useSideLayout: Bool) -> some View {
-        if isHRVMode {
-            HRVMeasurementView(viewModel: hrvViewModel, onDismiss: {
-                isHRVMode = false
-            })
-                .environmentObject(bluetoothManager)
-                .environmentObject(sharingService)
-        } else if isTimerMode {
-            timerModeLayout(geometry: geometry, isLandscape: true)
-        } else if useSideLayout {
-            HStack(spacing: 0) {
-                // Left side: BPM display with stats below
-                VStack(spacing: 0) {
-                    Spacer(minLength: isPad ? 40 : 20)
-                    heartRateDisplay(size: geometry.size, isLandscape: true)
-                    if appMode == .myDevice, showSessionZones {
-                        Spacer(minLength: isPad ? 16 : 12)
-                    }
-                    landscapeStatsRow(screenWidth: geometry.size.width)
-                        .padding(.bottom, showSessionZones && appMode == .myDevice ? (isPad ? 20 : 12) : (isPad ? 40 : 20))
-                    if appMode == .myDevice, showSessionZones {
-                        sessionZoneSection(isLandscape: true, horizontalPadding: 20)
-                            .padding(.bottom, isPad ? 24 : 16)
-                    }
-                    Spacer(minLength: isPad ? 80 : 40)
-                }
-                .frame(maxWidth: .infinity)
-
-                // Right side: Buttons vertically arranged
-                landscapeButtonsColumn(screenWidth: geometry.size.width)
-                    .padding(.trailing, geometry.safeAreaInsets.trailing)
-            }
-            .overlay(alignment: .top) {
-                VStack(spacing: 8) {
-                    connectionPrompt
-                    errorMessageDisplay
-                    sharingCodeDisplay
-                }
-            }
-        } else {
-            let bpmOffset = -landscapeBottomContentHeight / 2
-            ZStack {
-                heartRateDisplay(size: geometry.size, isLandscape: true)
-                    .offset(y: bpmOffset)
-            }
-            .overlay(alignment: .bottom) {
-                VStack(spacing: 0) {
-                    statsBar(isLandscape: true, screenWidth: geometry.size.width)
-                        .padding(.bottom, geometry.safeAreaInsets.bottom)
-                }
-                .background(
-                    GeometryReader { proxy in
-                        Color.clear.preference(key: BottomContentHeightKey.self, value: proxy.size.height)
-                    }
-                )
-            }
-            .onPreferenceChange(BottomContentHeightKey.self) { landscapeBottomContentHeight = $0 }
-            .overlay(alignment: .top) {
-                VStack(spacing: 8) {
-                    connectionPrompt
-                    errorMessageDisplay
-                    sharingCodeDisplay
-                }
-            }
-        }
-    }
-
     private var sharingCodeDisplay: some View {
         Group {
             if appMode == .myDevice && sharingService.isSharing, let code = sharingService.shareCode {
@@ -344,21 +268,9 @@ struct HeartRateDisplayView: View {
     }
 
     @ViewBuilder
-    private func heartRateDisplay(size: CGSize, isLandscape: Bool) -> some View {
+    private func heartRateDisplay(size: CGSize) -> some View {
         // Base font size anchored to screen height, but cap by width to fit 3 digits comfortably
-        // iPad in landscape gets larger sizing
-        let baseFontSize: CGFloat = {
-            if isLandscape {
-                if isPad {
-                    // iPad landscape: allow bigger BPM display
-                    return min(size.width * 0.35, size.height * 0.7)
-                } else {
-                    return min(size.width * 0.25, size.height * 0.6)
-                }
-            } else {
-                return size.height * 0.65
-            }
-        }()
+        let baseFontSize: CGFloat = size.height * 0.65
 
         // Measure width of the widest expected value (three digits) at the base font size
         let referenceText = "888"
@@ -366,16 +278,7 @@ struct HeartRateDisplayView: View {
         let baseWidth = referenceText.size(withAttributes: [.font: baseUIFont]).width
 
         // Leave some horizontal padding so the number never abuts the edges
-        // iPad in landscape gets more allowance since BPM is on left side
-        let horizontalAllowance: CGFloat = {
-            if isLandscape && isPad {
-                return size.width * 0.5
-            } else if isLandscape {
-                return size.width * 0.4
-            } else {
-                return size.width * 0.9
-            }
-        }()
+        let horizontalAllowance: CGFloat = size.width * 0.9
         let fittedFontSize = baseWidth > 0
             ? min(baseFontSize, horizontalAllowance / baseWidth * baseFontSize)
             : baseFontSize
@@ -499,572 +402,287 @@ struct HeartRateDisplayView: View {
     
 
     @ViewBuilder
-    private func statsBar(isLandscape: Bool, screenWidth: CGFloat) -> some View {
+    private func statsBar(screenWidth: CGFloat) -> some View {
         // Scale factor: smaller screens get smaller sizes
         // Base scale on iPhone SE (375pt) = 1.0, scale down proportionally
         let scaleFactor = min(1.0, screenWidth / 375.0)
-        let scaledPadding = isLandscape ? 40.0 : max(12.0, 20.0 * scaleFactor)
-        let scaledButtonSize = isLandscape ? 32.0 : max(20.0, 24.0 * scaleFactor)
-        let scaledButtonPadding = isLandscape ? 16.0 : max(8.0, 12.0 * scaleFactor)
+        let scaledPadding = max(12.0, 20.0 * scaleFactor)
+        let scaledButtonSize = max(20.0, 24.0 * scaleFactor)
+        let scaledButtonPadding = max(8.0, 12.0 * scaleFactor)
         
         if appMode == .myDevice {
-                if isLandscape {
-                    // Landscape mode - stats centered, buttons in 2x2 grid
-                    VStack(spacing: max(16.0, 20.0 * scaleFactor)) {
-                        VStack(spacing: showSessionZones ? 4.0 : 0.0) {
-                            // Stats row: Avg, Min, Max, Zone - equal width columns
-                            HStack(spacing: 0) {
-                                statColumn(
-                                    title: "Avg",
-                                    value: bluetoothManager.avgHeartRateLastHour,
-                                    scaleFactor: 1.0,
-                                    isLandscape: true
-                                )
-                                .frame(maxWidth: .infinity)
-                                statColumn(
-                                    title: "Min",
-                                    value: bluetoothManager.minHeartRateLastHour,
-                                    scaleFactor: 1.0,
-                                    isLandscape: true
-                                )
-                                .frame(maxWidth: .infinity)
-                                statColumn(
-                                    title: "Max",
-                                    value: bluetoothManager.maxHeartRateLastHour,
-                                    scaleFactor: 1.0,
-                                    isLandscape: true
-                                )
-                                .frame(maxWidth: .infinity)
-                                zoneStatColumn(
-                                    heartRate: displayedHeartRate,
-                                    scaleFactor: 1.0,
-                                    isLandscape: true,
-                                    isExpanded: showSessionZones
-                                ) {
-                                    toggleSessionZones()
-                                }
-                                .frame(maxWidth: .infinity)
-                            }
-
-                            if showSessionZones {
-                                sessionZoneSection(isLandscape: true, horizontalPadding: 0)
-                            }
+            // Portrait mode - stats above buttons
+            VStack(spacing: max(12.0, 16.0 * scaleFactor)) {
+                VStack(spacing: showSessionZones ? 4.0 : 0.0) {
+                    // Stats row: Avg, Min, Max, Zone - equal width columns
+                    HStack(spacing: 0) {
+                        statColumn(
+                            title: "Avg",
+                            value: bluetoothManager.avgHeartRateLastHour,
+                            scaleFactor: scaleFactor,
+                            isLandscape: false
+                        )
+                        .frame(maxWidth: .infinity)
+                        statColumn(
+                            title: "Min",
+                            value: bluetoothManager.minHeartRateLastHour,
+                            scaleFactor: scaleFactor,
+                            isLandscape: false
+                        )
+                        .frame(maxWidth: .infinity)
+                        statColumn(
+                            title: "Max",
+                            value: bluetoothManager.maxHeartRateLastHour,
+                            scaleFactor: scaleFactor,
+                            isLandscape: false
+                        )
+                        .frame(maxWidth: .infinity)
+                        zoneStatColumn(
+                            heartRate: displayedHeartRate,
+                            scaleFactor: scaleFactor,
+                            isLandscape: false,
+                            isExpanded: showSessionZones
+                        ) {
+                            toggleSessionZones()
                         }
-
-                        // Buttons in 2x2 grid
-                        VStack(spacing: max(12.0, 16.0 * scaleFactor)) {
-                            HStack(spacing: max(12.0, 16.0 * scaleFactor)) {
-                                Button {
-                                    showDevicePicker = true
-                                } label: {
-                                    VStack(spacing: 4) {
-                                        Image(systemName: heartIconName)
-                                            .font(.system(size: scaledButtonSize))
-                                        Text("Device")
-                                            .font(.system(size: max(12.0, 14.0 * scaleFactor), weight: .medium))
-                                    }
-                                    .foregroundColor(heartButtonColor)
-                                    .frame(maxWidth: .infinity)
-                                    .padding(.vertical, scaledButtonPadding)
-                                    .background(
-                                        RoundedRectangle(cornerRadius: 8)
-                                            .fill(Color.gray.opacity(0.3))
-                                    )
-                                }
-
-                                Button {
-                                    if sharingService.isSharing {
-                                        showDisconnectAlert = true
-                                    } else {
-                                        Task {
-                                            let canShare = await subscriptionManager.canShare()
-                                            if canShare {
-                                                if !bluetoothManager.hasActiveDataSource {
-                                                    sharingService.errorMessage = "Please connect a heart rate device before sharing."
-                                                    sharingService.errorContext = .sharing
-                                                } else {
-                                                    do {
-                                                        try await sharingService.startSharing()
-                                                    } catch {
-                                                        // Error handled by sharingService
-                                                    }
-                                                }
-                                            } else {
-                                                showPaywall = true
-                                            }
-                                        }
-                                    }
-                                } label: {
-                                    VStack(spacing: 4) {
-                                        Image(systemName: "antenna.radiowaves.left.and.right")
-                                            .font(.system(size: scaledButtonSize))
-                                        HStack(spacing: 2) {
-                                            if !subscriptionManager.isSubscribed && !sharingService.isSharing {
-                                                Image(systemName: "lock.fill")
-                                                    .font(.system(size: max(8, 10 * scaleFactor)))
-                                            }
-                                            Text("Share")
-                                        }
-                                        .font(.system(size: max(12.0, 14.0 * scaleFactor), weight: .medium))
-                                    }
-                                    .foregroundColor(sharingService.isSharing ? .green : .white)
-                                    .frame(maxWidth: .infinity)
-                                    .padding(.vertical, scaledButtonPadding)
-                                    .background(
-                                        RoundedRectangle(cornerRadius: 8)
-                                            .fill(Color.gray.opacity(0.3))
-                                    )
-                                }
-                            }
-
-                            HStack(spacing: max(12.0, 16.0 * scaleFactor)) {
-                                Button {
-                                    isTimerMode.toggle()
-                                    if !isTimerMode {
-                                        timerViewModel.reset()
-                                    }
-                                } label: {
-                                    VStack(spacing: 4) {
-                                        Image(systemName: "stopwatch")
-                                            .renderingMode(.template)
-                                            .font(.system(size: scaledButtonSize))
-                                        Text("Timer")
-                                            .font(.system(size: max(12.0, 14.0 * scaleFactor), weight: .medium))
-                                    }
-                                    .foregroundColor(isTimerMode ? .green : .white)
-                                    .frame(maxWidth: .infinity)
-                                    .padding(.vertical, scaledButtonPadding)
-                                    .background(
-                                        RoundedRectangle(cornerRadius: 8)
-                                            .fill(Color.gray.opacity(0.3))
-                                    )
-                                }
-                                
-                                Button {
-                                    isHRVMode.toggle()
-                                    if !isHRVMode {
-                                        hrvViewModel.reset()
-                                    }
-                                } label: {
-                                    VStack(spacing: 4) {
-                                        Image(systemName: "waveform.path.ecg")
-                                            .renderingMode(.template)
-                                            .font(.system(size: scaledButtonSize))
-                                        Text("HRV")
-                                            .font(.system(size: max(12.0, 14.0 * scaleFactor), weight: .medium))
-                                    }
-                                    .foregroundColor(isHRVMode ? .green : .white)
-                                    .frame(maxWidth: .infinity)
-                                    .padding(.vertical, scaledButtonPadding)
-                                    .background(
-                                        RoundedRectangle(cornerRadius: 8)
-                                            .fill(Color.gray.opacity(0.3))
-                                    )
-                                }
-                            }
-                        }
+                        .frame(maxWidth: .infinity)
                     }
-                    .frame(maxWidth: .infinity)
-                    .padding(.horizontal, scaledPadding)
-                    .padding(.vertical, 20)
-                    .background(Color.black.opacity(0.8))
-                } else {
-                    // Portrait mode - stats above buttons
-                    VStack(spacing: max(12.0, 16.0 * scaleFactor)) {
-                        VStack(spacing: showSessionZones ? 4.0 : 0.0) {
-                            // Stats row: Avg, Min, Max, Zone - equal width columns
-                            HStack(spacing: 0) {
-                                statColumn(
-                                    title: "Avg",
-                                    value: bluetoothManager.avgHeartRateLastHour,
-                                    scaleFactor: scaleFactor,
-                                    isLandscape: false
-                                )
-                                .frame(maxWidth: .infinity)
-                                statColumn(
-                                    title: "Min",
-                                    value: bluetoothManager.minHeartRateLastHour,
-                                    scaleFactor: scaleFactor,
-                                    isLandscape: false
-                                )
-                                .frame(maxWidth: .infinity)
-                                statColumn(
-                                    title: "Max",
-                                    value: bluetoothManager.maxHeartRateLastHour,
-                                    scaleFactor: scaleFactor,
-                                    isLandscape: false
-                                )
-                                .frame(maxWidth: .infinity)
-                                zoneStatColumn(
-                                    heartRate: displayedHeartRate,
-                                    scaleFactor: scaleFactor,
-                                    isLandscape: false,
-                                    isExpanded: showSessionZones
-                                ) {
-                                    toggleSessionZones()
-                                }
-                                .frame(maxWidth: .infinity)
-                            }
 
-                            if showSessionZones {
-                                sessionZoneSection(isLandscape: false, horizontalPadding: 0)
-                            }
-                        }
-
-                        // Buttons row with labels - equal width
-                        HStack(spacing: max(6.0, 8.0 * scaleFactor)) {
-                            Button {
-                                showDevicePicker = true
-                            } label: {
-                                VStack(spacing: 4) {
-                                    Image(systemName: heartIconName)
-                                        .font(.system(size: scaledButtonSize))
-                                    Text("Device")
-                                        .font(.system(size: max(10.0, 12.0 * scaleFactor), weight: .medium))
-                                }
-                                .foregroundColor(heartButtonColor)
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, scaledButtonPadding)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 8)
-                                        .fill(Color.gray.opacity(0.3))
-                                )
-                            }
-
-                            Button {
-                                if sharingService.isSharing {
-                                    showDisconnectAlert = true
-                                } else {
-                                    Task {
-                                        let canShare = await subscriptionManager.canShare()
-                                        if canShare {
-                                            if !bluetoothManager.hasActiveDataSource {
-                                                sharingService.errorMessage = "Please connect a heart rate device before sharing."
-                                                sharingService.errorContext = .sharing
-                                            } else {
-                                                do {
-                                                    try await sharingService.startSharing()
-                                                } catch {
-                                                    // Error handled by sharingService
-                                                }
-                                            }
-                                        } else {
-                                            showPaywall = true
-                                        }
-                                    }
-                                }
-                            } label: {
-                                VStack(spacing: 4) {
-                                    Image(systemName: "antenna.radiowaves.left.and.right")
-                                        .font(.system(size: scaledButtonSize))
-                                    HStack(spacing: 2) {
-                                        if !subscriptionManager.isSubscribed && !sharingService.isSharing {
-                                            Image(systemName: "lock.fill")
-                                                .font(.system(size: max(8, 10 * scaleFactor)))
-                                        }
-                                        Text("Share")
-                                    }
-                                    .font(.system(size: max(10.0, 12.0 * scaleFactor), weight: .medium))
-                                }
-                                .foregroundColor(sharingService.isSharing ? .green : .white)
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, scaledButtonPadding)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 8)
-                                        .fill(Color.gray.opacity(0.3))
-                                )
-                            }
-
-                            Button {
-                                isTimerMode.toggle()
-                                if !isTimerMode {
-                                    timerViewModel.reset()
-                                }
-                            } label: {
-                                VStack(spacing: 4) {
-                                    Image(systemName: "stopwatch")
-                                        .renderingMode(.template)
-                                        .font(.system(size: scaledButtonSize))
-                                    Text("Timer")
-                                        .font(.system(size: max(10.0, 12.0 * scaleFactor), weight: .medium))
-                                }
-                                .foregroundColor(isTimerMode ? .green : .white)
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, scaledButtonPadding)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 8)
-                                        .fill(Color.gray.opacity(0.3))
-                                )
-                            }
-                            
-                            Button {
-                                isHRVMode.toggle()
-                                if !isHRVMode {
-                                    hrvViewModel.reset()
-                                }
-                            } label: {
-                                VStack(spacing: 4) {
-                                    Image(systemName: "waveform.path.ecg")
-                                        .renderingMode(.template)
-                                        .font(.system(size: scaledButtonSize))
-                                    Text("HRV")
-                                        .font(.system(size: max(10.0, 12.0 * scaleFactor), weight: .medium))
-                                }
-                                .foregroundColor(isHRVMode ? .green : .white)
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, scaledButtonPadding)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 8)
-                                        .fill(Color.gray.opacity(0.3))
-                                )
-                            }
-                        }
+                    if showSessionZones {
+                        sessionZoneSection(isLandscape: false, horizontalPadding: 0)
                     }
-                    .frame(maxWidth: .infinity)
-                    .padding(.horizontal, scaledPadding)
-                    .padding(.vertical, max(12.0, 16.0 * scaleFactor))
-                    .background(Color.black.opacity(0.8))
                 }
-            } else {
-                // Friend mode stats
-                if isLandscape {
-                    // Landscape mode - stats centered, buttons in 2x2 grid
-                    VStack(spacing: max(16.0, 20.0 * scaleFactor)) {
-                        // Stats row: Avg, Min, Max - equal width columns
-                        HStack(spacing: 0) {
-                            statColumn(
-                                title: "Avg",
-                                value: sharingService.friendAvgHeartRate,
-                                scaleFactor: 1.0,
-                                isLandscape: true
-                            )
-                            .frame(maxWidth: .infinity)
-                            statColumn(
-                                title: "Min",
-                                value: sharingService.friendMinHeartRate,
-                                scaleFactor: 1.0,
-                                isLandscape: true
-                            )
-                            .frame(maxWidth: .infinity)
-                            statColumn(
-                                title: "Max",
-                                value: sharingService.friendMaxHeartRate,
-                                scaleFactor: 1.0,
-                                isLandscape: true
-                            )
-                            .frame(maxWidth: .infinity)
-                        }
 
-                        // Buttons in 2x2 grid
-                        VStack(spacing: max(12.0, 16.0 * scaleFactor)) {
-                            HStack(spacing: max(12.0, 16.0 * scaleFactor)) {
-                                Button {
-                                    showDevicePicker = true
-                                } label: {
-                                    VStack(spacing: 4) {
-                                        Image(systemName: heartIconName)
-                                            .font(.system(size: scaledButtonSize))
-                                        Text("Device")
-                                            .font(.system(size: max(12.0, 14.0 * scaleFactor), weight: .medium))
-                                    }
-                                    .foregroundColor(heartButtonColor)
-                                    .frame(maxWidth: .infinity)
-                                    .padding(.vertical, scaledButtonPadding)
-                                    .background(
-                                        RoundedRectangle(cornerRadius: 8)
-                                            .fill(Color.gray.opacity(0.3))
-                                    )
-                                }
-
-                                Button {
-                                    // Disabled - no action
-                                } label: {
-                                    VStack(spacing: 4) {
-                                        Image(systemName: "antenna.radiowaves.left.and.right")
-                                            .font(.system(size: scaledButtonSize))
-                                        Text("Share")
-                                            .font(.system(size: max(12.0, 14.0 * scaleFactor), weight: .medium))
-                                    }
-                                    .foregroundColor(.gray)
-                                    .frame(maxWidth: .infinity)
-                                    .padding(.vertical, scaledButtonPadding)
-                                    .background(
-                                        RoundedRectangle(cornerRadius: 8)
-                                            .fill(Color.gray.opacity(0.2))
-                                    )
-                                }
-                                .disabled(true)
-                            }
-                            
-                            HStack(spacing: max(12.0, 16.0 * scaleFactor)) {
-                                Button {
-                                    isTimerMode.toggle()
-                                    if !isTimerMode {
-                                        timerViewModel.reset()
-                                    }
-                                } label: {
-                                    VStack(spacing: 4) {
-                                        Image(systemName: "stopwatch")
-                                            .renderingMode(.template)
-                                            .font(.system(size: scaledButtonSize))
-                                        Text("Timer")
-                                            .font(.system(size: max(12.0, 14.0 * scaleFactor), weight: .medium))
-                                    }
-                                    .foregroundColor(isTimerMode ? .green : .white)
-                                    .frame(maxWidth: .infinity)
-                                    .padding(.vertical, scaledButtonPadding)
-                                    .background(
-                                        RoundedRectangle(cornerRadius: 8)
-                                            .fill(Color.gray.opacity(0.3))
-                                    )
-                                }
-                                
-                                Button {
-                                    isHRVMode.toggle()
-                                    if !isHRVMode {
-                                        hrvViewModel.reset()
-                                    }
-                                } label: {
-                                    VStack(spacing: 4) {
-                                        Image(systemName: "waveform.path.ecg")
-                                            .renderingMode(.template)
-                                            .font(.system(size: scaledButtonSize))
-                                        Text("HRV")
-                                            .font(.system(size: max(12.0, 14.0 * scaleFactor), weight: .medium))
-                                    }
-                                    .foregroundColor(isHRVMode ? .green : .white)
-                                    .frame(maxWidth: .infinity)
-                                    .padding(.vertical, scaledButtonPadding)
-                                    .background(
-                                        RoundedRectangle(cornerRadius: 8)
-                                            .fill(Color.gray.opacity(0.3))
-                                    )
-                                }
-                            }
+                // Buttons row with labels - equal width
+                HStack(spacing: max(6.0, 8.0 * scaleFactor)) {
+                    Button {
+                        showDevicePicker = true
+                    } label: {
+                        VStack(spacing: 4) {
+                            Image(systemName: heartIconName)
+                                .font(.system(size: scaledButtonSize))
+                            Text("Device")
+                                .font(.system(size: max(10.0, 12.0 * scaleFactor), weight: .medium))
                         }
+                        .foregroundColor(heartButtonColor)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, scaledButtonPadding)
+                        .background(
+                            RoundedRectangle(cornerRadius: 8)
+                                .fill(Color.gray.opacity(0.3))
+                        )
                     }
-                    .frame(maxWidth: .infinity)
-                    .padding(.horizontal, scaledPadding)
-                    .padding(.vertical, 20)
-                    .background(Color.black.opacity(0.8))
-                } else {
-                    // Portrait mode - stats above buttons
-                    VStack(spacing: max(12.0, 16.0 * scaleFactor)) {
-                        // Stats row: Avg, Min, Max - equal width columns
-                        HStack(spacing: 0) {
-                            statColumn(
-                                title: "Avg",
-                                value: sharingService.friendAvgHeartRate,
-                                scaleFactor: scaleFactor,
-                                isLandscape: false
-                            )
-                            .frame(maxWidth: .infinity)
-                            statColumn(
-                                title: "Min",
-                                value: sharingService.friendMinHeartRate,
-                                scaleFactor: scaleFactor,
-                                isLandscape: false
-                            )
-                            .frame(maxWidth: .infinity)
-                            statColumn(
-                                title: "Max",
-                                value: sharingService.friendMaxHeartRate,
-                                scaleFactor: scaleFactor,
-                                isLandscape: false
-                            )
-                            .frame(maxWidth: .infinity)
-                        }
 
-                        // Buttons row with labels - equal width
-                        HStack(spacing: max(6.0, 8.0 * scaleFactor)) {
-                            Button {
-                                showDevicePicker = true
-                            } label: {
-                                VStack(spacing: 4) {
-                                    Image(systemName: heartIconName)
-                                        .font(.system(size: scaledButtonSize))
-                                    Text("Device")
-                                        .font(.system(size: max(10.0, 12.0 * scaleFactor), weight: .medium))
+                    Button {
+                        if sharingService.isSharing {
+                            showDisconnectAlert = true
+                        } else {
+                            Task {
+                                let canShare = await subscriptionManager.canShare()
+                                if canShare {
+                                    if !bluetoothManager.hasActiveDataSource {
+                                        sharingService.errorMessage = "Please connect a heart rate device before sharing."
+                                        sharingService.errorContext = .sharing
+                                    } else {
+                                        do {
+                                            try await sharingService.startSharing()
+                                        } catch {
+                                            // Error handled by sharingService
+                                        }
+                                    }
+                                } else {
+                                    showPaywall = true
                                 }
-                                .foregroundColor(heartButtonColor)
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, scaledButtonPadding)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 8)
-                                        .fill(Color.gray.opacity(0.3))
-                                )
-                            }
-
-                            Button {
-                                // Disabled - no action
-                            } label: {
-                                VStack(spacing: 4) {
-                                    Image(systemName: "antenna.radiowaves.left.and.right")
-                                        .font(.system(size: scaledButtonSize))
-                                    Text("Share")
-                                        .font(.system(size: max(10.0, 12.0 * scaleFactor), weight: .medium))
-                                }
-                                .foregroundColor(.gray)
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, scaledButtonPadding)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 8)
-                                        .fill(Color.gray.opacity(0.2))
-                                )
-                            }
-                            .disabled(true)
-
-                            Button {
-                                isTimerMode.toggle()
-                                if !isTimerMode {
-                                    timerViewModel.reset()
-                                }
-                            } label: {
-                                VStack(spacing: 4) {
-                                    Image(systemName: "stopwatch")
-                                        .renderingMode(.template)
-                                        .font(.system(size: scaledButtonSize))
-                                    Text("Timer")
-                                        .font(.system(size: max(10.0, 12.0 * scaleFactor), weight: .medium))
-                                }
-                                .foregroundColor(isTimerMode ? .green : .white)
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, scaledButtonPadding)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 8)
-                                        .fill(Color.gray.opacity(0.3))
-                                )
-                            }
-
-                            Button {
-                                isHRVMode.toggle()
-                                if !isHRVMode {
-                                    hrvViewModel.reset()
-                                }
-                            } label: {
-                                VStack(spacing: 4) {
-                                    Image(systemName: "waveform.path.ecg")
-                                        .renderingMode(.template)
-                                        .font(.system(size: scaledButtonSize))
-                                    Text("HRV")
-                                        .font(.system(size: max(10.0, 12.0 * scaleFactor), weight: .medium))
-                                }
-                                .foregroundColor(isHRVMode ? .green : .white)
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, scaledButtonPadding)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 8)
-                                        .fill(Color.gray.opacity(0.3))
-                                )
                             }
                         }
+                    } label: {
+                        VStack(spacing: 4) {
+                            Image(systemName: "antenna.radiowaves.left.and.right")
+                                .font(.system(size: scaledButtonSize))
+                            HStack(spacing: 2) {
+                                if !subscriptionManager.isSubscribed && !sharingService.isSharing {
+                                    Image(systemName: "lock.fill")
+                                        .font(.system(size: max(8, 10 * scaleFactor)))
+                                }
+                                Text("Share")
+                            }
+                            .font(.system(size: max(10.0, 12.0 * scaleFactor), weight: .medium))
+                        }
+                        .foregroundColor(sharingService.isSharing ? .green : .white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, scaledButtonPadding)
+                        .background(
+                            RoundedRectangle(cornerRadius: 8)
+                                .fill(Color.gray.opacity(0.3))
+                        )
                     }
-                    .frame(maxWidth: .infinity)
-                    .padding(.horizontal, scaledPadding)
-                    .padding(.vertical, max(12.0, 16.0 * scaleFactor))
-                    .background(Color.black.opacity(0.8))
+
+                    Button {
+                        isTimerMode.toggle()
+                        if !isTimerMode {
+                            timerViewModel.reset()
+                        }
+                    } label: {
+                        VStack(spacing: 4) {
+                            Image(systemName: "stopwatch")
+                                .renderingMode(.template)
+                                .font(.system(size: scaledButtonSize))
+                            Text("Timer")
+                                .font(.system(size: max(10.0, 12.0 * scaleFactor), weight: .medium))
+                        }
+                        .foregroundColor(isTimerMode ? .green : .white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, scaledButtonPadding)
+                        .background(
+                            RoundedRectangle(cornerRadius: 8)
+                                .fill(Color.gray.opacity(0.3))
+                        )
+                    }
+
+                    Button {
+                        isHRVMode.toggle()
+                        if !isHRVMode {
+                            hrvViewModel.reset()
+                        }
+                    } label: {
+                        VStack(spacing: 4) {
+                            Image(systemName: "waveform.path.ecg")
+                                .renderingMode(.template)
+                                .font(.system(size: scaledButtonSize))
+                            Text("HRV")
+                                .font(.system(size: max(10.0, 12.0 * scaleFactor), weight: .medium))
+                        }
+                        .foregroundColor(isHRVMode ? .green : .white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, scaledButtonPadding)
+                        .background(
+                            RoundedRectangle(cornerRadius: 8)
+                                .fill(Color.gray.opacity(0.3))
+                        )
+                    }
                 }
             }
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, scaledPadding)
+            .padding(.vertical, max(12.0, 16.0 * scaleFactor))
+            .background(Color.black.opacity(0.8))
+        } else {
+            // Friend mode stats
+            VStack(spacing: max(12.0, 16.0 * scaleFactor)) {
+                // Stats row: Avg, Min, Max - equal width columns
+                HStack(spacing: 0) {
+                    statColumn(
+                        title: "Avg",
+                        value: sharingService.friendAvgHeartRate,
+                        scaleFactor: scaleFactor,
+                        isLandscape: false
+                    )
+                    .frame(maxWidth: .infinity)
+                    statColumn(
+                        title: "Min",
+                        value: sharingService.friendMinHeartRate,
+                        scaleFactor: scaleFactor,
+                        isLandscape: false
+                    )
+                    .frame(maxWidth: .infinity)
+                    statColumn(
+                        title: "Max",
+                        value: sharingService.friendMaxHeartRate,
+                        scaleFactor: scaleFactor,
+                        isLandscape: false
+                    )
+                    .frame(maxWidth: .infinity)
+                }
+
+                // Buttons row with labels - equal width
+                HStack(spacing: max(6.0, 8.0 * scaleFactor)) {
+                    Button {
+                        showDevicePicker = true
+                    } label: {
+                        VStack(spacing: 4) {
+                            Image(systemName: heartIconName)
+                                .font(.system(size: scaledButtonSize))
+                            Text("Device")
+                                .font(.system(size: max(10.0, 12.0 * scaleFactor), weight: .medium))
+                        }
+                        .foregroundColor(heartButtonColor)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, scaledButtonPadding)
+                        .background(
+                            RoundedRectangle(cornerRadius: 8)
+                                .fill(Color.gray.opacity(0.3))
+                        )
+                    }
+
+                    Button {
+                        // Disabled - no action
+                    } label: {
+                        VStack(spacing: 4) {
+                            Image(systemName: "antenna.radiowaves.left.and.right")
+                                .font(.system(size: scaledButtonSize))
+                            Text("Share")
+                                .font(.system(size: max(10.0, 12.0 * scaleFactor), weight: .medium))
+                        }
+                        .foregroundColor(.gray)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, scaledButtonPadding)
+                        .background(
+                            RoundedRectangle(cornerRadius: 8)
+                                .fill(Color.gray.opacity(0.2))
+                        )
+                    }
+                    .disabled(true)
+
+                    Button {
+                        isTimerMode.toggle()
+                        if !isTimerMode {
+                            timerViewModel.reset()
+                        }
+                    } label: {
+                        VStack(spacing: 4) {
+                            Image(systemName: "stopwatch")
+                                .renderingMode(.template)
+                                .font(.system(size: scaledButtonSize))
+                            Text("Timer")
+                                .font(.system(size: max(10.0, 12.0 * scaleFactor), weight: .medium))
+                        }
+                        .foregroundColor(isTimerMode ? .green : .white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, scaledButtonPadding)
+                        .background(
+                            RoundedRectangle(cornerRadius: 8)
+                                .fill(Color.gray.opacity(0.3))
+                        )
+                    }
+
+                    Button {
+                        isHRVMode.toggle()
+                        if !isHRVMode {
+                            hrvViewModel.reset()
+                        }
+                    } label: {
+                        VStack(spacing: 4) {
+                            Image(systemName: "waveform.path.ecg")
+                                .renderingMode(.template)
+                                .font(.system(size: scaledButtonSize))
+                            Text("HRV")
+                                .font(.system(size: max(10.0, 12.0 * scaleFactor), weight: .medium))
+                        }
+                        .foregroundColor(isHRVMode ? .green : .white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, scaledButtonPadding)
+                        .background(
+                            RoundedRectangle(cornerRadius: 8)
+                                .fill(Color.gray.opacity(0.3))
+                        )
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, scaledPadding)
+            .padding(.vertical, max(12.0, 16.0 * scaleFactor))
+            .background(Color.black.opacity(0.8))
+        }
     }
 
     private func toggleSessionZones() {
@@ -1177,184 +795,6 @@ struct HeartRateDisplayView: View {
         static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
             value = nextValue()
         }
-    }
-
-    // MARK: - Landscape Side Layout
-
-    @ViewBuilder
-    private func landscapeStatsRow(screenWidth: CGFloat) -> some View {
-        HStack(spacing: 0) {
-            statColumn(
-                title: "Avg",
-                value: appMode == .myDevice ? bluetoothManager.avgHeartRateLastHour : sharingService.friendAvgHeartRate,
-                scaleFactor: 1.0,
-                isLandscape: true
-            )
-            .frame(maxWidth: .infinity)
-            statColumn(
-                title: "Min",
-                value: appMode == .myDevice ? bluetoothManager.minHeartRateLastHour : sharingService.friendMinHeartRate,
-                scaleFactor: 1.0,
-                isLandscape: true
-            )
-            .frame(maxWidth: .infinity)
-            statColumn(
-                title: "Max",
-                value: appMode == .myDevice ? bluetoothManager.maxHeartRateLastHour : sharingService.friendMaxHeartRate,
-                scaleFactor: 1.0,
-                isLandscape: true
-            )
-            .frame(maxWidth: .infinity)
-            if appMode == .myDevice {
-                zoneStatColumn(
-                    heartRate: displayedHeartRate,
-                    scaleFactor: 1.0,
-                    isLandscape: true,
-                    isExpanded: showSessionZones
-                ) {
-                    toggleSessionZones()
-                }
-                .frame(maxWidth: .infinity)
-            }
-        }
-        .padding(.horizontal, 20)
-    }
-
-    @ViewBuilder
-    private func landscapeButtonsColumn(screenWidth: CGFloat) -> some View {
-        let buttonSize: CGFloat = 28.0
-        let buttonPadding: CGFloat = 12.0
-        let fontSize: CGFloat = 12.0
-
-        VStack(spacing: 12) {
-            Button {
-                showDevicePicker = true
-            } label: {
-                VStack(spacing: 4) {
-                    Image(systemName: heartIconName)
-                        .font(.system(size: buttonSize))
-                    Text("Device")
-                        .font(.system(size: fontSize, weight: .medium))
-                }
-                .foregroundColor(heartButtonColor)
-                .frame(width: 80)
-                .padding(.vertical, buttonPadding)
-                .background(
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(Color.gray.opacity(0.3))
-                )
-            }
-
-            if appMode == .myDevice {
-                Button {
-                    if sharingService.isSharing {
-                        showDisconnectAlert = true
-                    } else {
-                        Task {
-                            let canShare = await subscriptionManager.canShare()
-                            if canShare {
-                                if !bluetoothManager.hasActiveDataSource {
-                                    sharingService.errorMessage = "Please connect a heart rate device before sharing."
-                                    sharingService.errorContext = .sharing
-                                } else {
-                                    do {
-                                        try await sharingService.startSharing()
-                                    } catch {
-                                        // Error handled by sharingService
-                                    }
-                                }
-                            } else {
-                                showPaywall = true
-                            }
-                        }
-                    }
-                } label: {
-                    VStack(spacing: 4) {
-                        Image(systemName: "antenna.radiowaves.left.and.right")
-                            .font(.system(size: buttonSize))
-                        HStack(spacing: 2) {
-                            if !subscriptionManager.isSubscribed && !sharingService.isSharing {
-                                Image(systemName: "lock.fill")
-                                    .font(.system(size: 8))
-                            }
-                            Text("Share")
-                        }
-                        .font(.system(size: fontSize, weight: .medium))
-                    }
-                    .foregroundColor(sharingService.isSharing ? .green : .white)
-                    .frame(width: 80)
-                    .padding(.vertical, buttonPadding)
-                    .background(
-                        RoundedRectangle(cornerRadius: 8)
-                            .fill(Color.gray.opacity(0.3))
-                    )
-                }
-            } else {
-                Button {
-                    // Disabled in friend mode
-                } label: {
-                    VStack(spacing: 4) {
-                        Image(systemName: "antenna.radiowaves.left.and.right")
-                            .font(.system(size: buttonSize))
-                        Text("Share")
-                            .font(.system(size: fontSize, weight: .medium))
-                    }
-                    .foregroundColor(.gray)
-                    .frame(width: 80)
-                    .padding(.vertical, buttonPadding)
-                    .background(
-                        RoundedRectangle(cornerRadius: 8)
-                            .fill(Color.gray.opacity(0.2))
-                    )
-                }
-                .disabled(true)
-            }
-
-            Button {
-                isTimerMode.toggle()
-                if !isTimerMode {
-                    timerViewModel.reset()
-                }
-            } label: {
-                VStack(spacing: 4) {
-                    Image(systemName: "stopwatch")
-                        .renderingMode(.template)
-                        .font(.system(size: buttonSize))
-                    Text("Timer")
-                        .font(.system(size: fontSize, weight: .medium))
-                }
-                .foregroundColor(isTimerMode ? .green : .white)
-                .frame(width: 80)
-                .padding(.vertical, buttonPadding)
-                .background(
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(Color.gray.opacity(0.3))
-                )
-            }
-
-            Button {
-                isHRVMode.toggle()
-                if !isHRVMode {
-                    hrvViewModel.reset()
-                }
-            } label: {
-                VStack(spacing: 4) {
-                    Image(systemName: "waveform.path.ecg")
-                        .renderingMode(.template)
-                        .font(.system(size: buttonSize))
-                    Text("HRV")
-                        .font(.system(size: fontSize, weight: .medium))
-                }
-                .foregroundColor(isHRVMode ? .green : .white)
-                .frame(width: 80)
-                .padding(.vertical, buttonPadding)
-                .background(
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(Color.gray.opacity(0.3))
-                )
-            }
-        }
-        .padding(.vertical, 20)
     }
 
     // MARK: - Timer Mode UI
@@ -1516,7 +956,7 @@ struct HeartRateDisplayView: View {
             }
 
             // Stopwatch display with BPM (or completion stats when done)
-            stopwatchDisplay(isLandscape: isLandscape)
+            stopwatchDisplay()
                 .padding(.top, 12)
 
             // Heart rate chart (when enabled)
@@ -1549,8 +989,8 @@ struct HeartRateDisplayView: View {
     }
     
     @ViewBuilder
-    private func stopwatchDisplay(isLandscape: Bool) -> some View {
-        if isLandscape {
+    private func stopwatchDisplay() -> some View {
+        if isPad {
             landscapeStopwatchDisplay()
         } else {
             portraitStopwatchDisplay()

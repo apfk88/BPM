@@ -22,13 +22,13 @@ The marketing site and backend are deployed together on Vercel, with the static 
 - **BLE device discovery**: Finds and connects to standard heart rate monitors.
 - **Quick device picker**: Tap the antenna icon to select or switch devices.
 - **On-screen stats**: Max and average over the last hour.
-- **Workout-friendly**: Dark, landscape UI and idle timer disabled while active.
+- **Workout-friendly**: Dark, high-contrast UI and idle timer disabled while active.
 - **Share your heart rate**: Generate a share code and let friends view your live BPM remotely (requires an active subscription to start sharing; viewing others is free).
 - **View friend's heart rate**: Enter a friend's code to see their live heart rate updates.
 
 ### Requirements
 - **Xcode**: 16 or newer.
-- **Devices**: Universal (iPad and iPhone). UI optimized for iPad landscape.
+- **Devices**: Universal (iPad and iPhone). UI optimized for portrait.
 - **iOS**: Deployment target set to 17.0 (adjustable in project settings).
 - **Hardware**: A real iPhone/iPad with Bluetooth LE (CoreBluetooth does not work in the simulator).
 - **Heart rate strap**: Any BLE device that implements the Heart Rate Service (e.g., Polar H10, Wahoo TICKR, Garmin HRM, etc.). HRV measurements require a strap that streams RR intervals (Polar H10 or equivalent).
@@ -49,7 +49,7 @@ The marketing site and backend are deployed together on Vercel, with the static 
 Notes:
 - App requires iOS 17.0 or later. If you need to support earlier iOS versions, lower the deployment target (Targets → BPM → General → iOS Deployment Target) to match your device, then rebuild.
 - BLE requires a physical device; discovery/connection will not work in the simulator.
-- App supports landscape orientation on both iPad and iPhone.
+- App supports portrait orientation on both iPad and iPhone.
 
 ### Permissions
 The app requests Bluetooth access on first launch to scan and connect to your heart rate monitor.
