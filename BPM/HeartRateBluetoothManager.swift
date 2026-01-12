@@ -262,6 +262,12 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
     func enterForeground() {
         endBackgroundTask()
 
+        if isStaleSample() {
+            shouldResumeScanningAfterBackground = false
+            handleNoDataTimeout()
+            return
+        }
+
         if shouldResumeScanningAfterBackground {
             startScanning()
             shouldResumeScanningAfterBackground = false
@@ -371,6 +377,15 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
 
         UIApplication.shared.endBackgroundTask(backgroundTaskIdentifier)
         backgroundTaskIdentifier = .invalid
+    }
+
+    static func isStaleSample(lastSample: Date?, now: Date, timeout: TimeInterval) -> Bool {
+        guard let lastSample = lastSample else { return false }
+        return now.timeIntervalSince(lastSample) >= timeout
+    }
+
+    private func isStaleSample(now: Date = Date()) -> Bool {
+        Self.isStaleSample(lastSample: lastHeartRateSampleTime, now: now, timeout: noDataTimeoutInterval)
     }
 
     private func addHeartRateSample(_ value: Int) {
