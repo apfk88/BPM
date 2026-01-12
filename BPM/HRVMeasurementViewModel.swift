@@ -145,7 +145,7 @@ final class HRVMeasurementViewModel: ObservableObject {
                     self.heartRateSamples.append(heartRate)
                     
                     // Update min/max
-                    if self.minHeartRate == nil || heartRate < self.minHeartRate! {
+                    if heartRate > 0 && (self.minHeartRate == nil || heartRate < self.minHeartRate!) {
                         self.minHeartRate = heartRate
                     }
                     if self.maxHeartRate == nil || heartRate > self.maxHeartRate! {
@@ -166,8 +166,11 @@ final class HRVMeasurementViewModel: ObservableObject {
         
         // Calculate average heart rate
         if !heartRateSamples.isEmpty {
-            let total = heartRateSamples.reduce(0, +)
-            avgHeartRate = Int((Double(total) / Double(heartRateSamples.count)).rounded())
+            let nonZeroSamples = heartRateSamples.filter { $0 > 0 }
+            if !nonZeroSamples.isEmpty {
+                let total = nonZeroSamples.reduce(0, +)
+                avgHeartRate = Int((Double(total) / Double(nonZeroSamples.count)).rounded())
+            }
         }
         
         // Collect RR intervals that were received during measurement
@@ -291,4 +294,3 @@ final class HRVMeasurementViewModel: ObservableObject {
         liveHeartRateTimer?.invalidate()
     }
 }
-

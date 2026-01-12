@@ -418,13 +418,15 @@ extension HeartRateBluetoothManager {
 
     var avgHeartRateLastHour: Int? {
         guard !heartRateSamples.isEmpty else { return nil }
-        let total = heartRateSamples.reduce(0) { $0 + $1.value }
-        return Int((Double(total) / Double(heartRateSamples.count)).rounded())
+        let nonZeroSamples = heartRateSamples.filter { $0.value > 0 }
+        guard !nonZeroSamples.isEmpty else { return nil }
+        let total = nonZeroSamples.reduce(0) { $0 + $1.value }
+        return Int((Double(total) / Double(nonZeroSamples.count)).rounded())
     }
 
     var minHeartRateLastHour: Int? {
         guard !heartRateSamples.isEmpty else { return nil }
-        return heartRateSamples.map { $0.value }.min()
+        return heartRateSamples.map { $0.value }.filter { $0 > 0 }.min()
     }
 
     func timeInZonesLastHour(config: HeartRateZoneConfig) -> [ZoneTimeData] {
