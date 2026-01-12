@@ -9,6 +9,7 @@ import Foundation
 import Combine
 import UIKit
 import AudioToolbox
+import AVFoundation
 
 enum HRVMeasurementState: Equatable {
     case idle
@@ -34,6 +35,7 @@ final class HRVMeasurementViewModel: ObservableObject {
     private var measurementStartRRIndex: Int = 0 // Index in bluetooth manager's RR intervals array when measurement started
     private var startTime: Date?
     private let measurementDuration: TimeInterval = 120.0 // 2 minutes
+    private var audioPlayer: AVAudioPlayer?
     
     var currentHeartRate: (() -> Int?)?
     var getRRIntervals: (() -> [RRInterval])? // Callback to get current RR intervals from bluetooth manager
@@ -206,15 +208,33 @@ final class HRVMeasurementViewModel: ObservableObject {
         generator.prepare()
         generator.notificationOccurred(.success)
         
-        // Play system sound - using standard notification sound
-        // System sound ID 1013 is a standard "received message" sound that works on all devices
-        AudioServicesPlaySystemSound(1013)
+        playCompletionSound()
         
         // Additional haptic feedback for extra emphasis (user may have eyes closed)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
             let impactGenerator = UIImpactFeedbackGenerator(style: .medium)
             impactGenerator.prepare()
             impactGenerator.impactOccurred()
+        }
+    }
+
+    private func playCompletionSound() {
+        // Configure audio session to play sound even when device is silenced
+        do {
+            try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, options: [.duckOthers])
+            try AVAudioSession.sharedInstance().setActive(true)
+        } catch {
+            AudioServicesPlaySystemSound(1013) // bell
+            return
+        }
+
+        let soundURL = URL(fileURLWithPath: "/System/Library/Audio/UISounds/sms-received1.caf")
+        do {
+            audioPlayer = try AVAudioPlayer(contentsOf: soundURL)
+            audioPlayer?.prepareToPlay()
+            audioPlayer?.play()
+        } catch {
+            AudioServicesPlaySystemSound(1013)
         }
     }
     

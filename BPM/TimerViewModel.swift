@@ -899,10 +899,16 @@ final class TimerViewModel: ObservableObject {
             return
         }
 
-        // Work ending -> 1 bell (rest time)
-        // Rest ending -> 2 bells (work time)
-        let bellCount = presetPhase == .work ? 1 : 2
+        // Single bell at each phase transition
+        let bellCount = Self.bellCount(for: presetPhase)
         playBells(count: bellCount)
+    }
+
+    static func bellCount(for phase: PresetPhase) -> Int {
+        switch phase {
+        case .work, .rest, .cooldown:
+            return 1
+        }
     }
 
     private func playBells(count: Int, current: Int = 0) {

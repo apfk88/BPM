@@ -103,9 +103,7 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
     private var shouldResumeScanningAfterBackground = false
     private var lastHeartRateSampleTime: Date?
     private var noDataTimer: Timer?
-    private let noDataTimeoutInterval: TimeInterval = 20.0
-    private var consecutiveZeroReadings = 0
-    private let zeroReadingEndActivityThreshold = 3
+    private let noDataTimeoutInterval: TimeInterval = 300.0
     
     // Sharing integration
     private let sharingService = SharingService.shared
@@ -214,11 +212,17 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
         connectionStatus = "Not connected"
         stopFakeDataGeneration()
         invalidateNoDataTimer()
-        consecutiveZeroReadings = 0
         lastHeartRateSampleTime = nil
         currentHeartRate = nil
         heartRateSamples.removeAll()
         rrIntervals.removeAll()
+#if canImport(ActivityKit)
+        if #available(iOS 16.1, *) {
+            Task { @MainActor in
+                await HeartRateActivityController.shared.endActivity()
+            }
+        }
+#endif
     }
 
     func stopScanning() {
@@ -327,7 +331,6 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
             centralManager.cancelPeripheralConnection(device)
         }
         invalidateNoDataTimer()
-        consecutiveZeroReadings = 0
         lastHeartRateSampleTime = nil
         connectedDevice = nil
         currentHeartRate = nil
@@ -378,7 +381,6 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
                 return
             }
 
-            consecutiveZeroReadings = 0
             let now = Date()
             lastHeartRateSampleTime = now
             scheduleNoDataTimeout()
@@ -430,26 +432,21 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
     }
 
     private func handleZeroHeartRateReading() {
-        consecutiveZeroReadings += 1
         currentHeartRate = nil
         sharingService.updateHeartRate(nil, max: nil, avg: nil, min: nil)
 
 #if canImport(ActivityKit)
         if #available(iOS 16.1, *) {
             Task { @MainActor in
-                if consecutiveZeroReadings >= zeroReadingEndActivityThreshold {
-                    await HeartRateActivityController.shared.endActivity()
-                } else {
-                    HeartRateActivityController.shared.updateActivity(
-                        bpm: nil,
-                        average: nil,
-                        maximum: nil,
-                        minimum: nil,
-                        zone: nil,
-                        isSharing: sharingService.isSharing,
-                        isViewing: sharingService.isViewing
-                    )
-                }
+                HeartRateActivityController.shared.updateActivity(
+                    bpm: nil,
+                    average: nil,
+                    maximum: nil,
+                    minimum: nil,
+                    zone: nil,
+                    isSharing: sharingService.isSharing,
+                    isViewing: sharingService.isViewing
+                )
             }
         }
 #endif
@@ -478,7 +475,6 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
         }
 
         invalidateNoDataTimer()
-        consecutiveZeroReadings = 0
         lastHeartRateSampleTime = nil
         connectedDevice = nil
         currentHeartRate = nil
@@ -648,7 +644,6 @@ extension HeartRateBluetoothManager: CBCentralManagerDelegate {
 
         if wasConnectedDevice {
             invalidateNoDataTimer()
-            consecutiveZeroReadings = 0
             lastHeartRateSampleTime = nil
             let msg = error != nil ? "Disconnected: \(error!.localizedDescription)" : "Disconnected"
             print(msg)
