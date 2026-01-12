@@ -199,9 +199,10 @@ final class TimerViewModel: ObservableObject {
             workoutSamples = heartRateSamples
         }
         
-        guard !workoutSamples.isEmpty else { return nil }
-        let total = workoutSamples.reduce(0) { $0 + $1.value }
-        return Int((Double(total) / Double(workoutSamples.count)).rounded())
+        let nonZeroSamples = workoutSamples.filter { $0.value > 0 }
+        guard !nonZeroSamples.isEmpty else { return nil }
+        let total = nonZeroSamples.reduce(0) { $0 + $1.value }
+        return Int((Double(total) / Double(nonZeroSamples.count)).rounded())
     }
     
     var maxHeartRate: Int? {
@@ -230,12 +231,16 @@ final class TimerViewModel: ObservableObject {
         guard !heartRateSamples.isEmpty else {
             // Fallback to current heart rate only while actively running
             guard state == .running || state == .paused else { return nil }
-            return currentHeartRate?()
+            if let currentHR = currentHeartRate?(), currentHR > 0 {
+                return currentHR
+            }
+            return nil
         }
-        let minFromSamples = heartRateSamples.map { $0.value }.min()
+        let minFromSamples = heartRateSamples.map { $0.value }.filter { $0 > 0 }.min()
 
         // Also consider current heart rate if timer is running
         if state == .running || state == .paused, let currentHR = currentHeartRate?() {
+            guard currentHR > 0 else { return minFromSamples }
             if let minFromSamples = minFromSamples {
                 return min(minFromSamples, currentHR)
             } else {
@@ -327,9 +332,15 @@ final class TimerViewModel: ObservableObject {
             sample.timestamp >= setStartTime && sample.timestamp <= setEndTime
         }
         
-        guard !samplesInSet.isEmpty else { return set.heartRate }
-        let total = samplesInSet.reduce(0) { $0 + $1.value }
-        return Int((Double(total) / Double(samplesInSet.count)).rounded())
+        let nonZeroSamples = samplesInSet.filter { $0.value > 0 }
+        guard !nonZeroSamples.isEmpty else {
+            if let setHeartRate = set.heartRate, setHeartRate > 0 {
+                return setHeartRate
+            }
+            return nil
+        }
+        let total = nonZeroSamples.reduce(0) { $0 + $1.value }
+        return Int((Double(total) / Double(nonZeroSamples.count)).rounded())
     }
     
     // Calculate max BPM for a specific set based on heart rate samples during that set's time period
@@ -356,9 +367,15 @@ final class TimerViewModel: ObservableObject {
             sample.timestamp >= currentSetStartTime && sample.timestamp <= now
         }
         
-        guard !samplesInCurrentSet.isEmpty else { return currentHeartRate?() }
-        let total = samplesInCurrentSet.reduce(0) { $0 + $1.value }
-        return Int((Double(total) / Double(samplesInCurrentSet.count)).rounded())
+        let nonZeroSamples = samplesInCurrentSet.filter { $0.value > 0 }
+        guard !nonZeroSamples.isEmpty else {
+            if let currentHR = currentHeartRate?(), currentHR > 0 {
+                return currentHR
+            }
+            return nil
+        }
+        let total = nonZeroSamples.reduce(0) { $0 + $1.value }
+        return Int((Double(total) / Double(nonZeroSamples.count)).rounded())
     }
     
     // Calculate max BPM for the current set being timed
@@ -396,8 +413,14 @@ final class TimerViewModel: ObservableObject {
             sample.timestamp >= setStartTime && sample.timestamp <= setEndTime
         }
         
-        guard !samplesInSet.isEmpty else { return set.heartRate }
-        return samplesInSet.map { $0.value }.min()
+        let nonZeroSamples = samplesInSet.filter { $0.value > 0 }
+        guard !nonZeroSamples.isEmpty else {
+            if let setHeartRate = set.heartRate, setHeartRate > 0 {
+                return setHeartRate
+            }
+            return nil
+        }
+        return nonZeroSamples.map { $0.value }.min()
     }
     
     // Calculate min BPM for the current set being timed
@@ -410,11 +433,18 @@ final class TimerViewModel: ObservableObject {
             sample.timestamp >= currentSetStartTime && sample.timestamp <= now
         }
         
-        guard !samplesInCurrentSet.isEmpty else { return currentHeartRate?() }
-        let minFromSamples = samplesInCurrentSet.map { $0.value }.min()
+        let nonZeroSamples = samplesInCurrentSet.filter { $0.value > 0 }
+        guard !nonZeroSamples.isEmpty else {
+            if let currentHR = currentHeartRate?(), currentHR > 0 {
+                return currentHR
+            }
+            return nil
+        }
+        let minFromSamples = nonZeroSamples.map { $0.value }.min()
         
         // Also consider current heart rate
         if let currentHR = currentHeartRate?() {
+            guard currentHR > 0 else { return minFromSamples }
             if let minFromSamples = minFromSamples {
                 return min(minFromSamples, currentHR)
             } else {
