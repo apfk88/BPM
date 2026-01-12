@@ -45,15 +45,11 @@ struct HeartRateLiveActivity: Widget {
                     return .white
                 }()
 
-                HStack(spacing: 2) {
-                    Image(systemName: "heart.fill")
-                        .font(.system(size: 10, weight: .bold))
-                    Text(context.state.bpm.map { "\($0)" } ?? "--")
-                        .font(.system(size: 22, weight: .bold, design: .monospaced))
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.7)
-                        .allowsTightening(true)
-                }
+                Text(context.state.bpm.map { "\($0)" } ?? "--")
+                    .font(.system(size: 26, weight: .bold, design: .monospaced))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+                    .allowsTightening(true)
                 .foregroundColor(textColor)
             } compactTrailing: {
                 EmptyView()
@@ -67,15 +63,11 @@ struct HeartRateLiveActivity: Widget {
                     return .white
                 }()
 
-                HStack(spacing: 2) {
-                    Image(systemName: "heart.fill")
-                        .font(.system(size: 7, weight: .bold))
-                    Text(context.state.bpm.map { "\($0)" } ?? "--")
-                        .font(.system(size: 14, weight: .bold, design: .monospaced))
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.7)
-                        .allowsTightening(true)
-                }
+                Text(context.state.bpm.map { "\($0)" } ?? "--")
+                    .font(.system(size: 16, weight: .bold, design: .monospaced))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+                    .allowsTightening(true)
                 .foregroundColor(textColor)
             }
         }
