@@ -82,6 +82,7 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
     @Published private(set) var heartRateSamples: [HeartRateSample] = []
     @Published var debugMessages: [String] = []
     @Published var connectionStatus: String = "Not connected"
+    @Published var connectionMessage: String?
     @Published var supportsRRIntervals: Bool = false
     @Published private(set) var rrIntervals: [RRInterval] = []
 
@@ -103,7 +104,9 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
     private var shouldResumeScanningAfterBackground = false
     private var lastHeartRateSampleTime: Date?
     private var noDataTimer: Timer?
+    private var noDataWarningTimer: Timer?
     private let noDataTimeoutInterval: TimeInterval = 300.0
+    private let noDataWarningInterval: TimeInterval = 5.0
     
     // Sharing integration
     private let sharingService = SharingService.shared
@@ -160,6 +163,7 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
         fakeDataTimer?.invalidate()
         reconnectTimer?.invalidate()
         noDataTimer?.invalidate()
+        noDataWarningTimer?.invalidate()
         NotificationCenter.default.removeObserver(self)
         endBackgroundTask()
     }
@@ -212,6 +216,8 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
         connectionStatus = "Not connected"
         stopFakeDataGeneration()
         invalidateNoDataTimer()
+        invalidateNoDataWarningTimer()
+        connectionMessage = nil
         lastHeartRateSampleTime = nil
         currentHeartRate = nil
         heartRateSamples.removeAll()
@@ -288,6 +294,7 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
         }
 
         connectionStatus = "Connecting..."
+        connectionMessage = nil
         addDebugMessage("Connecting to \(device.name ?? device.identifier.uuidString)... (current state: \(deviceStateDescription(device.state)))")
         connectedDevice = device
         lastConnectedPeripheralIdentifier = device.identifier
@@ -337,6 +344,8 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
             centralManager.cancelPeripheralConnection(device)
         }
         invalidateNoDataTimer()
+        invalidateNoDataWarningTimer()
+        connectionMessage = nil
         lastHeartRateSampleTime = nil
         connectedDevice = nil
         currentHeartRate = nil
@@ -384,6 +393,11 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
         return now.timeIntervalSince(lastSample) >= timeout
     }
 
+    static func shouldShowNoDataWarning(lastSample: Date?, now: Date, interval: TimeInterval) -> Bool {
+        guard let lastSample = lastSample else { return true }
+        return now.timeIntervalSince(lastSample) >= interval
+    }
+
     private func isStaleSample(now: Date = Date()) -> Bool {
         Self.isStaleSample(lastSample: lastHeartRateSampleTime, now: now, timeout: noDataTimeoutInterval)
     }
@@ -399,6 +413,8 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
             let now = Date()
             lastHeartRateSampleTime = now
             scheduleNoDataTimeout()
+            scheduleNoDataWarning()
+            connectionMessage = nil
             let sample = HeartRateSample(value: value, timestamp: now, workoutTime: nil)
             heartRateSamples.append(sample)
 
@@ -479,6 +495,30 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
         noDataTimer = nil
     }
 
+    private func scheduleNoDataWarning() {
+        invalidateNoDataWarningTimer()
+        noDataWarningTimer = Timer.scheduledTimer(withTimeInterval: noDataWarningInterval, repeats: false) { [weak self] _ in
+            self?.showNoDataWarningIfNeeded()
+        }
+    }
+
+    private func invalidateNoDataWarningTimer() {
+        noDataWarningTimer?.invalidate()
+        noDataWarningTimer = nil
+    }
+
+    private func showNoDataWarningIfNeeded() {
+        guard connectedDevice != nil || isSimulatorConnected else { return }
+        let now = Date()
+        let shouldWarn = Self.shouldShowNoDataWarning(
+            lastSample: lastHeartRateSampleTime,
+            now: now,
+            interval: noDataWarningInterval
+        )
+        guard shouldWarn else { return }
+        connectionMessage = "No heart rate data yet. The strap may be connected to another device (like a treadmill) or out of range. Try moving closer, or disconnect it from the other device."
+    }
+
     private func handleNoDataTimeout() {
         guard let lastSample = lastHeartRateSampleTime else { return }
         guard Date().timeIntervalSince(lastSample) >= noDataTimeoutInterval else { return }
@@ -490,6 +530,8 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
         }
 
         invalidateNoDataTimer()
+        invalidateNoDataWarningTimer()
+        connectionMessage = nil
         lastHeartRateSampleTime = nil
         connectedDevice = nil
         currentHeartRate = nil
@@ -659,6 +701,8 @@ extension HeartRateBluetoothManager: CBCentralManagerDelegate {
 
         if wasConnectedDevice {
             invalidateNoDataTimer()
+            invalidateNoDataWarningTimer()
+            connectionMessage = nil
             lastHeartRateSampleTime = nil
             let msg = error != nil ? "Disconnected: \(error!.localizedDescription)" : "Disconnected"
             print(msg)
@@ -876,8 +920,10 @@ extension HeartRateBluetoothManager: CBPeripheralDelegate {
             addDebugMessage(msg)
             if characteristic.isNotifying {
                 connectionStatus = "Connected - Waiting for data"
+                connectionMessage = nil
                 lastHeartRateSampleTime = Date()
                 scheduleNoDataTimeout()
+                scheduleNoDataWarning()
             }
         }
     }

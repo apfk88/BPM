@@ -223,6 +223,7 @@ struct HeartRateDisplayView: View {
             .overlay(alignment: .top) {
                 VStack(spacing: 8) {
                     connectionPrompt
+                    bluetoothMessageDisplay
                     errorMessageDisplay
                     sharingCodeDisplay
                 }
@@ -471,6 +472,18 @@ struct HeartRateDisplayView: View {
                 .lineLimit(2)
                 .padding(.horizontal, 20)
                 .padding(.top, 20)
+        }
+    }
+
+    @ViewBuilder
+    private var bluetoothMessageDisplay: some View {
+        if appMode == .myDevice, let message = bluetoothManager.connectionMessage {
+            Text(message)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundColor(.orange.opacity(0.9))
+                .multilineTextAlignment(.center)
+                .lineLimit(3)
+                .padding(.horizontal, 20)
         }
     }
 
