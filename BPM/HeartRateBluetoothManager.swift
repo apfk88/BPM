@@ -105,8 +105,12 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
     private var lastHeartRateSampleTime: Date?
     private var noDataTimer: Timer?
     private var noDataWarningTimer: Timer?
+    private var noDataEscalationTimer: Timer?
+    private var noDataElapsedTimer: Timer?
     private let noDataTimeoutInterval: TimeInterval = 300.0
     private let noDataWarningInterval: TimeInterval = 5.0
+    private let noDataEscalationInterval: TimeInterval = 60.0
+    private let noDataElapsedUpdateInterval: TimeInterval = 1.0
     
     // Sharing integration
     private let sharingService = SharingService.shared
@@ -164,6 +168,8 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
         reconnectTimer?.invalidate()
         noDataTimer?.invalidate()
         noDataWarningTimer?.invalidate()
+        noDataEscalationTimer?.invalidate()
+        noDataElapsedTimer?.invalidate()
         NotificationCenter.default.removeObserver(self)
         endBackgroundTask()
     }
@@ -217,6 +223,8 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
         stopFakeDataGeneration()
         invalidateNoDataTimer()
         invalidateNoDataWarningTimer()
+        invalidateNoDataEscalationTimer()
+        invalidateNoDataElapsedTimer()
         connectionMessage = nil
         lastHeartRateSampleTime = nil
         currentHeartRate = nil
@@ -345,6 +353,8 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
         }
         invalidateNoDataTimer()
         invalidateNoDataWarningTimer()
+        invalidateNoDataEscalationTimer()
+        invalidateNoDataElapsedTimer()
         connectionMessage = nil
         lastHeartRateSampleTime = nil
         connectedDevice = nil
@@ -414,6 +424,8 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
             lastHeartRateSampleTime = now
             scheduleNoDataTimeout()
             scheduleNoDataWarning()
+            scheduleNoDataEscalation()
+            invalidateNoDataElapsedTimer()
             connectionMessage = nil
             let sample = HeartRateSample(value: value, timestamp: now, workoutTime: nil)
             heartRateSamples.append(sample)
@@ -488,6 +500,7 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
         noDataTimer = Timer.scheduledTimer(withTimeInterval: noDataTimeoutInterval, repeats: false) { [weak self] _ in
             self?.handleNoDataTimeout()
         }
+        RunLoop.current.add(noDataTimer!, forMode: .common)
     }
 
     private func invalidateNoDataTimer() {
@@ -500,11 +513,51 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
         noDataWarningTimer = Timer.scheduledTimer(withTimeInterval: noDataWarningInterval, repeats: false) { [weak self] _ in
             self?.showNoDataWarningIfNeeded()
         }
+        RunLoop.current.add(noDataWarningTimer!, forMode: .common)
     }
 
     private func invalidateNoDataWarningTimer() {
         noDataWarningTimer?.invalidate()
         noDataWarningTimer = nil
+    }
+
+    private func scheduleNoDataEscalation() {
+        invalidateNoDataEscalationTimer()
+        noDataEscalationTimer = Timer.scheduledTimer(withTimeInterval: noDataEscalationInterval, repeats: false) { [weak self] _ in
+            self?.startNoDataElapsedTimerIfNeeded()
+        }
+        RunLoop.current.add(noDataEscalationTimer!, forMode: .common)
+    }
+
+    private func invalidateNoDataEscalationTimer() {
+        noDataEscalationTimer?.invalidate()
+        noDataEscalationTimer = nil
+    }
+
+    private func startNoDataElapsedTimerIfNeeded() {
+        guard connectedDevice != nil || isSimulatorConnected else { return }
+        updateNoDataElapsedMessage()
+        invalidateNoDataElapsedTimer()
+        noDataElapsedTimer = Timer.scheduledTimer(withTimeInterval: noDataElapsedUpdateInterval, repeats: true) { [weak self] _ in
+            self?.updateNoDataElapsedMessage()
+        }
+        RunLoop.current.add(noDataElapsedTimer!, forMode: .common)
+    }
+
+    private func invalidateNoDataElapsedTimer() {
+        noDataElapsedTimer?.invalidate()
+        noDataElapsedTimer = nil
+    }
+
+    private func updateNoDataElapsedMessage() {
+        guard connectedDevice != nil || isSimulatorConnected else {
+            invalidateNoDataElapsedTimer()
+            return
+        }
+        guard let lastSample = lastHeartRateSampleTime else { return }
+        let elapsed = Int(Date().timeIntervalSince(lastSample))
+        guard elapsed >= Int(noDataEscalationInterval) else { return }
+        connectionMessage = "No BPM received for \(elapsed) seconds"
     }
 
     private func showNoDataWarningIfNeeded() {
@@ -516,12 +569,37 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
             interval: noDataWarningInterval
         )
         guard shouldWarn else { return }
-        connectionMessage = "No heart rate data yet. The strap may be connected to another device (like a treadmill) or out of range. Try moving closer, or disconnect it from the other device."
+        setNoDataState()
+        connectionMessage = "Device can't be reached, trying to reconnect"
+    }
+
+    private func setNoDataState() {
+        currentHeartRate = nil
+        sharingService.updateHeartRate(nil, max: nil, avg: nil, min: nil)
+
+#if canImport(ActivityKit)
+        if #available(iOS 16.1, *) {
+            Task { @MainActor in
+                HeartRateActivityController.shared.updateActivity(
+                    bpm: nil,
+                    average: nil,
+                    maximum: nil,
+                    minimum: nil,
+                    zone: nil,
+                    isSharing: sharingService.isSharing,
+                    isViewing: sharingService.isViewing
+                )
+            }
+        }
+#endif
     }
 
     private func handleNoDataTimeout() {
         guard let lastSample = lastHeartRateSampleTime else { return }
         guard Date().timeIntervalSince(lastSample) >= noDataTimeoutInterval else { return }
+
+        isUserInitiatedDisconnect = true
+        lastConnectedPeripheralIdentifier = nil
 
         if let device = connectedDevice {
             centralManager.cancelPeripheralConnection(device)
@@ -531,6 +609,8 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
 
         invalidateNoDataTimer()
         invalidateNoDataWarningTimer()
+        invalidateNoDataEscalationTimer()
+        invalidateNoDataElapsedTimer()
         connectionMessage = nil
         lastHeartRateSampleTime = nil
         connectedDevice = nil
@@ -702,6 +782,8 @@ extension HeartRateBluetoothManager: CBCentralManagerDelegate {
         if wasConnectedDevice {
             invalidateNoDataTimer()
             invalidateNoDataWarningTimer()
+            invalidateNoDataEscalationTimer()
+            invalidateNoDataElapsedTimer()
             connectionMessage = nil
             lastHeartRateSampleTime = nil
             let msg = error != nil ? "Disconnected: \(error!.localizedDescription)" : "Disconnected"
@@ -730,6 +812,14 @@ extension HeartRateBluetoothManager: CBCentralManagerDelegate {
             }
 #endif
 
+#if canImport(ActivityKit)
+            if #available(iOS 16.1, *) {
+                Task { @MainActor in
+                    await HeartRateActivityController.shared.endActivity()
+                }
+            }
+#endif
+
             // Attempt auto-reconnect if this wasn't a user-initiated disconnect
             if willAttemptReconnect {
                 connectionStatus = "Disconnected - Reconnecting..."
@@ -741,13 +831,6 @@ extension HeartRateBluetoothManager: CBCentralManagerDelegate {
         }
 
         startScanning()
-#if canImport(ActivityKit)
-        if #available(iOS 16.1, *) {
-            Task { @MainActor in
-                await HeartRateActivityController.shared.endActivity()
-            }
-        }
-#endif
         if connectedDevice == nil && !sharingService.isSharing {
             endBackgroundTask()
         }
@@ -924,6 +1007,8 @@ extension HeartRateBluetoothManager: CBPeripheralDelegate {
                 lastHeartRateSampleTime = Date()
                 scheduleNoDataTimeout()
                 scheduleNoDataWarning()
+                scheduleNoDataEscalation()
+                invalidateNoDataElapsedTimer()
             }
         }
     }
