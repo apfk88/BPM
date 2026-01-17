@@ -105,11 +105,19 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
     private var lastHeartRateSampleTime: Date?
     private var noDataTimer: Timer?
     private var noDataWarningTimer: Timer?
+    private var noDataShareTimer: Timer?
+    private var noDataReconnectTimer: Timer?
     private let noDataTimeoutInterval: TimeInterval = 300.0
     private let noDataWarningInterval: TimeInterval = 5.0
-    
+    private let noDataShareInterval: TimeInterval = 20.0
+    private let noDataReconnectInterval: TimeInterval = 10.0
+    private var hasSentNoDataToSharing = false
+    private var hasReceivedDataSinceConnect = false
+    private var preserveConnectionMessageOnDisconnect = false
+
     // Sharing integration
     private let sharingService = SharingService.shared
+    private var sharingCancellable: AnyCancellable?
     private var lastUpdateTime: Date?
     private let updateThrottleInterval: TimeInterval = 1.0 // 1 second minimum (1 Hz)
     
@@ -157,6 +165,18 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
             name: UIApplication.willEnterForegroundNotification,
             object: nil
         )
+
+        sharingCancellable = sharingService.$isSharing
+            .removeDuplicates()
+            .sink { [weak self] isSharing in
+                guard let self = self else { return }
+                if isSharing {
+                    self.hasSentNoDataToSharing = false
+                    self.scheduleNoDataShareTimeout()
+                } else {
+                    self.resetNoDataSharingState()
+                }
+            }
     }
 
     deinit {
@@ -164,6 +184,9 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
         reconnectTimer?.invalidate()
         noDataTimer?.invalidate()
         noDataWarningTimer?.invalidate()
+        resetNoDataSharingState()
+        resetNoDataReconnectState()
+        sharingCancellable?.cancel()
         NotificationCenter.default.removeObserver(self)
         endBackgroundTask()
     }
@@ -206,6 +229,8 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
         guard isSimulator, simulatorDevice != nil else { return }
         isSimulatorConnected = true
         connectionStatus = "Connected (Simulator)"
+        hasReceivedDataSinceConnect = false
+        preserveConnectionMessageOnDisconnect = false
         startFakeDataGeneration()
     }
 
@@ -217,8 +242,12 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
         stopFakeDataGeneration()
         invalidateNoDataTimer()
         invalidateNoDataWarningTimer()
+        resetNoDataSharingState()
+        resetNoDataReconnectState()
+        preserveConnectionMessageOnDisconnect = false
         connectionMessage = nil
         lastHeartRateSampleTime = nil
+        hasReceivedDataSinceConnect = false
         currentHeartRate = nil
         heartRateSamples.removeAll()
         rrIntervals.removeAll()
@@ -290,11 +319,14 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
             print(msg)
             addDebugMessage(msg)
             connectionStatus = "Device busy - disconnect from other device"
+            connectionMessage = "Device busy. Disconnect it from the treadmill and try again."
             return
         }
 
         connectionStatus = "Connecting..."
         connectionMessage = nil
+        preserveConnectionMessageOnDisconnect = false
+        hasReceivedDataSinceConnect = false
         addDebugMessage("Connecting to \(device.name ?? device.identifier.uuidString)... (current state: \(deviceStateDescription(device.state)))")
         connectedDevice = device
         lastConnectedPeripheralIdentifier = device.identifier
@@ -345,8 +377,12 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
         }
         invalidateNoDataTimer()
         invalidateNoDataWarningTimer()
+        resetNoDataSharingState()
+        resetNoDataReconnectState()
+        preserveConnectionMessageOnDisconnect = false
         connectionMessage = nil
         lastHeartRateSampleTime = nil
+        hasReceivedDataSinceConnect = false
         connectedDevice = nil
         currentHeartRate = nil
         heartRateSamples.removeAll()
@@ -398,6 +434,26 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
         return now.timeIntervalSince(lastSample) >= interval
     }
 
+    static func shouldShowInitialNoDataWarning(
+        hasReceivedDataSinceConnect: Bool,
+        lastSample: Date?,
+        now: Date,
+        interval: TimeInterval
+    ) -> Bool {
+        guard !hasReceivedDataSinceConnect else { return false }
+        return shouldShowNoDataWarning(lastSample: lastSample, now: now, interval: interval)
+    }
+
+    static func shouldSendNoDataToSharing(lastSample: Date?, now: Date, interval: TimeInterval) -> Bool {
+        guard let lastSample = lastSample else { return true }
+        return now.timeIntervalSince(lastSample) >= interval
+    }
+
+    static func shouldAttemptNoDataReconnect(lastSample: Date?, now: Date, interval: TimeInterval) -> Bool {
+        guard let lastSample = lastSample else { return true }
+        return now.timeIntervalSince(lastSample) >= interval
+    }
+
     private func isStaleSample(now: Date = Date()) -> Bool {
         Self.isStaleSample(lastSample: lastHeartRateSampleTime, now: now, timeout: noDataTimeoutInterval)
     }
@@ -414,6 +470,11 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
             lastHeartRateSampleTime = now
             scheduleNoDataTimeout()
             scheduleNoDataWarning()
+            scheduleNoDataShareTimeout()
+            scheduleNoDataReconnect()
+            hasSentNoDataToSharing = false
+            hasReceivedDataSinceConnect = true
+            preserveConnectionMessageOnDisconnect = false
             connectionMessage = nil
             let sample = HeartRateSample(value: value, timestamp: now, workoutTime: nil)
             heartRateSamples.append(sample)
@@ -497,9 +558,11 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
 
     private func scheduleNoDataWarning() {
         invalidateNoDataWarningTimer()
-        noDataWarningTimer = Timer.scheduledTimer(withTimeInterval: noDataWarningInterval, repeats: false) { [weak self] _ in
+        let timer = Timer(timeInterval: noDataWarningInterval, repeats: false) { [weak self] _ in
             self?.showNoDataWarningIfNeeded()
         }
+        noDataWarningTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
     }
 
     private func invalidateNoDataWarningTimer() {
@@ -507,16 +570,90 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
         noDataWarningTimer = nil
     }
 
+    private func scheduleNoDataShareTimeout() {
+        invalidateNoDataShareTimer()
+        let timer = Timer(timeInterval: noDataShareInterval, repeats: false) { [weak self] _ in
+            self?.sendNoDataToSharingIfNeeded()
+        }
+        noDataShareTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
+    }
+
+    private func invalidateNoDataShareTimer() {
+        noDataShareTimer?.invalidate()
+        noDataShareTimer = nil
+    }
+
+    private func resetNoDataSharingState() {
+        invalidateNoDataShareTimer()
+        hasSentNoDataToSharing = false
+    }
+
+    private func scheduleNoDataReconnect() {
+        invalidateNoDataReconnectTimer()
+        let timer = Timer(timeInterval: noDataReconnectInterval, repeats: false) { [weak self] _ in
+            self?.attemptNoDataReconnectIfNeeded()
+        }
+        noDataReconnectTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
+    }
+
+    private func invalidateNoDataReconnectTimer() {
+        noDataReconnectTimer?.invalidate()
+        noDataReconnectTimer = nil
+    }
+
+    private func resetNoDataReconnectState() {
+        invalidateNoDataReconnectTimer()
+    }
+
     private func showNoDataWarningIfNeeded() {
         guard connectedDevice != nil || isSimulatorConnected else { return }
         let now = Date()
-        let shouldWarn = Self.shouldShowNoDataWarning(
+        let shouldWarn = Self.shouldShowInitialNoDataWarning(
+            hasReceivedDataSinceConnect: hasReceivedDataSinceConnect,
             lastSample: lastHeartRateSampleTime,
             now: now,
             interval: noDataWarningInterval
         )
         guard shouldWarn else { return }
+        preserveConnectionMessageOnDisconnect = true
         connectionMessage = "No heart rate data yet. The strap may be connected to another device (like a treadmill) or out of range. Try moving closer, or disconnect it from the other device."
+    }
+
+    private func attemptNoDataReconnectIfNeeded() {
+        guard connectedDevice != nil || isSimulatorConnected else { return }
+        guard !isUserInitiatedDisconnect else { return }
+        let now = Date()
+        let shouldReconnect = Self.shouldAttemptNoDataReconnect(
+            lastSample: lastHeartRateSampleTime,
+            now: now,
+            interval: noDataReconnectInterval
+        )
+        guard shouldReconnect else { return }
+
+        connectionMessage = "Trying to reconnect..."
+
+        if let device = connectedDevice {
+            centralManager.cancelPeripheralConnection(device)
+        } else if isSimulatorConnected {
+            disconnectSimulator()
+            connectSimulator()
+        }
+    }
+
+    private func sendNoDataToSharingIfNeeded() {
+        guard sharingService.isSharing else { return }
+        guard !hasSentNoDataToSharing else { return }
+        let now = Date()
+        let shouldSend = Self.shouldSendNoDataToSharing(
+            lastSample: lastHeartRateSampleTime,
+            now: now,
+            interval: noDataShareInterval
+        )
+        guard shouldSend else { return }
+        hasSentNoDataToSharing = true
+        sharingService.updateHeartRate(nil, max: nil, avg: nil, min: nil)
     }
 
     private func handleNoDataTimeout() {
@@ -531,8 +668,12 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
 
         invalidateNoDataTimer()
         invalidateNoDataWarningTimer()
+        resetNoDataSharingState()
+        resetNoDataReconnectState()
+        preserveConnectionMessageOnDisconnect = false
         connectionMessage = nil
         lastHeartRateSampleTime = nil
+        hasReceivedDataSinceConnect = false
         connectedDevice = nil
         currentHeartRate = nil
         heartRateSamples.removeAll()
@@ -684,11 +825,18 @@ extension HeartRateBluetoothManager: CBCentralManagerDelegate {
         reconnectAttempts = 0
         cancelReconnectTimer()
         isUserInitiatedDisconnect = false
+        hasReceivedDataSinceConnect = false
+        preserveConnectionMessageOnDisconnect = false
 
         let msg = "Connected to \(peripheral.name ?? peripheral.identifier.uuidString)"
         print(msg)
         addDebugMessage(msg)
         connectionStatus = "Connected - Discovering services..."
+        lastHeartRateSampleTime = Date()
+        scheduleNoDataTimeout()
+        scheduleNoDataWarning()
+        scheduleNoDataShareTimeout()
+        scheduleNoDataReconnect()
         peripheral.delegate = self
         // Discover all services first, then we'll check for heart rate service
         // Some devices don't advertise the service but expose it after connection
@@ -702,8 +850,15 @@ extension HeartRateBluetoothManager: CBCentralManagerDelegate {
         if wasConnectedDevice {
             invalidateNoDataTimer()
             invalidateNoDataWarningTimer()
-            connectionMessage = nil
+            resetNoDataSharingState()
+            resetNoDataReconnectState()
+            if preserveConnectionMessageOnDisconnect {
+                preserveConnectionMessageOnDisconnect = false
+            } else {
+                connectionMessage = nil
+            }
             lastHeartRateSampleTime = nil
+            hasReceivedDataSinceConnect = false
             let msg = error != nil ? "Disconnected: \(error!.localizedDescription)" : "Disconnected"
             print(msg)
             addDebugMessage(msg)
@@ -769,6 +924,7 @@ extension HeartRateBluetoothManager: CBCentralManagerDelegate {
 
         print(msg)
         addDebugMessage(msg)
+        connectionMessage = msg
 
         if connectedDevice?.identifier == peripheral.identifier {
             connectedDevice = nil
@@ -817,6 +973,8 @@ extension HeartRateBluetoothManager: CBPeripheralDelegate {
             let msg = "Heart Rate Service not found. Available services: \(services.map { $0.uuid.uuidString }.joined(separator: ", "))"
             print(msg)
             addDebugMessage(msg)
+            preserveConnectionMessageOnDisconnect = true
+            connectionMessage = "No heart rate data. The strap may be connected to another device (like a treadmill)."
             // If we don't find the heart rate service, disconnect since this isn't a heart rate monitor
             if connectedDevice?.identifier == peripheral.identifier {
                 centralManager.cancelPeripheralConnection(peripheral)
@@ -924,6 +1082,10 @@ extension HeartRateBluetoothManager: CBPeripheralDelegate {
                 lastHeartRateSampleTime = Date()
                 scheduleNoDataTimeout()
                 scheduleNoDataWarning()
+                scheduleNoDataShareTimeout()
+                scheduleNoDataReconnect()
+                hasSentNoDataToSharing = false
+                hasReceivedDataSinceConnect = false
             }
         }
     }
@@ -1019,6 +1181,7 @@ extension HeartRateBluetoothManager: CBPeripheralDelegate {
         let msg = "Scheduling reconnect attempt \(reconnectAttempts)/\(maxReconnectAttempts) in \(reconnectDelay)s..."
         print(msg)
         addDebugMessage(msg)
+        connectionMessage = "Trying to reconnect..."
 
         // Keep the background task alive during reconnection attempts
         beginBackgroundTaskIfNeeded()
@@ -1048,6 +1211,7 @@ extension HeartRateBluetoothManager: CBPeripheralDelegate {
         print(msg)
         addDebugMessage(msg)
         connectionStatus = "Reconnecting (\(reconnectAttempts)/\(maxReconnectAttempts))..."
+        connectionMessage = "Trying to reconnect..."
 
         // Store reference and attempt connection
         connectedDevice = peripheral
