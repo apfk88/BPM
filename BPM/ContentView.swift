@@ -81,6 +81,7 @@ struct HeartRateDisplayView: View {
     @State private var showPresetSheet = false
     @State private var showPaywall = false
     @State private var showZoneConfig = false
+    @State private var showSettings = false
     @ObservedObject private var subscriptionManager = SubscriptionManager.shared
     @StateObject private var zoneStorage = HeartRateZoneStorage.shared
 
@@ -117,6 +118,12 @@ struct HeartRateDisplayView: View {
         }
         .sheet(isPresented: $showZoneConfig) {
             HeartRateZoneConfigView(isPresented: $showZoneConfig)
+        }
+        .sheet(isPresented: $showSettings) {
+            SettingsView(onConfigureZones: {
+                showZoneConfig = true
+                showSettings = false
+            })
         }
         .alert("Disconnect Sharing", isPresented: $showDisconnectAlert) {
             Button("Cancel", role: .cancel) { }
@@ -227,6 +234,21 @@ struct HeartRateDisplayView: View {
                     errorMessageDisplay
                     sharingCodeDisplay
                 }
+            }
+            .overlay(alignment: .topTrailing) {
+                Button {
+                    showSettings = true
+                } label: {
+                    Image(systemName: "gearshape")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(.white.opacity(0.85))
+                        .padding(10)
+                        .background(Color.white.opacity(0.08))
+                        .clipShape(Circle())
+                        .accessibilityLabel("Settings")
+                }
+                .padding(.top, max(16, geometry.safeAreaInsets.top + 6))
+                .padding(.trailing, 16)
             }
         }
     }
