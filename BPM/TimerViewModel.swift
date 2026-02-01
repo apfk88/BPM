@@ -1368,6 +1368,176 @@ final class TimerViewModel: ObservableObject {
         }
     }
 
+    // MARK: - Sharing
+
+    func workoutSummaryText(totalTime: TimeInterval, zoneConfig: HeartRateZoneConfig) -> String {
+        var lines: [String] = []
+        let workSets = sets.filter { !$0.isRestSet && !$0.isCooldownSet }
+        let restSets = sets.filter { $0.isRestSet && !$0.isCooldownSet }
+        let cooldownSets = sets.filter { $0.isCooldownSet }
+        let zones = timeInZones(config: zoneConfig)
+        let totalZoneTime = zones.reduce(0) { $0 + $1.duration }
+
+        lines.append("Workout Summary")
+        if let preset = activePreset {
+            let presetName = preset.name.isEmpty ? "Custom Preset" : preset.name
+            lines.append("Preset: \(presetName) (\(formatDuration(preset.workDuration, showTenths: false)) work / \(formatDuration(preset.restDuration, showTenths: false)) rest x \(preset.numberOfSets), cooldown \(preset.includeCooldown ? "on" : "off"))")
+        }
+        lines.append("Total time: \(formatDuration(totalTime, showTenths: false))")
+        lines.append("Work sets: \(workSets.count) • Rest sets: \(restSets.count) • Cooldown sets: \(cooldownSets.count)")
+
+        if let avgSetTime = avgSetTime {
+            lines.append("Avg work set: \(formatDuration(avgSetTime, showTenths: false))")
+        }
+        if let avgRestTime = avgRestTime {
+            lines.append("Avg rest: \(formatDuration(avgRestTime, showTenths: false))")
+        }
+
+        let avgBpmText = formattedHeartRate(avgHeartRate)
+        let minBpmText = formattedHeartRate(minHeartRate)
+        let maxBpmText = formattedHeartRate(maxHeartRate)
+        lines.append("Avg BPM: \(avgBpmText) • Min BPM: \(minBpmText) • Max BPM: \(maxBpmText)")
+        if let recovery = heartRateRecovery {
+            lines.append("HRR (2 min): \(recovery)")
+        }
+
+        if totalZoneTime > 0 {
+            let zoneSummary = zones.map { zoneData in
+                "\(zoneData.zone.displayName) \(formatDuration(zoneData.duration, showTenths: false))"
+            }.joined(separator: ", ")
+            lines.append("Zones: \(zoneSummary)")
+        }
+
+        return lines.joined(separator: "\n")
+    }
+
+    func workoutDetailedText(totalTime: TimeInterval, zoneConfig: HeartRateZoneConfig) -> String {
+        var lines: [String] = []
+        let formatter = ISO8601DateFormatter()
+        let workSets = sets.filter { !$0.isRestSet && !$0.isCooldownSet }
+        let restSets = sets.filter { $0.isRestSet && !$0.isCooldownSet }
+        let cooldownSets = sets.filter { $0.isCooldownSet }
+        let workoutTime = frozenElapsedTime > 0 ? frozenElapsedTime : totalTime
+        let zones = timeInZones(config: zoneConfig)
+        let totalZoneTime = zones.reduce(0) { $0 + $1.duration }
+
+        lines.append("Workout Detail Export")
+        lines.append("Exported: \(formatter.string(from: Date()))")
+        if let startTime = startTime {
+            lines.append("Start: \(formatter.string(from: startTime))")
+            let endTime = startTime.addingTimeInterval(totalTime)
+            lines.append("End: \(formatter.string(from: endTime))")
+        } else {
+            lines.append("Start: unknown")
+        }
+        lines.append("Total time: \(formatDuration(totalTime, showTenths: false))")
+        lines.append("Workout time (pre-cooldown): \(formatDuration(workoutTime, showTenths: false))")
+        if cooldownTime > 0 {
+            lines.append("Cooldown time: \(formatDuration(cooldownTime, showTenths: false))")
+        }
+        lines.append("State: \(stateDescription(state))")
+        lines.append("Preset mode: \(isPresetMode ? "yes" : "no")")
+
+        if let preset = activePreset {
+            let presetName = preset.name.isEmpty ? "Custom Preset" : preset.name
+            lines.append("Preset: \(presetName)")
+            lines.append("Preset work duration: \(formatDuration(preset.workDuration, showTenths: false))")
+            lines.append("Preset rest duration: \(formatDuration(preset.restDuration, showTenths: false))")
+            lines.append("Preset sets: \(preset.numberOfSets)")
+            lines.append("Preset cooldown: \(preset.includeCooldown ? "on" : "off")")
+            lines.append("Preset sound: \(preset.playSound ? "on" : "off")")
+        }
+
+        lines.append("Work sets: \(workSets.count)")
+        lines.append("Rest sets: \(restSets.count)")
+        lines.append("Cooldown sets: \(cooldownSets.count)")
+
+        lines.append("Average work set: \(avgSetTime.map { formatDuration($0, showTenths: false) } ?? "n/a")")
+        lines.append("Average rest: \(avgRestTime.map { formatDuration($0, showTenths: false) } ?? "n/a")")
+        lines.append("Avg BPM: \(formattedHeartRate(avgHeartRate))")
+        lines.append("Min BPM: \(formattedHeartRate(minHeartRate))")
+        lines.append("Max BPM: \(formattedHeartRate(maxHeartRate))")
+        lines.append("Cooldown start BPM: \(formattedHeartRate(cooldownStartHeartRate))")
+        lines.append("Cooldown end BPM: \(formattedHeartRate(cooldownEndHeartRate))")
+        lines.append("HRR (2 min): \(heartRateRecovery.map(String.init) ?? "n/a")")
+
+        lines.append("Sets:")
+        if sets.isEmpty {
+            lines.append("  (none)")
+        } else {
+            for set in sets {
+                let type = set.isCooldownSet ? "cooldown" : (set.isRestSet ? "rest" : "work")
+                let avgBPM = avgBPMForSet(set)
+                let minBPM = minBPMForSet(set)
+                let maxBPM = maxBPMForSet(set)
+                let label = displayLabel(for: set)
+                let setTime = formatDuration(set.setTime, showTenths: false)
+                let totalTimeValue = formatDuration(set.totalTime, showTenths: false)
+                let associatedWorkSet = set.associatedWorkSetNumber.map(String.init) ?? "n/a"
+
+                lines.append("  \(label) [\(type)] time=\(setTime) total=\(totalTimeValue) avgBPM=\(formattedHeartRate(avgBPM)) minBPM=\(formattedHeartRate(minBPM)) maxBPM=\(formattedHeartRate(maxBPM)) heartRate=\(formattedHeartRate(set.heartRate)) associatedWorkSet=\(associatedWorkSet)")
+            }
+        }
+
+        lines.append("Time in zones:")
+        if totalZoneTime == 0 {
+            lines.append("  (no zone data)")
+        } else {
+            for zoneData in zones {
+                let percentage = totalZoneTime > 0 ? (zoneData.duration / totalZoneTime) : 0
+                lines.append("  \(zoneData.zone.fullName) (\(zoneData.zone.percentageRange)): \(formatDuration(zoneData.duration, showTenths: false)) (\(String(format: "%.1f", percentage * 100))%)")
+            }
+        }
+
+        lines.append("Heart rate samples (timestamp,workoutTimeSeconds,bpm):")
+        if heartRateSamples.isEmpty {
+            lines.append("  (none)")
+        } else {
+            for sample in heartRateSamples {
+                let timestamp = formatter.string(from: sample.timestamp)
+                let workoutTimeValue = sample.workoutTime.map { String(format: "%.1f", $0) } ?? "n/a"
+                lines.append("  \(timestamp),\(workoutTimeValue),\(sample.value)")
+            }
+        }
+
+        return lines.joined(separator: "\n")
+    }
+
+    private func formattedHeartRate(_ value: Int?) -> String {
+        value.map(String.init) ?? "n/a"
+    }
+
+    private func formatDuration(_ time: TimeInterval, showTenths: Bool = true) -> String {
+        let totalSeconds = Int(time)
+        let hours = totalSeconds / 3600
+        let minutes = (totalSeconds % 3600) / 60
+        let seconds = totalSeconds % 60
+        let tenths = Int((time.truncatingRemainder(dividingBy: 1)) * 10)
+
+        if hours > 0 {
+            return String(format: "%d:%02d:%02d", hours, minutes, seconds)
+        } else if !showTenths || minutes >= 10 {
+            return String(format: "%d:%02d", minutes, seconds)
+        } else {
+            return String(format: "%d:%02d.%d", minutes, seconds, tenths)
+        }
+    }
+
+    private func stateDescription(_ state: TimerState) -> String {
+        switch state {
+        case .idle:
+            return "idle"
+        case .running:
+            return "running"
+        case .paused:
+            return "paused"
+        case .cooldown:
+            return "cooldown"
+        case .cooldownPaused:
+            return "cooldownPaused"
+        }
+    }
+
     deinit {
         timer?.invalidate()
         cooldownTimer?.invalidate()

@@ -1105,7 +1105,10 @@ struct HeartRateDisplayView: View {
         let totalTime = isCooldown ? timerViewModel.frozenElapsedTime : (timerViewModel.isCompleted ? timerViewModel.frozenElapsedTime : timerViewModel.elapsedTime)
 
         if timerViewModel.isCompleted {
-            completedSummaryRow(totalTime: totalTime)
+            VStack(spacing: 12) {
+                completedSummaryRow(totalTime: totalTime)
+                workoutShareButtons(totalTime: totalTime, isLandscape: true)
+            }
         } else {
             // Set label changes based on mode
             let setLabel: String = "Set Time"
@@ -1199,7 +1202,10 @@ struct HeartRateDisplayView: View {
         let totalTime = isCooldown ? timerViewModel.frozenElapsedTime : (timerViewModel.isCompleted ? timerViewModel.frozenElapsedTime : timerViewModel.elapsedTime)
 
         if timerViewModel.isCompleted {
-            completedSummaryRow(totalTime: totalTime)
+            VStack(spacing: 12) {
+                completedSummaryRow(totalTime: totalTime)
+                workoutShareButtons(totalTime: totalTime, isLandscape: false)
+            }
         } else {
             // Set label changes based on mode
             let setLabel: String = "Set Time"
@@ -1576,6 +1582,47 @@ struct HeartRateDisplayView: View {
                 }
             }
         }
+    }
+
+    private func workoutShareButtons(totalTime: TimeInterval, isLandscape: Bool) -> some View {
+        let summaryText = timerViewModel.workoutSummaryText(
+            totalTime: totalTime,
+            zoneConfig: zoneStorage.effectiveConfig
+        )
+        let detailedText = timerViewModel.workoutDetailedText(
+            totalTime: totalTime,
+            zoneConfig: zoneStorage.effectiveConfig
+        )
+        let fontSize: CGFloat = isLandscape ? 13 : 14
+
+        return HStack(spacing: 12) {
+            ShareLink(item: summaryText, subject: Text("Workout Summary")) {
+                shareButtonLabel(
+                    title: "Share Summary",
+                    systemImage: "message",
+                    fontSize: fontSize
+                )
+            }
+
+            ShareLink(item: detailedText, subject: Text("Workout Detail Export")) {
+                shareButtonLabel(
+                    title: "Share for LLM",
+                    systemImage: "text.bubble",
+                    fontSize: fontSize
+                )
+            }
+        }
+        .padding(.horizontal, isLandscape ? 20 : 12)
+    }
+
+    private func shareButtonLabel(title: String, systemImage: String, fontSize: CGFloat) -> some View {
+        Label(title, systemImage: systemImage)
+            .font(.system(size: fontSize, weight: .semibold))
+            .foregroundColor(.white)
+            .padding(.vertical, 8)
+            .padding(.horizontal, 12)
+            .background(Color.gray.opacity(0.3))
+            .clipShape(Capsule())
     }
     
     @ViewBuilder
