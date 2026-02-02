@@ -144,8 +144,10 @@ private struct ZoneSettingsView: View {
                 HStack {
                     TextField("", text: numericBinding($maxHeartRate))
                         .keyboardType(.numberPad)
-                        .font(.system(size: 20, weight: .bold, design: .monospaced))
-                        .multilineTextAlignment(.trailing)
+                        .font(.system(size: 18, weight: .medium, design: .monospaced))
+                        .multilineTextAlignment(.center)
+                        .frame(width: 72)
+                        .textFieldStyle(.roundedBorder)
                         .onChange(of: maxHeartRate) { _, newValue in
                             if let hrMax = Int(newValue), hrMax > 0 {
                                 recalculateZones(from: hrMax)
