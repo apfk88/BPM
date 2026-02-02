@@ -7,6 +7,8 @@
 
 import SwiftUI
 import UIKit
+import AVFoundation
+import AudioToolbox
 
 enum AppMode {
     case myDevice
@@ -75,15 +77,28 @@ struct HeartRateDisplayView: View {
     @State private var portraitBottomContentHeight: CGFloat = 0
     @State private var heartRateExtremumDisplay: HeartRateExtremumDisplay = .max
     @State private var collapsedStatDisplay: CollapsedStatDisplay = .max
-    @State private var showChart = false
-    @State private var showZones = false
+    @AppStorage("BPM_View_ShowChart") private var showChart = false
+    @AppStorage("BPM_View_ShowZones") private var showZones = false
     @State private var showSessionZones = false
     @State private var showPresetSheet = false
     @State private var showPaywall = false
-    @State private var showZoneConfig = false
     @State private var showSettings = false
     @ObservedObject private var subscriptionManager = SubscriptionManager.shared
     @StateObject private var zoneStorage = HeartRateZoneStorage.shared
+    @State private var showShareDialog = false
+    @State private var showShareSheet = false
+    @State private var shareText = ""
+    @State private var shareSubject = ""
+    @State private var showViewSettingsSheet = false
+    @AppStorage("BPM_View_ShowExpandedStats") private var showExpandedStats = false
+    @AppStorage("BPM_Alert_HeartRateEnabled") private var isHeartRateAlertEnabled = false
+    @AppStorage("BPM_Alert_HeartRateThreshold") private var heartRateAlertThreshold = 160
+    @AppStorage("BPM_Alert_ZoneEnabled") private var isZoneAlertEnabled = false
+    @AppStorage("BPM_Alert_Zones") private var zoneAlertSelections = "3,4,5"
+    @State private var wasAboveHeartRateThreshold = false
+    @State private var lastZoneSeen: HeartRateZone?
+    @State private var lastHeartRateAlertTime: Date?
+    @State private var lastZoneAlertTime: Date?
 
     private var isPad: Bool {
         UIDevice.current.userInterfaceIdiom == .pad
@@ -95,6 +110,9 @@ struct HeartRateDisplayView: View {
                 Color.black.ignoresSafeArea()
                 portraitLayout(geometry: geometry)
             }
+        }
+        .onChange(of: bluetoothManager.currentHeartRate) { _, newValue in
+            handleHeartRateAlerts(for: newValue)
         }
         .sheet(isPresented: $showDevicePicker) {
             DevicePickerView()
@@ -116,14 +134,8 @@ struct HeartRateDisplayView: View {
         .sheet(isPresented: $showPaywall) {
             SharePaywallView()
         }
-        .sheet(isPresented: $showZoneConfig) {
-            HeartRateZoneConfigView(isPresented: $showZoneConfig)
-        }
         .sheet(isPresented: $showSettings) {
-            SettingsView(onConfigureZones: {
-                showZoneConfig = true
-                showSettings = false
-            })
+            SettingsView()
         }
         .alert("Disconnect Sharing", isPresented: $showDisconnectAlert) {
             Button("Cancel", role: .cancel) { }
@@ -228,27 +240,29 @@ struct HeartRateDisplayView: View {
             }
             .onPreferenceChange(BottomContentHeightKey.self) { portraitBottomContentHeight = $0 }
             .overlay(alignment: .top) {
-                VStack(spacing: 8) {
-                    connectionPrompt
-                    bluetoothMessageDisplay
-                    errorMessageDisplay
-                    sharingCodeDisplay
+                HStack(alignment: .top, spacing: 12) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        connectionPrompt
+                        bluetoothMessageDisplay
+                        errorMessageDisplay
+                        sharingCodeDisplay
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                    Button {
+                        showSettings = true
+                    } label: {
+                        Image(systemName: "gearshape")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundColor(.white.opacity(0.85))
+                            .padding(10)
+                            .background(Color.white.opacity(0.08))
+                            .clipShape(Circle())
+                            .accessibilityLabel("Settings")
+                    }
                 }
-            }
-            .overlay(alignment: .topTrailing) {
-                Button {
-                    showSettings = true
-                } label: {
-                    Image(systemName: "gearshape")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundColor(.white.opacity(0.85))
-                        .padding(10)
-                        .background(Color.white.opacity(0.08))
-                        .clipShape(Circle())
-                        .accessibilityLabel("Settings")
-                }
-                .padding(.top, max(16, geometry.safeAreaInsets.top + 6))
-                .padding(.trailing, 16)
+                .padding(.top, 2)
+                .padding(.horizontal, 16)
             }
         }
     }
@@ -322,30 +336,49 @@ struct HeartRateDisplayView: View {
         bluetoothManager.hasActiveDataSource ? "heart.fill" : "heart"
     }
 
-    @ViewBuilder
     private func completedSummaryRow(totalTime: TimeInterval) -> some View {
         let labelSize: CGFloat = 14.0
         let valueSize: CGFloat = isPad ? 28.0 : 32.0
         let totalTimeValue = formatTime(totalTime, showTenths: false)
         let avgSetValue = timerViewModel.avgSetTime.map { formatTime($0, showTenths: false) } ?? "---"
         let avgBPMValue = timerViewModel.avgHeartRate.map(String.init) ?? "---"
-        let minBPMValue = timerViewModel.minHeartRate.map(String.init) ?? "---"
-        let maxBPMValue = timerViewModel.maxHeartRate.map(String.init) ?? "---"
-        let hrrValue = timerViewModel.heartRateRecovery.map(String.init) ?? "---"
 
-        VStack(spacing: 12) {
-            HStack(spacing: 0) {
-                summaryStatColumn(title: "Total Time", value: totalTimeValue, labelSize: labelSize, valueSize: valueSize)
-        summaryStatColumn(title: "Avg Work Set", value: avgSetValue, labelSize: labelSize, valueSize: valueSize)
-                summaryStatColumn(title: "Avg BPM", value: avgBPMValue, labelSize: labelSize, valueSize: valueSize)
-            }
-            HStack(spacing: 0) {
-                summaryStatColumn(title: "Min BPM", value: minBPMValue, labelSize: labelSize, valueSize: valueSize)
-                summaryStatColumn(title: "Max BPM", value: maxBPMValue, labelSize: labelSize, valueSize: valueSize)
-                summaryStatColumn(title: "HRR", value: hrrValue, labelSize: labelSize, valueSize: valueSize)
-            }
+        return HStack(spacing: 0) {
+            summaryStatColumn(title: "Total Time", value: totalTimeValue, labelSize: labelSize, valueSize: valueSize)
+            summaryStatColumn(title: "Avg Work Set", value: avgSetValue, labelSize: labelSize, valueSize: valueSize)
+            summaryStatColumn(title: "Avg BPM", value: avgBPMValue, labelSize: labelSize, valueSize: valueSize)
         }
         .padding(.horizontal, 12)
+    }
+
+    private func completedSummaryDetailRow() -> some View {
+        let labelSize: CGFloat = 14.0
+        let valueSize: CGFloat = isPad ? 28.0 : 32.0
+        let maxBPMValue = timerViewModel.maxHeartRate.map(String.init) ?? "---"
+        let hrrValue = timerViewModel.heartRateRecovery.map(String.init) ?? "---"
+        let caloriesValue = "---"
+
+        return HStack(spacing: 0) {
+            summaryStatColumn(title: "Max BPM", value: maxBPMValue, labelSize: labelSize, valueSize: valueSize)
+            summaryStatColumn(title: "Calories", value: caloriesValue, labelSize: labelSize, valueSize: valueSize)
+            summaryStatColumn(title: "HRR", value: hrrValue, labelSize: labelSize, valueSize: valueSize)
+        }
+        .padding(.horizontal, 12)
+    }
+
+    private func runningExpandedRow(isLandscape: Bool) -> some View {
+        let labelSize: CGFloat = 14.0
+        let valueSize: CGFloat = isLandscape ? 24.0 : (isPad ? 28.0 : 32.0)
+        let maxBPMValue = timerViewModel.maxHeartRate.map(String.init) ?? "---"
+        let avgBPMValue = timerViewModel.avgHeartRate.map(String.init) ?? "---"
+        let caloriesValue = "---"
+
+        return HStack(spacing: 0) {
+            summaryStatColumn(title: "Max BPM", value: maxBPMValue, labelSize: labelSize, valueSize: valueSize)
+            summaryStatColumn(title: "Avg BPM", value: avgBPMValue, labelSize: labelSize, valueSize: valueSize)
+            summaryStatColumn(title: "Calories", value: caloriesValue, labelSize: labelSize, valueSize: valueSize)
+        }
+        .padding(.horizontal, isLandscape ? 20 : 12)
     }
 
     private func summaryStatColumn(title: String, value: String, labelSize: CGFloat, valueSize: CGFloat) -> some View {
@@ -477,10 +510,11 @@ struct HeartRateDisplayView: View {
             Text(error)
                 .font(.system(size: 11, weight: .medium))
                 .foregroundColor(.red.opacity(0.9))
-                .multilineTextAlignment(.center)
+                .multilineTextAlignment(.leading)
                 .lineLimit(2)
                 .padding(.horizontal, 20)
                 .padding(.top, 20)
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
@@ -490,10 +524,11 @@ struct HeartRateDisplayView: View {
             Text("Tap the heart to connect your strap or enter a friend's share code.")
                 .font(.system(size: 13, weight: .medium))
                 .foregroundColor(.gray)
-                .multilineTextAlignment(.center)
+                .multilineTextAlignment(.leading)
                 .lineLimit(2)
                 .padding(.horizontal, 20)
                 .padding(.top, 20)
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
@@ -503,9 +538,10 @@ struct HeartRateDisplayView: View {
             Text(message)
                 .font(.system(size: 12, weight: .medium))
                 .foregroundColor(.orange.opacity(0.9))
-                .multilineTextAlignment(.center)
+                .multilineTextAlignment(.leading)
                 .lineLimit(3)
                 .padding(.horizontal, 20)
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
@@ -824,7 +860,7 @@ struct HeartRateDisplayView: View {
             .padding(.bottom, chartBottomPadding)
 
             Button {
-                showZoneConfig = true
+                showSettings = true
             } label: {
                 Text("Configure")
                     .font(.system(size: buttonSize, weight: .semibold))
@@ -966,14 +1002,14 @@ struct HeartRateDisplayView: View {
         }
         .contentShape(Rectangle())
         .onTapGesture {
-            showZoneConfig = true
+            showSettings = true
         }
     }
 
     @ViewBuilder
     private func timerModeLayout(geometry: GeometryProxy, isLandscape: Bool) -> some View {
         VStack(spacing: 0) {
-            // Top bar with device picker, chart toggle, zone toggle, and clear button
+            // Top bar with device picker, view settings, and clear button
             HStack(spacing: 8) {
                 Button {
                     showDevicePicker = true
@@ -988,47 +1024,16 @@ struct HeartRateDisplayView: View {
 
                 Spacer()
 
-                // Preset button (always visible when preset active, tappable only when idle/reset)
-                if timerViewModel.state == .idle && timerViewModel.sets.isEmpty {
-                    Button {
-                        showPresetSheet = true
-                    } label: {
-                        Image(systemName: timerViewModel.isPresetMode ? "star.fill" : "star")
-                            .font(.system(size: 20))
-                            .foregroundColor(timerViewModel.isPresetMode ? .green : .white)
-                            .padding(12)
-                            .background(Color.gray.opacity(0.3))
-                            .clipShape(Circle())
-                    }
-                } else if timerViewModel.isPresetMode {
-                    Image(systemName: "star.fill")
+                Button {
+                    showViewSettingsSheet = true
+                } label: {
+                    Image(systemName: "slider.horizontal.3")
                         .font(.system(size: 20))
-                        .foregroundColor(.green)
+                        .foregroundColor(.white)
                         .padding(12)
                         .background(Color.gray.opacity(0.3))
                         .clipShape(Circle())
-                }
-
-                // Chart toggle button
-                Button {
-                    showChart.toggle()
-                } label: {
-                    LineChartIcon(color: showChart ? .green : .white)
-                        .frame(width: 24, height: 24)
-                        .padding(10)
-                        .background(Color.gray.opacity(0.3))
-                        .clipShape(Circle())
-                }
-
-                // Zone time toggle button
-                Button {
-                    showZones.toggle()
-                } label: {
-                    BarsChartIcon(color: showZones ? .green : .white)
-                        .frame(width: 20, height: 20)
-                        .padding(12)
-                        .background(Color.gray.opacity(0.3))
-                        .clipShape(Circle())
+                        .accessibilityLabel("View Settings")
                 }
 
                 Button {
@@ -1066,6 +1071,15 @@ struct HeartRateDisplayView: View {
                 }
             } message: {
                 Text("Are you sure you want to reset? This will clear all timer data.")
+            }
+            .sheet(isPresented: $showViewSettingsSheet) {
+                ViewSettingsSheet(
+                    showChart: $showChart,
+                    showZones: $showZones,
+                    showExpandedStats: $showExpandedStats
+                )
+                .presentationDetents([.height(240)])
+                .presentationDragIndicator(.hidden)
             }
 
             // Stopwatch display with BPM (or completion stats when done)
@@ -1127,9 +1141,9 @@ struct HeartRateDisplayView: View {
         let totalTime = isCooldown ? timerViewModel.frozenElapsedTime : (timerViewModel.isCompleted ? timerViewModel.frozenElapsedTime : timerViewModel.elapsedTime)
 
         if timerViewModel.isCompleted {
-            VStack(spacing: 12) {
-                completedSummaryRow(totalTime: totalTime)
-                workoutShareButtons(totalTime: totalTime, isLandscape: true)
+            completedSummaryRow(totalTime: totalTime)
+            if showExpandedStats {
+                completedSummaryDetailRow()
             }
         } else {
             // Set label changes based on mode
@@ -1158,11 +1172,7 @@ struct HeartRateDisplayView: View {
                     return formatTime(displaySetTime)
                 }
             }()
-            let avgRestValue = timerViewModel.avgRestTime.map { formatTime($0) } ?? "---"
-            let maxBPMValue = timerViewModel.maxHeartRate.map(String.init) ?? "---"
-            let avgBPMValue = timerViewModel.avgHeartRate.map(String.init) ?? "---"
-            
-            // Landscape: show Total, Set, Avg Rest, Current BPM/HRR, Max BPM, Avg BPM, Zone
+            // Landscape: show Total, Set, BPM
             VStack(spacing: 12) {
                 HStack(spacing: 16) {
                     landscapeStatColumn(
@@ -1180,38 +1190,18 @@ struct HeartRateDisplayView: View {
                     )
 
                     Spacer()
-
+                    
                     landscapeStatColumn(
-                        title: "Avg Rest",
-                        value: avgRestValue,
-                        alignment: .center
+                        title: "BPM",
+                        value: displayedHeartRate.map(String.init) ?? "---",
+                        alignment: .trailing
                     )
-
-                    Spacer()
-
-                    landscapeBPMOrHRRColumn(isCompleted: timerViewModel.isCompleted)
-
-                    Spacer()
-
-                    landscapeStatColumn(
-                        title: "Max BPM",
-                        value: maxBPMValue,
-                        alignment: .center
-                    )
-
-                    Spacer()
-
-                    landscapeStatColumn(
-                        title: "Avg BPM",
-                        value: avgBPMValue,
-                        alignment: .center
-                    )
-
-                    Spacer()
-
-                    landscapeZoneColumn()
                 }
                 .padding(.horizontal, 20)
+
+                if showExpandedStats {
+                    runningExpandedRow(isLandscape: true)
+                }
             }
         }
     }
@@ -1224,9 +1214,9 @@ struct HeartRateDisplayView: View {
         let totalTime = isCooldown ? timerViewModel.frozenElapsedTime : (timerViewModel.isCompleted ? timerViewModel.frozenElapsedTime : timerViewModel.elapsedTime)
 
         if timerViewModel.isCompleted {
-            VStack(spacing: 12) {
-                completedSummaryRow(totalTime: totalTime)
-                workoutShareButtons(totalTime: totalTime, isLandscape: false)
+            completedSummaryRow(totalTime: totalTime)
+            if showExpandedStats {
+                completedSummaryDetailRow()
             }
         } else {
             // Set label changes based on mode
@@ -1299,6 +1289,10 @@ struct HeartRateDisplayView: View {
                     .contentShape(Rectangle())
                 }
                 .padding(.horizontal, 8)
+
+                if showExpandedStats {
+                    runningExpandedRow(isLandscape: false)
+                }
             }
         }
     }
@@ -1583,6 +1577,18 @@ struct HeartRateDisplayView: View {
             }
         }
         .frame(maxHeight: isLandscape ? 600 : 700)
+        .confirmationDialog("Share Workout", isPresented: $showShareDialog, titleVisibility: .visible) {
+            Button("Share Summary") {
+                presentShare(.summary)
+            }
+            Button("Share for AI") {
+                presentShare(.detail)
+            }
+            Button("Cancel", role: .cancel) { }
+        }
+        .sheet(isPresented: $showShareSheet) {
+            ShareSheet(items: [shareText], subject: shareSubject)
+        }
     }
     
     private func scrollToActiveRow(proxy: ScrollViewProxy, isLandscape: Bool) {
@@ -1606,45 +1612,32 @@ struct HeartRateDisplayView: View {
         }
     }
 
-    private func workoutShareButtons(totalTime: TimeInterval, isLandscape: Bool) -> some View {
-        let summaryText = timerViewModel.workoutSummaryText(
-            totalTime: totalTime,
-            zoneConfig: zoneStorage.effectiveConfig
-        )
-        let detailedText = timerViewModel.workoutDetailedText(
-            totalTime: totalTime,
-            zoneConfig: zoneStorage.effectiveConfig
-        )
-        let fontSize: CGFloat = isLandscape ? 13 : 14
-
-        return HStack(spacing: 12) {
-            ShareLink(item: summaryText, subject: Text("Workout Summary")) {
-                shareButtonLabel(
-                    title: "Share Summary",
-                    systemImage: "message",
-                    fontSize: fontSize
-                )
-            }
-
-            ShareLink(item: detailedText, subject: Text("Workout Detail Export")) {
-                shareButtonLabel(
-                    title: "Share for LLM",
-                    systemImage: "text.bubble",
-                    fontSize: fontSize
-                )
-            }
-        }
-        .padding(.horizontal, isLandscape ? 20 : 12)
+    private enum WorkoutShareKind {
+        case summary
+        case detail
     }
 
-    private func shareButtonLabel(title: String, systemImage: String, fontSize: CGFloat) -> some View {
-        Label(title, systemImage: systemImage)
-            .font(.system(size: fontSize, weight: .semibold))
-            .foregroundColor(.white)
-            .padding(.vertical, 8)
-            .padding(.horizontal, 12)
-            .background(Color.gray.opacity(0.3))
-            .clipShape(Capsule())
+    private func shareTotalTime() -> TimeInterval {
+        timerViewModel.frozenElapsedTime > 0 ? timerViewModel.frozenElapsedTime : timerViewModel.elapsedTime
+    }
+
+    private func presentShare(_ kind: WorkoutShareKind) {
+        let totalTime = shareTotalTime()
+        switch kind {
+        case .summary:
+            shareText = timerViewModel.workoutSummaryText(
+                totalTime: totalTime,
+                zoneConfig: zoneStorage.effectiveConfig
+            )
+            shareSubject = "Workout Summary"
+        case .detail:
+            shareText = timerViewModel.workoutDetailedText(
+                totalTime: totalTime,
+                zoneConfig: zoneStorage.effectiveConfig
+            )
+            shareSubject = "Workout Detail Export"
+        }
+        showShareSheet = true
     }
     
     @ViewBuilder
@@ -1658,6 +1651,7 @@ struct HeartRateDisplayView: View {
         let isInCooldownMode = timerViewModel.isInCooldownMode
         let isCompleted = timerViewModel.isCompleted
         let isPresetMode = timerViewModel.isPresetMode
+        let isStartState = timerViewModel.state == .idle && timerViewModel.sets.isEmpty
 
         // Work Set and Rest Set are completely disabled in preset mode
         // Otherwise: Work Set is available while the workout timer is running (both work and rest phases)
@@ -1665,7 +1659,77 @@ struct HeartRateDisplayView: View {
         let workSetDisabled = isPresetMode || timerViewModel.state != .running || isInCooldownMode || isCompleted
         let restSetDisabled = isPresetMode || timerViewModel.state != .running || isInCooldownMode || timerViewModel.isTimingRestSet || isCompleted
         
-        if isLandscape {
+        if isCompleted {
+            HStack(spacing: buttonSpacing) {
+                Button {
+                    showResetAlert = true
+                } label: {
+                    Text("Reset")
+                        .font(.system(size: buttonFontSize, weight: .semibold))
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.horizontal, buttonPaddingSize * 1.5)
+                        .padding(.vertical, buttonPaddingSize)
+                        .background(Color.gray.opacity(0.3))
+                        .cornerRadius(buttonPaddingSize)
+                }
+                .frame(maxWidth: .infinity)
+
+                Button {
+                    showShareDialog = true
+                } label: {
+                    Text("Share")
+                        .font(.system(size: buttonFontSize, weight: .semibold))
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.horizontal, buttonPaddingSize * 1.5)
+                        .padding(.vertical, buttonPaddingSize)
+                        .background(Color.gray.opacity(0.3))
+                        .cornerRadius(buttonPaddingSize)
+                }
+                .frame(maxWidth: .infinity)
+            }
+            .padding(.horizontal, buttonPadding)
+            .padding(.vertical, 20)
+            .background(Color.black.opacity(0.8))
+        } else if isStartState {
+            HStack(spacing: buttonSpacing) {
+                Button {
+                    if isPresetMode {
+                        timerViewModel.startPreset()
+                    } else {
+                        timerViewModel.start()
+                    }
+                } label: {
+                    Text("Start")
+                        .font(.system(size: buttonFontSize, weight: .semibold))
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.horizontal, buttonPaddingSize * 1.5)
+                        .padding(.vertical, buttonPaddingSize)
+                        .background(Color.gray.opacity(0.3))
+                        .cornerRadius(buttonPaddingSize)
+                }
+                .frame(maxWidth: .infinity)
+
+                Button {
+                    showPresetSheet = true
+                } label: {
+                    Text("Load Preset")
+                        .font(.system(size: buttonFontSize, weight: .semibold))
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.horizontal, buttonPaddingSize * 1.5)
+                        .padding(.vertical, buttonPaddingSize)
+                        .background(Color.gray.opacity(0.3))
+                        .cornerRadius(buttonPaddingSize)
+                }
+                .frame(maxWidth: .infinity)
+            }
+            .padding(.horizontal, buttonPadding)
+            .padding(.vertical, 20)
+            .background(Color.black.opacity(0.8))
+        } else if isLandscape {
             // Landscape: single row with all buttons
             HStack(spacing: buttonSpacing) {
                 // Start/Pause/Reset button
@@ -2047,4 +2111,95 @@ struct HeartRateDisplayView: View {
         }
     }
 
+    private func handleHeartRateAlerts(for heartRate: Int?) {
+        guard appMode == .myDevice else { return }
+        guard let heartRate = heartRate, heartRate > 0 else { return }
+
+        let now = Date()
+        let cooldown: TimeInterval = 20
+
+        if isHeartRateAlertEnabled {
+            let isAbove = heartRate >= heartRateAlertThreshold
+            if isAbove && !wasAboveHeartRateThreshold {
+                if shouldFireAlert(lastAlertTime: lastHeartRateAlertTime, now: now, cooldown: cooldown) {
+                    playAlertSound()
+                    lastHeartRateAlertTime = now
+                }
+            }
+            wasAboveHeartRateThreshold = isAbove
+        } else {
+            wasAboveHeartRateThreshold = false
+        }
+
+        if isZoneAlertEnabled {
+            let zone = zoneStorage.currentZone(for: heartRate)
+            if zone != lastZoneSeen {
+                lastZoneSeen = zone
+                if let zone = zone, selectedAlertZones().contains(zone) {
+                    if shouldFireAlert(lastAlertTime: lastZoneAlertTime, now: now, cooldown: cooldown) {
+                        playAlertSound()
+                        lastZoneAlertTime = now
+                    }
+                }
+            }
+        } else {
+            lastZoneSeen = nil
+        }
+    }
+
+    private func shouldFireAlert(lastAlertTime: Date?, now: Date, cooldown: TimeInterval) -> Bool {
+        guard let lastAlertTime = lastAlertTime else { return true }
+        return now.timeIntervalSince(lastAlertTime) >= cooldown
+    }
+
+    private func selectedAlertZones() -> Set<HeartRateZone> {
+        let ids = zoneAlertSelections
+            .split(separator: ",")
+            .compactMap { Int($0.trimmingCharacters(in: .whitespaces)) }
+        return Set(HeartRateZone.allCases.filter { ids.contains($0.rawValue) })
+    }
+
+    private func playAlertSound() {
+        do {
+            try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, options: [.duckOthers])
+            try AVAudioSession.sharedInstance().setActive(true)
+            AudioServicesPlaySystemSound(1013)
+        } catch {
+            AudioServicesPlaySystemSound(1013)
+        }
+    }
+
+}
+
+private struct ViewSettingsSheet: View {
+    @Binding var showChart: Bool
+    @Binding var showZones: Bool
+    @Binding var showExpandedStats: Bool
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("View Settings")
+                .font(.system(size: 16, weight: .semibold))
+                .padding(.top, 12)
+
+            VStack(spacing: 12) {
+                Toggle("BPM Chart", isOn: $showChart)
+                Toggle("Zone Chart", isOn: $showZones)
+                Toggle("Expanded Stats", isOn: $showExpandedStats)
+            }
+
+            Spacer()
+
+            Button("Done") {
+                dismiss()
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 10)
+            .background(Color.gray.opacity(0.2))
+            .cornerRadius(10)
+        }
+        .padding(.horizontal, 20)
+        .padding(.bottom, 16)
+    }
 }
