@@ -60,3 +60,12 @@
 - Upload (ASC API key):
   - Place key at `~/.appstoreconnect/private_keys/AuthKey_<KEYID>.p8`
   - `xcrun altool --upload-app -f build/export/BPM.ipa -t ios --apiKey <KEYID> --apiIssuer <ISSUER_ID>`
+
+## Session Notes (2026-02-02)
+- Active branch: `release/2.0` (pushed).
+- Recent commits: `feat: add calorie tracking` and `feat: tune calories wait`.
+- Calories UI: imperial weight/height (lb + ft/in), Sex segmented (Male/Female), no meds/athlete toggles, advanced fields inline with accuracy note.
+- Calories estimator: HR-only model with 10s warmup countdown; timer stat shows `Ns` until ready; share text says waiting `Ns`.
+- Alert sounds: BPM uses ascending/descending tones; zone alerts are repeated beeps with slightly longer gap; cooldown removed.
+- Settings layout: Zone Settings + Calorie Settings links; Zone alert top-level; BPM alert input; no title.
+- Next planned work: Apple Watch integration + workout history (see specs in docs).
