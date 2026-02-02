@@ -7,8 +7,6 @@
 
 import SwiftUI
 import UIKit
-import AVFoundation
-import AudioToolbox
 
 enum AppMode {
     case myDevice
@@ -97,8 +95,6 @@ struct HeartRateDisplayView: View {
     @AppStorage("BPM_Alert_Zones") private var zoneAlertSelections = "3,4,5"
     @State private var wasAboveHeartRateThreshold = false
     @State private var lastZoneSeen: HeartRateZone?
-    @State private var lastHeartRateAlertTime: Date?
-    @State private var lastZoneAlertTime: Date?
 
     private var isPad: Bool {
         UIDevice.current.userInterfaceIdiom == .pad
@@ -1078,7 +1074,7 @@ struct HeartRateDisplayView: View {
                     showZones: $showZones,
                     showExpandedStats: $showExpandedStats
                 )
-                .presentationDetents([.height(240)])
+                .presentationDetents([.height(260)])
                 .presentationDragIndicator(.hidden)
             }
 
@@ -2115,16 +2111,12 @@ struct HeartRateDisplayView: View {
         guard appMode == .myDevice else { return }
         guard let heartRate = heartRate, heartRate > 0 else { return }
 
-        let now = Date()
-        let cooldown: TimeInterval = 20
-
         if isHeartRateAlertEnabled {
             let isAbove = heartRate >= heartRateAlertThreshold
             if isAbove && !wasAboveHeartRateThreshold {
-                if shouldFireAlert(lastAlertTime: lastHeartRateAlertTime, now: now, cooldown: cooldown) {
-                    playAlertSound()
-                    lastHeartRateAlertTime = now
-                }
+                AlertSoundPlayer.shared.playBpmAscending()
+            } else if !isAbove && wasAboveHeartRateThreshold {
+                AlertSoundPlayer.shared.playBpmDescending()
             }
             wasAboveHeartRateThreshold = isAbove
         } else {
@@ -2136,10 +2128,7 @@ struct HeartRateDisplayView: View {
             if zone != lastZoneSeen {
                 lastZoneSeen = zone
                 if let zone = zone, selectedAlertZones().contains(zone) {
-                    if shouldFireAlert(lastAlertTime: lastZoneAlertTime, now: now, cooldown: cooldown) {
-                        playAlertSound()
-                        lastZoneAlertTime = now
-                    }
+                    AlertSoundPlayer.shared.playZoneCount(zone.rawValue)
                 }
             }
         } else {
@@ -2147,26 +2136,11 @@ struct HeartRateDisplayView: View {
         }
     }
 
-    private func shouldFireAlert(lastAlertTime: Date?, now: Date, cooldown: TimeInterval) -> Bool {
-        guard let lastAlertTime = lastAlertTime else { return true }
-        return now.timeIntervalSince(lastAlertTime) >= cooldown
-    }
-
     private func selectedAlertZones() -> Set<HeartRateZone> {
         let ids = zoneAlertSelections
             .split(separator: ",")
             .compactMap { Int($0.trimmingCharacters(in: .whitespaces)) }
         return Set(HeartRateZone.allCases.filter { ids.contains($0.rawValue) })
-    }
-
-    private func playAlertSound() {
-        do {
-            try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, options: [.duckOthers])
-            try AVAudioSession.sharedInstance().setActive(true)
-            AudioServicesPlaySystemSound(1013)
-        } catch {
-            AudioServicesPlaySystemSound(1013)
-        }
     }
 
 }
@@ -2181,7 +2155,7 @@ private struct ViewSettingsSheet: View {
         VStack(alignment: .leading, spacing: 16) {
             Text("View Settings")
                 .font(.system(size: 16, weight: .semibold))
-                .padding(.top, 12)
+                .padding(.top, 20)
 
             VStack(spacing: 12) {
                 Toggle("BPM Chart", isOn: $showChart)
