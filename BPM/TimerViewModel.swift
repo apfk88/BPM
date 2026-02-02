@@ -1378,34 +1378,35 @@ final class TimerViewModel: ObservableObject {
         let zones = timeInZones(config: zoneConfig)
         let totalZoneTime = zones.reduce(0) { $0 + $1.duration }
 
-        lines.append("Workout Summary")
+        lines.append("🏁 Workout Summary")
+        lines.append("")
         if let preset = activePreset {
             let presetName = preset.name.isEmpty ? "Custom Preset" : preset.name
-            lines.append("Preset: \(presetName) (\(formatDuration(preset.workDuration, showTenths: false)) work / \(formatDuration(preset.restDuration, showTenths: false)) rest x \(preset.numberOfSets), cooldown \(preset.includeCooldown ? "on" : "off"))")
+            lines.append("🎯 Preset: \(presetName) (\(formatDuration(preset.workDuration, showTenths: false)) work / \(formatDuration(preset.restDuration, showTenths: false)) rest x \(preset.numberOfSets), cooldown \(preset.includeCooldown ? "on" : "off"))")
         }
-        lines.append("Total time: \(formatDuration(totalTime, showTenths: false))")
-        lines.append("Work sets: \(workSets.count) • Rest sets: \(restSets.count) • Cooldown sets: \(cooldownSets.count)")
+        lines.append("⏱ Total time: \(formatDuration(totalTime, showTenths: false))")
+        lines.append("🧱 Sets: Work \(workSets.count) • Rest \(restSets.count) • Cooldown \(cooldownSets.count)")
 
         if let avgSetTime = avgSetTime {
-            lines.append("Avg work set: \(formatDuration(avgSetTime, showTenths: false))")
+            lines.append("💪 Avg work set: \(formatDuration(avgSetTime, showTenths: false))")
         }
         if let avgRestTime = avgRestTime {
-            lines.append("Avg rest: \(formatDuration(avgRestTime, showTenths: false))")
+            lines.append("🧘 Avg rest: \(formatDuration(avgRestTime, showTenths: false))")
         }
 
         let avgBpmText = formattedHeartRate(avgHeartRate)
         let minBpmText = formattedHeartRate(minHeartRate)
         let maxBpmText = formattedHeartRate(maxHeartRate)
-        lines.append("Avg BPM: \(avgBpmText) • Min BPM: \(minBpmText) • Max BPM: \(maxBpmText)")
+        lines.append("❤️ Avg BPM: \(avgBpmText) • Min \(minBpmText) • Max \(maxBpmText)")
         if let recovery = heartRateRecovery {
-            lines.append("HRR (2 min): \(recovery)")
+            lines.append("🧊 HRR (2 min): \(recovery)")
         }
 
         if totalZoneTime > 0 {
             let zoneSummary = zones.map { zoneData in
                 "\(zoneData.zone.displayName) \(formatDuration(zoneData.duration, showTenths: false))"
             }.joined(separator: ", ")
-            lines.append("Zones: \(zoneSummary)")
+            lines.append("🗺 Zones: \(zoneSummary)")
         }
 
         return lines.joined(separator: "\n")
@@ -1421,7 +1422,15 @@ final class TimerViewModel: ObservableObject {
         let zones = timeInZones(config: zoneConfig)
         let totalZoneTime = zones.reduce(0) { $0 + $1.duration }
 
-        lines.append("Workout Detail Export")
+        lines.append("BPM Workout Detail Export")
+        lines.append("Context:")
+        lines.append("- App: BPM (iOS heart-rate timer).")
+        lines.append("- Heart rate samples: ~1 Hz from a Bluetooth heart rate monitor; values are bpm.")
+        lines.append("- Zones: derived from max HR (default 190) or user config; zone is chosen by lower-bound thresholds.")
+        lines.append("- Sets: work/rest/cooldown; total time includes workout + cooldown; workout time is pre-cooldown.")
+        lines.append("- HRR (2 min): HR at cooldown start minus HR after 2 minutes of cooldown.")
+        lines.append("- Durations are formatted as m:ss(.t) or h:mm:ss.")
+        lines.append("")
         lines.append("Exported: \(formatter.string(from: Date()))")
         if let startTime = startTime {
             lines.append("Start: \(formatter.string(from: startTime))")
