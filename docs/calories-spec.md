@@ -15,18 +15,16 @@ Status: draft
 ## Required inputs
 - weight_kg
 - age_years
+- sex_at_birth
+- height_cm
 - hr_samples: list of {timestamp, bpm}
 
 ## Optional inputs (used if present)
-- sex_at_birth (for sex-specific HR regression)
-- height_cm
 - hr_rest_bpm
 - hr_max_bpm (measured)
 - vo2max_ml_kg_min
 - rmr_kcal_day (measured)
 - body_fat_pct
-- activity_type (Compendium code or label)
-- meds_affecting_hr (beta blockers, etc)
 
 ## Data sources
 - Manual entry in app
@@ -45,7 +43,7 @@ Status: draft
 ## Model selection (priority)
 1) Model A: HRR -> %VO2R (requires hr_rest, hr_max, vo2max)
 2) Model B: HR regression (requires age, weight, HR; sex optional)
-3) Optional sanity check: activity_type MET_ref to clamp/blend
+3) Optional sanity check: skip (no activity_type input)
 
 ## Model A (HRR -> VO2 -> MET)
 - HRR = hr_max_bpm - hr_rest_bpm
@@ -65,8 +63,7 @@ else:
   kcal_min = 0.239 * (-20.402 + 0.447*HR - 0.126*weight_kg + 0.070*age_years)
 
 ## Optional MET sanity check
-- If activity_type provided, compute MET_ref from Compendium
-- If HR-based MET is far outside expected range, clamp or lightly blend toward MET_ref
+- Not used (no activity_type input)
 
 ## Outputs
 - active_kcal (gross - resting)
@@ -89,9 +86,11 @@ else:
 - CaloriesSession: start_at, end_at, totals, method_used, confidence
 
 ## UI/UX
-- Settings -> Calories: required fields + Advanced (optional fields)
+- Settings -> Calorie Tracking: required fields + Advanced (optional fields)
+- Required fields: weight, age, sex at birth, height
 - Hint: "More detail = better accuracy"
 - Confidence label: Low/Med/High with "why" sheet
+- Timer view: show calories as an extended stat
 
 ## Edge cases
 - hr_max_bpm <= hr_rest_bpm: block HRR model, fallback
