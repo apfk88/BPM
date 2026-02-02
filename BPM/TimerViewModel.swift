@@ -43,6 +43,7 @@ final class TimerViewModel: ObservableObject {
     @Published var cooldownTime: TimeInterval = 0
     @Published var frozenElapsedTime: TimeInterval = 0 // Total time frozen at cooldown start
     @Published var isTimingRestSet: Bool = false // True when currently timing a rest set
+    @Published private(set) var caloriesStatus: CaloriesEstimateStatus = .disabled(missingFields: [])
 
     // Preset mode properties
     @Published var activePreset: TimerPreset? = nil
@@ -142,6 +143,20 @@ final class TimerViewModel: ObservableObject {
             return Array(allPlaceholders.dropFirst(skipCount))
         }
         return []
+    }
+
+    private let caloriesQueue = DispatchQueue(label: "bpm.calories-estimate", qos: .utility)
+    private var userDefaultsObserver: NSObjectProtocol?
+
+    init() {
+        caloriesStatus = CaloriesEstimator.estimate(samples: [], profile: UserEnergyProfileStore.currentProfile())
+        userDefaultsObserver = NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.updateCaloriesEstimate()
+        }
     }
 
     private var startTime: Date?
@@ -468,6 +483,7 @@ final class TimerViewModel: ObservableObject {
             currentRestAssociatedWorkSetNumber = nil
             sets.removeAll()
             heartRateSamples.removeAll()
+            updateCaloriesEstimate()
             startHeartRateSampling()
         } else if state == .paused {
             // Resume from paused state - adjust startTime to account for total elapsed time
@@ -644,6 +660,7 @@ final class TimerViewModel: ObservableObject {
         frozenElapsedTime = elapsedTime
         isTimingRestSet = false
         currentRestAssociatedWorkSetNumber = nil
+        finalizeCaloriesSession()
         state = .idle
     }
     
@@ -686,6 +703,7 @@ final class TimerViewModel: ObservableObject {
         cooldownTime = 0
         currentRestAssociatedWorkSetNumber = nil
         isTimingRestSet = false
+        finalizeCaloriesSession()
         state = .idle
     }
     
@@ -712,6 +730,7 @@ final class TimerViewModel: ObservableObject {
         cooldownEndHeartRate = nil
         sets.removeAll()
         heartRateSamples.removeAll()
+        updateCaloriesEstimate()
         // Reset preset state
         activePreset = nil
         presetPhase = .work
@@ -856,6 +875,7 @@ final class TimerViewModel: ObservableObject {
         isTimingRestSet = false
         currentRestAssociatedWorkSetNumber = nil
         frozenElapsedTime = elapsedTime
+        finalizeCaloriesSession()
         state = .idle
         activePreset = nil
     }
@@ -1130,6 +1150,7 @@ final class TimerViewModel: ObservableObject {
                     }
                     let sample = HeartRateSample(value: heartRate, timestamp: Date(), workoutTime: workoutTime)
                     self.heartRateSamples.append(sample)
+                    self.updateCaloriesEstimate()
                 }
             }
         }
@@ -1139,6 +1160,34 @@ final class TimerViewModel: ObservableObject {
     private func stopHeartRateSampling() {
         heartRateSampleTimer?.invalidate()
         heartRateSampleTimer = nil
+    }
+
+    private func updateCaloriesEstimate() {
+        let samples = heartRateSamples
+        let profile = UserEnergyProfileStore.currentProfile()
+        caloriesQueue.async { [weak self] in
+            let status = CaloriesEstimator.estimate(samples: samples, profile: profile)
+            DispatchQueue.main.async {
+                self?.caloriesStatus = status
+            }
+        }
+    }
+
+    private func finalizeCaloriesSession(endAt: Date = Date()) {
+        guard let startTime = startTime else { return }
+        let profile = UserEnergyProfileStore.currentProfile()
+        let status = CaloriesEstimator.estimate(samples: heartRateSamples, profile: profile)
+        guard case let .available(estimate) = status else { return }
+
+        let session = CaloriesSession(
+            startAt: startTime,
+            endAt: endAt,
+            totalKcal: estimate.totalKcal,
+            activeKcal: estimate.activeKcal,
+            methodUsed: estimate.method.rawValue,
+            confidence: estimate.confidence
+        )
+        CaloriesSessionStore.shared.save(session)
     }
     
     private func startCooldownTimer() {
@@ -1377,6 +1426,7 @@ final class TimerViewModel: ObservableObject {
         let cooldownSets = sets.filter { $0.isCooldownSet }
         let zones = timeInZones(config: zoneConfig)
         let totalZoneTime = zones.reduce(0) { $0 + $1.duration }
+        let caloriesStatus = CaloriesEstimator.estimate(samples: heartRateSamples, profile: UserEnergyProfileStore.currentProfile())
 
         lines.append("🏁 Workout Summary")
         lines.append("")
@@ -1401,6 +1451,16 @@ final class TimerViewModel: ObservableObject {
         if let recovery = heartRateRecovery {
             lines.append("🧊 HRR (2 min): \(recovery)")
         }
+        switch caloriesStatus {
+        case .available(let estimate):
+            let total = Int(round(estimate.totalKcal))
+            let active = Int(round(estimate.activeKcal))
+            lines.append("🔥 Calories: \(total) (active \(active))")
+        case .insufficient:
+            lines.append("🔥 Calories: insufficient data")
+        case .disabled:
+            lines.append("🔥 Calories: disabled (missing profile fields)")
+        }
 
         if totalZoneTime > 0 {
             let zoneSummary = zones.map { zoneData in
@@ -1421,6 +1481,7 @@ final class TimerViewModel: ObservableObject {
         let workoutTime = frozenElapsedTime > 0 ? frozenElapsedTime : totalTime
         let zones = timeInZones(config: zoneConfig)
         let totalZoneTime = zones.reduce(0) { $0 + $1.duration }
+        let caloriesStatus = CaloriesEstimator.estimate(samples: heartRateSamples, profile: UserEnergyProfileStore.currentProfile())
 
         lines.append("BPM Workout Detail Export")
         lines.append("Context:")
@@ -1429,6 +1490,7 @@ final class TimerViewModel: ObservableObject {
         lines.append("- Zones: derived from max HR (default 190) or user config; zone is chosen by lower-bound thresholds.")
         lines.append("- Sets: work/rest/cooldown; total time includes workout + cooldown; workout time is pre-cooldown.")
         lines.append("- HRR (2 min): HR at cooldown start minus HR after 2 minutes of cooldown.")
+        lines.append("- Calories: HR-only estimate using profile inputs; no accelerometer.")
         lines.append("- Durations are formatted as m:ss(.t) or h:mm:ss.")
         lines.append("")
         lines.append("Exported: \(formatter.string(from: Date()))")
@@ -1466,6 +1528,18 @@ final class TimerViewModel: ObservableObject {
         lines.append("Avg BPM: \(formattedHeartRate(avgHeartRate))")
         lines.append("Min BPM: \(formattedHeartRate(minHeartRate))")
         lines.append("Max BPM: \(formattedHeartRate(maxHeartRate))")
+        switch caloriesStatus {
+        case .available(let estimate):
+            lines.append("Calories total (kcal): \(String(format: "%.1f", estimate.totalKcal))")
+            lines.append("Calories active (kcal): \(String(format: "%.1f", estimate.activeKcal))")
+            lines.append("Calories method: \(estimate.method.rawValue)")
+            lines.append("Calories confidence: \(String(format: "%.2f", estimate.confidence))")
+            lines.append("Calories HR samples: \(estimate.hrSampleCount), gaps: \(estimate.gapCount)")
+        case .insufficient:
+            lines.append("Calories: insufficient data")
+        case .disabled:
+            lines.append("Calories: disabled (missing profile fields)")
+        }
         lines.append("Cooldown start BPM: \(formattedHeartRate(cooldownStartHeartRate))")
         lines.append("Cooldown end BPM: \(formattedHeartRate(cooldownEndHeartRate))")
         lines.append("HRR (2 min): \(heartRateRecovery.map(String.init) ?? "n/a")")
@@ -1548,6 +1622,9 @@ final class TimerViewModel: ObservableObject {
     }
 
     deinit {
+        if let userDefaultsObserver {
+            NotificationCenter.default.removeObserver(userDefaultsObserver)
+        }
         timer?.invalidate()
         cooldownTimer?.invalidate()
         cooldownOneMinuteTimer?.invalidate()

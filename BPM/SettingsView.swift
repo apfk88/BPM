@@ -370,19 +370,6 @@ private struct ZoneAlertSelectionView: View {
     }
 }
 
-private struct CalorieSettingsView: View {
-    var body: some View {
-        List {
-            Section {
-                Text("Coming soon. See docs for calorie settings details.")
-                    .font(.callout)
-                    .foregroundColor(.secondary)
-            }
-        }
-        .navigationTitle("Calorie Settings")
-    }
-}
-
 #Preview {
     SettingsView()
 }

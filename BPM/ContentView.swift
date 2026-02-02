@@ -236,29 +236,36 @@ struct HeartRateDisplayView: View {
             }
             .onPreferenceChange(BottomContentHeightKey.self) { portraitBottomContentHeight = $0 }
             .overlay(alignment: .top) {
-                HStack(alignment: .top, spacing: 12) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        connectionPrompt
+                VStack(spacing: 12) {
+                    HStack(alignment: .top, spacing: 12) {
+                        VStack(alignment: .leading, spacing: 8) {
+                            connectionPrompt
+                            sharingCodeDisplay
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                        Button {
+                            showSettings = true
+                        } label: {
+                            Image(systemName: "gearshape")
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundColor(.white.opacity(0.85))
+                                .padding(10)
+                                .background(Color.white.opacity(0.08))
+                                .clipShape(Circle())
+                                .accessibilityLabel("Settings")
+                        }
+                    }
+                    .padding(.horizontal, 16)
+
+                    VStack(spacing: 6) {
                         bluetoothMessageDisplay
                         errorMessageDisplay
-                        sharingCodeDisplay
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                    Button {
-                        showSettings = true
-                    } label: {
-                        Image(systemName: "gearshape")
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundColor(.white.opacity(0.85))
-                            .padding(10)
-                            .background(Color.white.opacity(0.08))
-                            .clipShape(Circle())
-                            .accessibilityLabel("Settings")
-                    }
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(.horizontal, 24)
                 }
                 .padding(.top, 2)
-                .padding(.horizontal, 16)
             }
         }
     }
@@ -347,12 +354,24 @@ struct HeartRateDisplayView: View {
         .padding(.horizontal, 12)
     }
 
+    private var caloriesDisplayValue: String {
+        guard appMode == .myDevice else { return "---" }
+        switch timerViewModel.caloriesStatus {
+        case .available(let estimate):
+            return String(Int(round(estimate.totalKcal)))
+        case .insufficient:
+            return "Insuff"
+        case .disabled:
+            return "Setup"
+        }
+    }
+
     private func completedSummaryDetailRow() -> some View {
         let labelSize: CGFloat = 14.0
         let valueSize: CGFloat = isPad ? 28.0 : 32.0
         let maxBPMValue = timerViewModel.maxHeartRate.map(String.init) ?? "---"
         let hrrValue = timerViewModel.heartRateRecovery.map(String.init) ?? "---"
-        let caloriesValue = "---"
+        let caloriesValue = caloriesDisplayValue
 
         return HStack(spacing: 0) {
             summaryStatColumn(title: "Max BPM", value: maxBPMValue, labelSize: labelSize, valueSize: valueSize)
@@ -367,7 +386,7 @@ struct HeartRateDisplayView: View {
         let valueSize: CGFloat = isLandscape ? 24.0 : (isPad ? 28.0 : 32.0)
         let maxBPMValue = timerViewModel.maxHeartRate.map(String.init) ?? "---"
         let avgBPMValue = timerViewModel.avgHeartRate.map(String.init) ?? "---"
-        let caloriesValue = "---"
+        let caloriesValue = caloriesDisplayValue
 
         return HStack(spacing: 0) {
             summaryStatColumn(title: "Max BPM", value: maxBPMValue, labelSize: labelSize, valueSize: valueSize)
@@ -506,11 +525,9 @@ struct HeartRateDisplayView: View {
             Text(error)
                 .font(.system(size: 11, weight: .medium))
                 .foregroundColor(.red.opacity(0.9))
-                .multilineTextAlignment(.leading)
+                .multilineTextAlignment(.center)
                 .lineLimit(2)
-                .padding(.horizontal, 20)
-                .padding(.top, 20)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(maxWidth: .infinity, alignment: .center)
         }
     }
 
@@ -534,10 +551,9 @@ struct HeartRateDisplayView: View {
             Text(message)
                 .font(.system(size: 12, weight: .medium))
                 .foregroundColor(.orange.opacity(0.9))
-                .multilineTextAlignment(.leading)
+                .multilineTextAlignment(.center)
                 .lineLimit(3)
-                .padding(.horizontal, 20)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(maxWidth: .infinity, alignment: .center)
         }
     }
 
