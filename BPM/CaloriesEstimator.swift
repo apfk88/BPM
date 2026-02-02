@@ -122,7 +122,7 @@ struct CaloriesEstimate {
 
 enum CaloriesEstimateStatus {
     case disabled(missingFields: [String])
-    case insufficient
+    case insufficient(remaining: TimeInterval)
     case available(CaloriesEstimate)
 }
 
@@ -184,8 +184,10 @@ final class CaloriesEstimator {
         guard missing.isEmpty else { return .disabled(missingFields: missing) }
 
         let preprocess = preprocess(samples: samples)
-        guard !preprocess.samples.isEmpty else { return .insufficient }
-        guard preprocess.usableDuration >= 300 else { return .insufficient }
+        guard !preprocess.samples.isEmpty else { return .insufficient(remaining: 10) }
+        guard preprocess.usableDuration >= 10 else {
+            return .insufficient(remaining: max(0, 10 - preprocess.usableDuration))
+        }
 
         guard let weightKg = profile.weightKg, let ageYears = profile.ageYears else {
             return .disabled(missingFields: profile.missingRequiredFields)

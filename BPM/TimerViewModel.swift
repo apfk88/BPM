@@ -1456,8 +1456,8 @@ final class TimerViewModel: ObservableObject {
             let total = Int(round(estimate.totalKcal))
             let active = Int(round(estimate.activeKcal))
             lines.append("🔥 Calories: \(total) (active \(active))")
-        case .insufficient:
-            lines.append("🔥 Calories: insufficient data")
+        case .insufficient(let remaining):
+            lines.append("🔥 Calories: waiting \(formatWaitSeconds(remaining))")
         case .disabled:
             lines.append("🔥 Calories: disabled (missing profile fields)")
         }
@@ -1535,8 +1535,8 @@ final class TimerViewModel: ObservableObject {
             lines.append("Calories method: \(estimate.method.rawValue)")
             lines.append("Calories confidence: \(String(format: "%.2f", estimate.confidence))")
             lines.append("Calories HR samples: \(estimate.hrSampleCount), gaps: \(estimate.gapCount)")
-        case .insufficient:
-            lines.append("Calories: insufficient data")
+        case .insufficient(let remaining):
+            lines.append("Calories: waiting \(formatWaitSeconds(remaining))")
         case .disabled:
             lines.append("Calories: disabled (missing profile fields)")
         }
@@ -1588,6 +1588,12 @@ final class TimerViewModel: ObservableObject {
 
     private func formattedHeartRate(_ value: Int?) -> String {
         value.map(String.init) ?? "n/a"
+    }
+
+    private func formatWaitSeconds(_ remaining: TimeInterval) -> String {
+        let clamped = max(0, remaining)
+        let totalSeconds = Int(ceil(clamped))
+        return "\(totalSeconds)s"
     }
 
     private func formatDuration(_ time: TimeInterval, showTenths: Bool = true) -> String {
