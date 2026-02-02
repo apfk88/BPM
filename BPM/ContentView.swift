@@ -359,11 +359,17 @@ struct HeartRateDisplayView: View {
         switch timerViewModel.caloriesStatus {
         case .available(let estimate):
             return String(Int(round(estimate.totalKcal)))
-        case .insufficient:
-            return "Insuff"
+        case .insufficient(let remaining):
+            return formatWaitTime(remaining)
         case .disabled:
             return "Setup"
         }
+    }
+
+    private func formatWaitTime(_ remaining: TimeInterval) -> String {
+        let clamped = max(0, remaining)
+        let totalSeconds = Int(ceil(clamped))
+        return "\(totalSeconds)s"
     }
 
     private func completedSummaryDetailRow() -> some View {

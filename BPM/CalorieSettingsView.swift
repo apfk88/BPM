@@ -89,6 +89,9 @@ struct CalorieSettingsView: View {
             hydrateHeightFields()
             hydrateWeightField()
         }
+        .onDisappear {
+            commitWeightToKg()
+        }
         .onChange(of: heightFeetText) { _, _ in
             updateHeightCmFromImperial()
         }

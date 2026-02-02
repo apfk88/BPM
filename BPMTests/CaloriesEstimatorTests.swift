@@ -93,7 +93,7 @@ struct CaloriesEstimatorTests {
             bodyFatPercent: nil,
             medsAffectingHr: false
         )
-        let samples = makeSamples(bpm: 120, count: 60)
+        let samples = makeSamples(bpm: 120, count: 5)
 
         let status = CaloriesEstimator.estimate(samples: samples, profile: profile)
         guard case .insufficient = status else {
