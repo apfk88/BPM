@@ -23,13 +23,19 @@ struct HeartRateLiveActivity: Widget {
                 }
                 DynamicIslandExpandedRegion(.trailing) {
                     VStack(alignment: .leading, spacing: 4) {
-                        if let max = context.state.maximum {
+                        if let elapsed = context.state.elapsedSeconds {
+                            LabeledTextValue(title: "TIME", value: formatDuration(elapsed))
+                        } else if let max = context.state.maximum {
                             LabeledValue(title: "MAX", value: max)
                         }
                     }
                 }
                 DynamicIslandExpandedRegion(.bottom) {
-                    if let average = context.state.average {
+                    if let elapsed = context.state.elapsedSeconds {
+                        Text("Time \(formatDuration(elapsed))")
+                            .font(.headline)
+                            .foregroundStyle(.secondary)
+                    } else if let average = context.state.average {
                         Text("Avg \(average) • \(context.state.trendDescription)")
                             .font(.headline)
                             .foregroundStyle(.secondary)
@@ -74,6 +80,16 @@ struct HeartRateLiveActivity: Widget {
     }
 }
 
+private func formatDuration(_ seconds: Int) -> String {
+    let hours = seconds / 3600
+    let minutes = (seconds % 3600) / 60
+    let remainingSeconds = seconds % 60
+    if hours > 0 {
+        return String(format: "%d:%02d:%02d", hours, minutes, remainingSeconds)
+    }
+    return String(format: "%d:%02d", minutes, remainingSeconds)
+}
+
 @available(iOSApplicationExtension 16.1, *)
 private struct HeartRateLiveActivityView: View {
     let content: HeartRateActivityAttributes.ContentState
@@ -108,11 +124,15 @@ private struct HeartRateLiveActivityView: View {
 
             // Stats on the right, horizontal
             HStack(spacing: 20) {
-                if let max = content.maximum {
-                    StatValue(label: "Max", value: max)
-                }
-                if let avg = content.average {
-                    StatValue(label: "Avg", value: avg)
+                if let elapsed = content.elapsedSeconds {
+                    StatTextValue(label: "Time", value: formatDuration(elapsed))
+                } else {
+                    if let max = content.maximum {
+                        StatValue(label: "Max", value: max)
+                    }
+                    if let avg = content.average {
+                        StatValue(label: "Avg", value: avg)
+                    }
                 }
                 if let zone = content.zone {
                     ZoneValue(zone: zone)
@@ -140,6 +160,24 @@ private struct LabeledValue: View {
 }
 
 @available(iOSApplicationExtension 16.1, *)
+private struct LabeledTextValue: View {
+    let title: String
+    let value: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            Text(value)
+                .font(.headline)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+        }
+    }
+}
+
+@available(iOSApplicationExtension 16.1, *)
 private struct StatValue: View {
     let label: String
     let value: Int
@@ -151,6 +189,26 @@ private struct StatValue: View {
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
             Text("\(value)")
+                .font(.system(size: 22, weight: .bold, design: .monospaced))
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
+                .allowsTightening(true)
+        }
+    }
+}
+
+@available(iOSApplicationExtension 16.1, *)
+private struct StatTextValue: View {
+    let label: String
+    let value: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(label)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+            Text(value)
                 .font(.system(size: 22, weight: .bold, design: .monospaced))
                 .lineLimit(1)
                 .minimumScaleFactor(0.6)

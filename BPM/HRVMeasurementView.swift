@@ -91,7 +91,12 @@ struct HRVMeasurementView: View {
                         
                         Button {
                             if viewModel.isCompleted {
-                                showClearAlert = true
+                                if hasSavedRecord {
+                                    viewModel.reset()
+                                    onDismiss()
+                                } else {
+                                    showClearAlert = true
+                                }
                             } else if case .countingDown = viewModel.state {
                                 showStopAlert = true
                             } else {

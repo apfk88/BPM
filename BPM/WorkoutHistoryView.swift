@@ -3,9 +3,7 @@ import SwiftUI
 struct WorkoutHistoryView: View {
     @ObservedObject var store: WorkoutStore
     @Environment(\.dismiss) private var dismiss
-    @State private var shareItems: [Any] = []
-    @State private var shareSubject: String = ""
-    @State private var showShareSheet = false
+    @State private var sharePayload: SharePayload?
 
     var body: some View {
         NavigationView {
@@ -18,7 +16,10 @@ struct WorkoutHistoryView: View {
                         NavigationLink {
                             WorkoutDetailView(
                                 record: workout,
-                                onShare: presentShare
+                                onShare: presentShare,
+                                onDelete: {
+                                    store.deleteWorkout(workout)
+                                }
                             )
                         } label: {
                             WorkoutHistoryRow(record: workout)
@@ -36,10 +37,10 @@ struct WorkoutHistoryView: View {
             .navigationTitle("History")
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
-                Button("AI Export") {
-                    presentShare(items: [store.exportAllJSON()], subject: "Workout History Logs (for AI)")
+                    Button("AI Export") {
+                        presentShare(items: [store.exportAllJSON()], subject: "Workout History Logs (for AI)")
+                    }
                 }
-            }
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button("Done") {
                         dismiss()
@@ -47,16 +48,20 @@ struct WorkoutHistoryView: View {
                 }
             }
         }
-        .sheet(isPresented: $showShareSheet) {
-            ShareSheet(items: shareItems, subject: shareSubject)
+        .sheet(item: $sharePayload) { payload in
+            ShareSheet(items: payload.items, subject: payload.subject)
         }
     }
 
     private func presentShare(items: [Any], subject: String) {
-        shareItems = items
-        shareSubject = subject
-        showShareSheet = true
+        sharePayload = SharePayload(items: items, subject: subject)
     }
+}
+
+private struct SharePayload: Identifiable {
+    let id = UUID()
+    let items: [Any]
+    let subject: String
 }
 
 private struct WorkoutHistoryRow: View {
@@ -124,6 +129,9 @@ private struct WorkoutHistoryRow: View {
 private struct WorkoutDetailView: View {
     let record: WorkoutRecord
     let onShare: ([Any], String) -> Void
+    let onDelete: () -> Void
+    @Environment(\.dismiss) private var dismiss
+    @State private var showDeleteAlert = false
 
     var body: some View {
         List {
@@ -178,8 +186,23 @@ private struct WorkoutDetailView: View {
                     onShare([record.jsonString()], "Workout Logs (for AI)")
                 }
             }
+
+            Section {
+                Button("Delete Workout", role: .destructive) {
+                    showDeleteAlert = true
+                }
+            }
         }
         .navigationTitle("Workout")
+        .alert("Delete Workout?", isPresented: $showDeleteAlert) {
+            Button("Cancel", role: .cancel) { }
+            Button("Delete", role: .destructive) {
+                onDelete()
+                dismiss()
+            }
+        } message: {
+            Text("This will permanently remove the workout from history.")
+        }
     }
 
     private func detailRow(label: String, value: String?) -> some View {

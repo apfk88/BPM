@@ -18,9 +18,7 @@ struct SettingsView: View {
     @State private var didLoadHeartRateThreshold = false
     @FocusState private var isHeartRateThresholdFocused: Bool
     @StateObject private var workoutStore = WorkoutStore.shared
-    @State private var showPresetManager = false
-    @State private var showWorkoutHistory = false
-    @State private var showHRVHistory = false
+    @State private var sharePayload: SharePayload?
     @StateObject private var hrvStore = HRVStore.shared
 
     var body: some View {
@@ -31,17 +29,6 @@ struct SettingsView: View {
                         ZoneSettingsView()
                     } label: {
                         Text("Zone Settings")
-                    }
-
-                    Button {
-                        showPresetManager = true
-                    } label: {
-                        HStack {
-                            Text("Timer Presets")
-                            Spacer()
-                            Image(systemName: "chevron.right")
-                                .foregroundColor(.secondary)
-                        }
                     }
 
                     NavigationLink {
@@ -97,30 +84,18 @@ struct SettingsView: View {
                 }
 
                 Section(header: Text("History")) {
-                    Button {
-                        showWorkoutHistory = true
-                    } label: {
-                        HStack {
-                            Text("Workout History")
-                            Spacer()
-                            Image(systemName: "chevron.right")
-                                .foregroundColor(.secondary)
+                    Button("Export All History (JSON)") {
+                        let payload = """
+                        {
+                          "workouts": \(workoutStore.exportAllJSON()),
+                          "hrv": \(hrvStore.exportAllJSON())
                         }
-                    }
-
-                    Button {
-                        showHRVHistory = true
-                    } label: {
-                        HStack {
-                            Text("HRV History")
-                            Spacer()
-                            Image(systemName: "chevron.right")
-                                .foregroundColor(.secondary)
-                        }
+                        """
+                        sharePayload = SharePayload(items: [payload], subject: "BPM History Export (JSON)")
                     }
                 }
             }
-            .navigationTitle("")
+            .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
@@ -148,20 +123,8 @@ struct SettingsView: View {
                 commitHeartRateThreshold()
             }
         }
-        .sheet(isPresented: $showPresetManager) {
-            PresetConfigurationView(
-                isPresented: $showPresetManager,
-                currentPresetId: nil,
-                mode: .manage,
-                onLoadPreset: { _ in },
-                onClearPreset: { }
-            )
-        }
-        .sheet(isPresented: $showWorkoutHistory) {
-            WorkoutHistoryView(store: workoutStore)
-        }
-        .sheet(isPresented: $showHRVHistory) {
-            HRVHistoryView(store: hrvStore)
+        .sheet(item: $sharePayload) { payload in
+            ShareSheet(items: payload.items, subject: payload.subject)
         }
     }
 
@@ -180,6 +143,12 @@ struct SettingsView: View {
         heartRateAlertThreshold = clamped
         heartRateAlertThresholdText = String(clamped)
     }
+}
+
+private struct SharePayload: Identifiable {
+    let id = UUID()
+    let items: [Any]
+    let subject: String
 }
 
 private struct ZoneSettingsView: View {

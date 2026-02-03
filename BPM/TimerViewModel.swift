@@ -36,7 +36,11 @@ struct SetRecord: Identifiable {
 }
 
 final class TimerViewModel: ObservableObject {
-    @Published var state: TimerState = .idle
+    @Published var state: TimerState = .idle {
+        didSet {
+            updateLiveActivityElapsed(force: true)
+        }
+    }
     @Published var elapsedTime: TimeInterval = 0
     @Published var currentSetTime: TimeInterval = 0
     @Published var sets: [SetRecord] = []
@@ -179,6 +183,7 @@ final class TimerViewModel: ObservableObject {
     private var presetPhaseStartTime: Date? // When current preset phase started
     private var presetPhasePausedTime: TimeInterval = 0 // Time paused in current phase
     private var audioPlayer: AVAudioPlayer? // For playing sounds that bypass silent mode
+    private var lastLiveActivityElapsedSeconds: Int?
 
     var currentHeartRate: (() -> Int?)?
     
@@ -889,6 +894,7 @@ final class TimerViewModel: ObservableObject {
 
                 self.elapsedTime = Date().timeIntervalSince(startTime)
                 self.currentSetTime = self.elapsedTime - self.lastSetEndTime
+                self.updateLiveActivityElapsed()
 
                 // Update phase countdown
                 if let phaseStart = self.presetPhaseStartTime {
@@ -1106,6 +1112,7 @@ final class TimerViewModel: ObservableObject {
                 if let restStartTime = self.restStartTime {
                     self.currentSetTime = Date().timeIntervalSince(restStartTime)
                 }
+                self.updateLiveActivityElapsed()
             }
         }
         RunLoop.current.add(cooldownTimer!, forMode: .common)
@@ -1121,6 +1128,7 @@ final class TimerViewModel: ObservableObject {
                     self.elapsedTime = Date().timeIntervalSince(startTime)
                     // Calculate current set time
                     self.currentSetTime = self.elapsedTime - self.lastSetEndTime
+                    self.updateLiveActivityElapsed()
                 }
             }
         }
@@ -1160,6 +1168,29 @@ final class TimerViewModel: ObservableObject {
     private func stopHeartRateSampling() {
         heartRateSampleTimer?.invalidate()
         heartRateSampleTimer = nil
+    }
+
+    private func updateLiveActivityElapsed(force: Bool = false) {
+        #if canImport(ActivityKit)
+        if #available(iOS 16.1, *) {
+            let elapsed: Int?
+            switch state {
+            case .running, .paused:
+                elapsed = Int(elapsedTime)
+            case .cooldown, .cooldownPaused:
+                elapsed = Int(frozenElapsedTime + cooldownTime)
+            case .idle:
+                elapsed = nil
+            }
+
+            if !force, elapsed == lastLiveActivityElapsedSeconds {
+                return
+            }
+
+            lastLiveActivityElapsedSeconds = elapsed
+            HeartRateActivityController.shared.updateTimer(elapsedSeconds: elapsed, isRunning: elapsed != nil)
+        }
+        #endif
     }
 
     private func updateCaloriesEstimate() {
