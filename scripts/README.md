@@ -6,8 +6,7 @@ Automatically sets the API base URL based on the current git branch name.
 
 ### Behavior
 
-- **Staging branches** (branches starting with "staging"): Uses `https://staging.bpmtracker.app`
-- **Production branches**: Uses `https://bpmtracker.app`
+- Always uses `https://bpmtracker.app` (production)
 
 ### Setup in Xcode
 
@@ -27,8 +26,8 @@ Automatically sets the API base URL based on the current git branch name.
 ### How It Works
 
 The script:
-1. Detects the current git branch name
-2. Sets `BPM_API_BASE_URL` in `Info.plist` based on the branch
+1. Detects the current git branch name (for logging)
+2. Sets `BPM_API_BASE_URL` in `Info.plist` to production
 3. The app reads this value at runtime (see `SharingService.swift`)
 
 ### Priority Order
@@ -45,5 +44,4 @@ You can test the script manually:
 ./scripts/set-api-url.sh
 ```
 
-This will update `BPM/Info.plist` with the appropriate URL based on your current branch.
-
+This will update `BPM/Info.plist` with the production URL.

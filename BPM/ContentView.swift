@@ -254,14 +254,9 @@ struct HeartRateDisplayView: View {
             }
             .onPreferenceChange(BottomContentHeightKey.self) { portraitBottomContentHeight = $0 }
             .overlay(alignment: .top) {
-                VStack(spacing: 12) {
-                    HStack(alignment: .top, spacing: 12) {
-                        VStack(alignment: .leading, spacing: 8) {
-                            connectionPrompt
-                            sharingCodeDisplay
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-
+                VStack(spacing: 8) {
+                    HStack {
+                        Spacer()
                         Button {
                             showSettings = true
                         } label: {
@@ -276,14 +271,16 @@ struct HeartRateDisplayView: View {
                     }
                     .padding(.horizontal, 16)
 
-                    VStack(spacing: 6) {
+                    VStack(spacing: 8) {
+                        connectionPrompt
                         bluetoothMessageDisplay
                         errorMessageDisplay
+                        sharingCodeDisplay
                     }
-                    .frame(maxWidth: .infinity, alignment: .center)
+                    .frame(maxWidth: 320, alignment: .center)
                     .padding(.horizontal, 24)
                 }
-                .padding(.top, 2)
+                .padding(.top, 6)
             }
         }
     }
@@ -294,7 +291,7 @@ struct HeartRateDisplayView: View {
                 Text("SHARE CODE: \(formattedShareCode(code))")
                     .font(.system(size: 20, weight: .bold, design: .monospaced))
                     .foregroundColor(.green)
-                    .padding(.top, 20)
+                    .frame(maxWidth: .infinity, alignment: .center)
             } else if appMode == .friendCode && sharingService.isViewing, let code = sharingService.friendCode {
                 Button {
                     showDevicePicker = true
@@ -302,7 +299,7 @@ struct HeartRateDisplayView: View {
                     Text("Viewing: \(formattedShareCode(code))")
                         .font(.system(size: 20, weight: .bold, design: .monospaced))
                         .foregroundColor(.green)
-                        .padding(.top, 20)
+                        .frame(maxWidth: .infinity, alignment: .center)
                 }
             }
         }
@@ -547,8 +544,8 @@ struct HeartRateDisplayView: View {
     private var errorMessageDisplay: some View {
         if let error = sharingService.errorMessage, shouldShowError(for: appMode) {
             Text(error)
-                .font(.system(size: 11, weight: .medium))
-                .foregroundColor(.red.opacity(0.9))
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundColor(.red.opacity(0.85))
                 .multilineTextAlignment(.center)
                 .lineLimit(2)
                 .frame(maxWidth: .infinity, alignment: .center)
@@ -560,12 +557,10 @@ struct HeartRateDisplayView: View {
         if shouldShowConnectionPrompt {
             Text("Tap the heart to connect your strap or enter a friend's share code.")
                 .font(.system(size: 13, weight: .medium))
-                .foregroundColor(.gray)
-                .multilineTextAlignment(.leading)
+                .foregroundColor(.gray.opacity(0.9))
+                .multilineTextAlignment(.center)
                 .lineLimit(2)
-                .padding(.horizontal, 20)
-                .padding(.top, 20)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(maxWidth: .infinity, alignment: .center)
         }
     }
 
@@ -573,8 +568,8 @@ struct HeartRateDisplayView: View {
     private var bluetoothMessageDisplay: some View {
         if appMode == .myDevice, let message = bluetoothManager.connectionMessage {
             Text(message)
-                .font(.system(size: 12, weight: .medium))
-                .foregroundColor(.orange.opacity(0.9))
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundColor(.orange.opacity(0.85))
                 .multilineTextAlignment(.center)
                 .lineLimit(3)
                 .frame(maxWidth: .infinity, alignment: .center)

@@ -1,7 +1,6 @@
 #!/bin/bash
 
-# Script to set API URL based on git branch name
-# If branch starts with "staging", use staging URL, otherwise use production URL
+# Script to set API URL for builds (production by default)
 
 BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "main")
 
@@ -15,14 +14,9 @@ else
     INFO_PLIST="${REPO_ROOT}/BPM/Info.plist"
 fi
 
-# Determine API URL based on branch
-if [[ "$BRANCH" == staging* ]]; then
-    API_URL="https://staging.bpmtracker.app"
-    echo "🔵 Using staging API URL: $API_URL (branch: $BRANCH)"
-else
-    API_URL="https://bpmtracker.app"
-    echo "🟢 Using production API URL: $API_URL (branch: $BRANCH)"
-fi
+# Determine API URL (production)
+API_URL="https://bpmtracker.app"
+echo "🟢 Using production API URL: $API_URL (branch: $BRANCH)"
 
 # Set the API URL in Info.plist
 /usr/libexec/PlistBuddy -c "Set :BPM_API_BASE_URL $API_URL" "$INFO_PLIST" 2>/dev/null || \
@@ -33,4 +27,3 @@ if [ $? -eq 0 ]; then
 else
     echo "⚠️ Failed to set API URL in Info.plist"
 fi
-
