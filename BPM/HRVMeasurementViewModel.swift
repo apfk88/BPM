@@ -34,6 +34,7 @@ final class HRVMeasurementViewModel: ObservableObject {
     private var rrIntervalsDuringMeasurement: [Double] = [] // RR intervals collected during measurement
     private var measurementStartRRIndex: Int = 0 // Index in bluetooth manager's RR intervals array when measurement started
     private var startTime: Date?
+    private var completedAt: Date?
     private let measurementDuration: TimeInterval = 120.0 // 2 minutes
     private var audioPlayer: AVAudioPlayer?
     
@@ -194,6 +195,7 @@ final class HRVMeasurementViewModel: ObservableObject {
         }
         
         state = .completed
+        completedAt = Date()
         
         // Play sound and vibrate to alert user (they may have eyes closed)
         playCompletionFeedback()
@@ -306,6 +308,39 @@ final class HRVMeasurementViewModel: ObservableObject {
         currentBPM = nil
         startTime = nil
         measurementStartRRIndex = 0
+        completedAt = nil
+    }
+
+    func hrvRecord(recordId: UUID? = nil) -> HRVRecord? {
+        guard let startTime, let completedAt else { return nil }
+        let duration = max(0, completedAt.timeIntervalSince(startTime))
+        let samples = heartRateSamples.enumerated().map { index, bpm in
+            let timestamp = startTime.addingTimeInterval(TimeInterval(index))
+            return HRVHeartRateSample(timestamp: timestamp, bpm: bpm)
+        }
+        return HRVRecord(
+            id: recordId ?? UUID(),
+            schemaVersion: HRVRecord.schemaVersion,
+            startAt: startTime,
+            endAt: completedAt,
+            durationSeconds: duration,
+            hrvValue: hrvValue,
+            avgHr: avgHeartRate,
+            minHr: minHeartRate,
+            maxHr: maxHeartRate,
+            hrSamples: samples,
+            rrIntervalsMs: rrIntervalsDuringMeasurement,
+            source: "phone",
+            appVersion: appVersionString(),
+            createdAt: Date(),
+            updatedAt: Date()
+        )
+    }
+
+    private func appVersionString() -> String {
+        let short = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0"
+        let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "0"
+        return "\(short) (\(build))"
     }
     
     deinit {

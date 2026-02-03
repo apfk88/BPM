@@ -18,6 +18,10 @@ struct HRVMeasurementView: View {
     @State private var showFirstTimeAlert = false
     @State private var hasShownFirstTimeAlert = false
     @State private var pendingMeasurement = false
+    @State private var showHistory = false
+    @State private var hasSavedRecord = false
+    @State private var savedRecordId: UUID?
+    @StateObject private var hrvStore = HRVStore.shared
     
     private var displayedHeartRate: Int? {
         if sharingService.isViewing {
@@ -73,6 +77,17 @@ struct HRVMeasurementView: View {
                         }
                         
                         Spacer()
+
+                        Button {
+                            showHistory = true
+                        } label: {
+                            Image(systemName: "clock.arrow.circlepath")
+                                .font(.system(size: 20))
+                                .foregroundColor(.white)
+                                .padding(12)
+                                .background(Color.gray.opacity(0.3))
+                                .clipShape(Circle())
+                        }
                         
                         Button {
                             if viewModel.isCompleted {
@@ -98,6 +113,9 @@ struct HRVMeasurementView: View {
                         DevicePickerView()
                             .environmentObject(bluetoothManager)
                             .environmentObject(sharingService)
+                    }
+                    .sheet(isPresented: $showHistory) {
+                        HRVHistoryView(store: hrvStore)
                     }
                     .alert("Stop Measurement", isPresented: $showStopAlert) {
                         Button("Cancel", role: .cancel) { }
@@ -203,36 +221,69 @@ struct HRVMeasurementView: View {
                     
                     Spacer()
                     
-                    // Measure HRV button
-                    Button {
-                        if viewModel.hasError {
-                            // If there's an error, reset to try again
-                            viewModel.reset()
-                        } else if case .idle = viewModel.state {
-                            // Check if this is the first measurement in this session
-                            if !hasShownFirstTimeAlert {
-                                showFirstTimeAlert = true
-                                pendingMeasurement = true
-                            } else {
-                                // Start new measurement
+                    if viewModel.isCompleted {
+                        HStack(spacing: 16) {
+                            Button {
+                                saveCurrentRecord()
+                            } label: {
+                                Text(hasSavedRecord ? "Saved" : "Save")
+                                    .font(.system(size: 18, weight: .semibold))
+                                    .foregroundColor(hasSavedRecord ? .gray : .white)
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 16)
+                                    .background(hasSavedRecord ? Color.gray.opacity(0.2) : Color.gray.opacity(0.5))
+                                    .cornerRadius(12)
+                            }
+                            .disabled(hasSavedRecord)
+
+                            Button {
+                                viewModel.reset()
+                                hasSavedRecord = false
+                                savedRecordId = nil
+                            } label: {
+                                Text("Reset")
+                                    .font(.system(size: 18, weight: .semibold))
+                                    .foregroundColor(.white)
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 16)
+                                    .background(Color.gray.opacity(0.5))
+                                    .cornerRadius(12)
+                            }
+                        }
+                        .padding(.horizontal, 40)
+                        .padding(.bottom, geometry.safeAreaInsets.bottom + 40)
+                    } else {
+                        // Measure HRV button
+                        Button {
+                            if viewModel.hasError {
+                                // If there's an error, reset to try again
+                                viewModel.reset()
+                            } else if case .idle = viewModel.state {
+                                // Check if this is the first measurement in this session
+                                if !hasShownFirstTimeAlert {
+                                    showFirstTimeAlert = true
+                                    pendingMeasurement = true
+                                } else {
+                                    // Start new measurement
+                                    viewModel.startMeasurement()
+                                }
+                            } else if viewModel.isCompleted {
+                                // Start new measurement (clears existing one automatically)
                                 viewModel.startMeasurement()
                             }
-                        } else if viewModel.isCompleted {
-                            // Start new measurement (clears existing one automatically)
-                            viewModel.startMeasurement()
+                        } label: {
+                            Text(buttonText)
+                                .font(.system(size: 18, weight: .semibold))
+                                .foregroundColor(.white)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 16)
+                                .background(viewModel.state == .countingDown ? Color.gray.opacity(0.3) : Color.gray.opacity(0.5))
+                                .cornerRadius(12)
                         }
-                    } label: {
-                        Text(buttonText)
-                            .font(.system(size: 18, weight: .semibold))
-                            .foregroundColor(.white)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 16)
-                            .background(viewModel.state == .countingDown ? Color.gray.opacity(0.3) : Color.gray.opacity(0.5))
-                            .cornerRadius(12)
+                        .disabled(viewModel.state == .countingDown)
+                        .padding(.horizontal, 40)
+                        .padding(.bottom, geometry.safeAreaInsets.bottom + 40)
                     }
-                    .disabled(viewModel.state == .countingDown)
-                    .padding(.horizontal, 40)
-                    .padding(.bottom, geometry.safeAreaInsets.bottom + 40)
                 }
             }
         }
@@ -276,6 +327,15 @@ struct HRVMeasurementView: View {
             // Stop live heart rate updates when view disappears
             viewModel.stopLiveHeartRateUpdates()
         }
+        .onChange(of: viewModel.state) { _, newValue in
+            if case .countingDown = newValue {
+                hasSavedRecord = false
+                savedRecordId = nil
+            } else if case .idle = newValue {
+                hasSavedRecord = false
+                savedRecordId = nil
+            }
+        }
     }
     
     private func formatTime(_ time: TimeInterval) -> String {
@@ -298,5 +358,11 @@ struct HRVMeasurementView: View {
         }
         .frame(width: 80 * scaleFactor, alignment: .center) // Fixed width to prevent layout shifts
     }
-}
 
+    private func saveCurrentRecord() {
+        guard let record = viewModel.hrvRecord(recordId: savedRecordId) else { return }
+        hrvStore.saveRecord(record)
+        savedRecordId = record.id
+        hasSavedRecord = true
+    }
+}

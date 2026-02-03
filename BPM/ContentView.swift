@@ -88,6 +88,12 @@ struct HeartRateDisplayView: View {
     @State private var shareText = ""
     @State private var shareSubject = ""
     @State private var showViewSettingsSheet = false
+    @State private var showWorkoutHistory = false
+    @State private var hasSavedWorkout = false
+    @State private var savedWorkoutId: UUID?
+    @State private var showWorkoutTitlePrompt = false
+    @State private var workoutTitleText = ""
+    @StateObject private var workoutStore = WorkoutStore.shared
     @AppStorage("BPM_View_ShowExpandedStats") private var showExpandedStats = false
     @AppStorage("BPM_Alert_HeartRateEnabled") private var isHeartRateAlertEnabled = false
     @AppStorage("BPM_Alert_HeartRateThreshold") private var heartRateAlertThreshold = 160
@@ -109,6 +115,12 @@ struct HeartRateDisplayView: View {
         }
         .onChange(of: bluetoothManager.currentHeartRate) { _, newValue in
             handleHeartRateAlerts(for: newValue)
+        }
+        .onChange(of: timerViewModel.sets.isEmpty) { _, isEmpty in
+            if isEmpty {
+                hasSavedWorkout = false
+                savedWorkoutId = nil
+            }
         }
         .sheet(isPresented: $showDevicePicker) {
             DevicePickerView()
@@ -132,6 +144,12 @@ struct HeartRateDisplayView: View {
         }
         .sheet(isPresented: $showSettings) {
             SettingsView()
+        }
+        .sheet(isPresented: $showWorkoutHistory) {
+            WorkoutHistoryView(store: workoutStore)
+        }
+        .sheet(isPresented: $showShareSheet) {
+            ShareSheet(items: [shareText], subject: shareSubject)
         }
         .alert("Disconnect Sharing", isPresented: $showDisconnectAlert) {
             Button("Cancel", role: .cancel) { }
@@ -1055,8 +1073,23 @@ struct HeartRateDisplayView: View {
                 }
 
                 Button {
+                    showWorkoutHistory = true
+                } label: {
+                    Image(systemName: "clock.arrow.circlepath")
+                        .font(.system(size: 20))
+                        .foregroundColor(.white)
+                        .padding(12)
+                        .background(Color.gray.opacity(0.3))
+                        .clipShape(Circle())
+                        .accessibilityLabel("Workout History")
+                }
+
+                Button {
                     // Only show alert if there's workout data to lose
-                    if !timerViewModel.sets.isEmpty || timerViewModel.state != .idle {
+                    if hasSavedWorkout {
+                        timerViewModel.reset()
+                        isTimerMode = false
+                    } else if !timerViewModel.sets.isEmpty || timerViewModel.state != .idle {
                         showClearAlert = true
                     } else {
                         timerViewModel.reset()
@@ -1089,6 +1122,19 @@ struct HeartRateDisplayView: View {
                 }
             } message: {
                 Text("Are you sure you want to reset? This will clear all timer data.")
+            }
+            .alert("Workout Title", isPresented: $showWorkoutTitlePrompt) {
+                TextField("Optional title", text: $workoutTitleText)
+                Button("Skip") {
+                    saveCurrentWorkout(title: nil)
+                }
+                Button("Save") {
+                    let trimmed = workoutTitleText.trimmingCharacters(in: .whitespacesAndNewlines)
+                    saveCurrentWorkout(title: trimmed.isEmpty ? nil : trimmed)
+                }
+                Button("Cancel", role: .cancel) { }
+            } message: {
+                Text("Add a title for this workout (optional).")
             }
             .sheet(isPresented: $showViewSettingsSheet) {
                 ViewSettingsSheet(
@@ -1595,18 +1641,6 @@ struct HeartRateDisplayView: View {
             }
         }
         .frame(maxHeight: isLandscape ? 600 : 700)
-        .confirmationDialog("Share Workout", isPresented: $showShareDialog, titleVisibility: .visible) {
-            Button("Share Summary") {
-                presentShare(.summary)
-            }
-            Button("Share for AI") {
-                presentShare(.detail)
-            }
-            Button("Cancel", role: .cancel) { }
-        }
-        .sheet(isPresented: $showShareSheet) {
-            ShareSheet(items: [shareText], subject: shareSubject)
-        }
     }
     
     private func scrollToActiveRow(proxy: ScrollViewProxy, isLandscape: Bool) {
@@ -1653,9 +1687,22 @@ struct HeartRateDisplayView: View {
                 totalTime: totalTime,
                 zoneConfig: zoneStorage.effectiveConfig
             )
-            shareSubject = "Workout Detail Export"
+            shareSubject = "Workout Logs (for AI)"
         }
         showShareSheet = true
+    }
+
+    private func saveCurrentWorkout(title: String?) {
+        guard let record = timerViewModel.workoutRecord(
+            zoneConfig: zoneStorage.effectiveConfig,
+            workoutId: savedWorkoutId,
+            title: title
+        ) else {
+            return
+        }
+        workoutStore.saveWorkout(record)
+        savedWorkoutId = record.id
+        hasSavedWorkout = true
     }
     
     @ViewBuilder
@@ -1678,34 +1725,65 @@ struct HeartRateDisplayView: View {
         let restSetDisabled = isPresetMode || timerViewModel.state != .running || isInCooldownMode || timerViewModel.isTimingRestSet || isCompleted
         
         if isCompleted {
-            HStack(spacing: buttonSpacing) {
+            VStack(spacing: 12) {
                 Button {
-                    showResetAlert = true
+                    workoutTitleText = ""
+                    showWorkoutTitlePrompt = true
                 } label: {
-                    Text("Reset")
+                    Text(hasSavedWorkout ? "Saved" : "Save Workout")
                         .font(.system(size: buttonFontSize, weight: .semibold))
-                        .foregroundColor(.white)
+                        .foregroundColor(hasSavedWorkout ? .gray : .white)
                         .frame(maxWidth: .infinity)
                         .padding(.horizontal, buttonPaddingSize * 1.5)
                         .padding(.vertical, buttonPaddingSize)
-                        .background(Color.gray.opacity(0.3))
+                        .background(hasSavedWorkout ? Color.gray.opacity(0.15) : Color.gray.opacity(0.3))
                         .cornerRadius(buttonPaddingSize)
                 }
                 .frame(maxWidth: .infinity)
+                .disabled(hasSavedWorkout)
 
+                HStack(spacing: buttonSpacing) {
                 Button {
-                    showShareDialog = true
+                    if hasSavedWorkout {
+                        timerViewModel.reset()
+                    } else {
+                        showResetAlert = true
+                    }
                 } label: {
-                    Text("Share")
-                        .font(.system(size: buttonFontSize, weight: .semibold))
-                        .foregroundColor(.white)
-                        .frame(maxWidth: .infinity)
-                        .padding(.horizontal, buttonPaddingSize * 1.5)
-                        .padding(.vertical, buttonPaddingSize)
-                        .background(Color.gray.opacity(0.3))
-                        .cornerRadius(buttonPaddingSize)
+                        Text("Reset")
+                            .font(.system(size: buttonFontSize, weight: .semibold))
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding(.horizontal, buttonPaddingSize * 1.5)
+                            .padding(.vertical, buttonPaddingSize)
+                            .background(Color.gray.opacity(0.3))
+                            .cornerRadius(buttonPaddingSize)
+                    }
+                    .frame(maxWidth: .infinity)
+
+                    Button {
+                        showShareDialog = true
+                    } label: {
+                        Text("Share")
+                            .font(.system(size: buttonFontSize, weight: .semibold))
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding(.horizontal, buttonPaddingSize * 1.5)
+                            .padding(.vertical, buttonPaddingSize)
+                            .background(Color.gray.opacity(0.3))
+                            .cornerRadius(buttonPaddingSize)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .confirmationDialog("Share Workout", isPresented: $showShareDialog, titleVisibility: .visible) {
+                        Button("Share Summary") {
+                            presentShare(.summary)
+                        }
+                        Button("Share Logs (for AI)") {
+                            presentShare(.detail)
+                        }
+                        Button("Cancel", role: .cancel) { }
+                    }
                 }
-                .frame(maxWidth: .infinity)
             }
             .padding(.horizontal, buttonPadding)
             .padding(.vertical, 20)
@@ -1765,8 +1843,12 @@ struct HeartRateDisplayView: View {
                         // Resume cooldown
                         timerViewModel.toggleCooldown()
                     } else if isCompleted {
-                        // Reset button - show confirmation alert
-                        showResetAlert = true
+                        if hasSavedWorkout {
+                            timerViewModel.reset()
+                        } else {
+                            // Reset button - show confirmation alert
+                            showResetAlert = true
+                        }
                     } else if timerViewModel.state == .paused {
                         if isPresetMode {
                             timerViewModel.startPreset()
@@ -1918,8 +2000,12 @@ struct HeartRateDisplayView: View {
                             // Resume cooldown
                             timerViewModel.toggleCooldown()
                         } else if isCompleted {
-                            // Reset button - show confirmation alert
-                            showResetAlert = true
+                            if hasSavedWorkout {
+                                timerViewModel.reset()
+                            } else {
+                                // Reset button - show confirmation alert
+                                showResetAlert = true
+                            }
                         } else if timerViewModel.state == .paused {
                             if isPresetMode {
                                 timerViewModel.startPreset()

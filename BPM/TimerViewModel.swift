@@ -1417,6 +1417,69 @@ final class TimerViewModel: ObservableObject {
         }
     }
 
+    func workoutRecord(zoneConfig: HeartRateZoneConfig, workoutId: UUID? = nil, title: String? = nil) -> WorkoutRecord? {
+        guard let startTime = startTime else { return nil }
+        let totalTime = resolvedTotalTime()
+        let endTime = startTime.addingTimeInterval(totalTime)
+
+        let zoneSummaries = timeInZones(config: zoneConfig)
+            .filter { $0.duration > 0 }
+            .map { WorkoutZoneSummary(id: UUID(), zone: $0.zone.rawValue, duration: $0.duration) }
+
+        let sampleSummaries = heartRateSamples.map { sample in
+            WorkoutHeartRateSample(timestamp: sample.timestamp, bpm: sample.value, workoutTime: sample.workoutTime)
+        }
+
+        let setSummaries = sets.map { set in
+            WorkoutSetSummary(
+                id: UUID(),
+                label: displayLabel(for: set),
+                setTime: set.setTime,
+                totalTime: set.totalTime,
+                isRestSet: set.isRestSet,
+                isCooldownSet: set.isCooldownSet,
+                associatedWorkSetNumber: set.associatedWorkSetNumber,
+                avgBpm: avgBPMForSet(set),
+                minBpm: minBPMForSet(set),
+                maxBpm: maxBPMForSet(set)
+            )
+        }
+
+        let caloriesTotal: Double?
+        let caloriesActive: Double?
+        switch caloriesStatus {
+        case .available(let estimate):
+            caloriesTotal = estimate.totalKcal
+            caloriesActive = estimate.activeKcal
+        default:
+            caloriesTotal = nil
+            caloriesActive = nil
+        }
+
+        return WorkoutRecord(
+            id: workoutId ?? UUID(),
+            schemaVersion: WorkoutRecord.schemaVersion,
+            title: title,
+            startAt: startTime,
+            endAt: endTime,
+            durationSeconds: totalTime,
+            avgHr: avgHeartRate,
+            maxHr: maxHeartRate,
+            minHr: minHeartRate,
+            hrv: nil,
+            caloriesTotal: caloriesTotal,
+            caloriesActive: caloriesActive,
+            hrSamples: sampleSummaries,
+            zones: zoneSummaries,
+            sets: setSummaries,
+            notes: nil,
+            source: "phone",
+            appVersion: appVersionString(),
+            createdAt: Date(),
+            updatedAt: Date()
+        )
+    }
+
     // MARK: - Sharing
 
     func workoutSummaryText(totalTime: TimeInterval, zoneConfig: HeartRateZoneConfig) -> String {
@@ -1590,10 +1653,26 @@ final class TimerViewModel: ObservableObject {
         value.map(String.init) ?? "n/a"
     }
 
+    private func resolvedTotalTime() -> TimeInterval {
+        if let lastTotal = sets.last?.totalTime {
+            return max(lastTotal, frozenElapsedTime)
+        }
+        if frozenElapsedTime > 0 {
+            return frozenElapsedTime
+        }
+        return elapsedTime
+    }
+
     private func formatWaitSeconds(_ remaining: TimeInterval) -> String {
         let clamped = max(0, remaining)
         let totalSeconds = Int(ceil(clamped))
         return "\(totalSeconds)s"
+    }
+
+    private func appVersionString() -> String {
+        let short = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0"
+        let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "0"
+        return "\(short) (\(build))"
     }
 
     private func formatDuration(_ time: TimeInterval, showTenths: Bool = true) -> String {
