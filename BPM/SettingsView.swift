@@ -17,6 +17,11 @@ struct SettingsView: View {
     @State private var heartRateAlertThresholdText = ""
     @State private var didLoadHeartRateThreshold = false
     @FocusState private var isHeartRateThresholdFocused: Bool
+    @StateObject private var workoutStore = WorkoutStore.shared
+    @State private var showPresetManager = false
+    @State private var showWorkoutHistory = false
+    @State private var showHRVHistory = false
+    @StateObject private var hrvStore = HRVStore.shared
 
     var body: some View {
         NavigationView {
@@ -28,6 +33,17 @@ struct SettingsView: View {
                         Text("Zone Settings")
                     }
 
+                    Button {
+                        showPresetManager = true
+                    } label: {
+                        HStack {
+                            Text("Timer Presets")
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .foregroundColor(.secondary)
+                        }
+                    }
+
                     NavigationLink {
                         CalorieSettingsView()
                     } label: {
@@ -36,8 +52,12 @@ struct SettingsView: View {
                 }
 
                 Section(
-                    header: Text("Zone Alert"),
-                    footer: Text("Toggle on to get alerts for selected zones.")
+                    header: VStack(alignment: .leading, spacing: 4) {
+                        Text("Zone Alert")
+                        Text("Toggle on to get alerts for selected zones.")
+                            .font(.footnote)
+                            .foregroundColor(.secondary)
+                    }
                 ) {
                     Toggle("Zone Alert", isOn: $isZoneAlertEnabled)
                     NavigationLink {
@@ -53,8 +73,12 @@ struct SettingsView: View {
                 }
 
                 Section(
-                    header: Text("BPM Alert"),
-                    footer: Text("Alert triggers when your heart rate crosses the threshold.")
+                    header: VStack(alignment: .leading, spacing: 4) {
+                        Text("BPM Alert")
+                        Text("Alert triggers when your heart rate crosses the threshold.")
+                            .font(.footnote)
+                            .foregroundColor(.secondary)
+                    }
                 ) {
                     Toggle("BPM Alert", isOn: $isHeartRateAlertEnabled)
                     HStack {
@@ -71,6 +95,7 @@ struct SettingsView: View {
                             .foregroundColor(.secondary)
                     }
                 }
+
             }
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
@@ -79,6 +104,30 @@ struct SettingsView: View {
                     Button("Done") {
                         commitHeartRateThreshold()
                         dismiss()
+                    }
+                }
+
+                Section(header: Text("History")) {
+                    Button {
+                        showWorkoutHistory = true
+                    } label: {
+                        HStack {
+                            Text("Workout History")
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .foregroundColor(.secondary)
+                        }
+                    }
+
+                    Button {
+                        showHRVHistory = true
+                    } label: {
+                        HStack {
+                            Text("HRV History")
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .foregroundColor(.secondary)
+                        }
                     }
                 }
             }
@@ -99,6 +148,21 @@ struct SettingsView: View {
             if !isFocused {
                 commitHeartRateThreshold()
             }
+        }
+        .sheet(isPresented: $showPresetManager) {
+            PresetConfigurationView(
+                isPresented: $showPresetManager,
+                currentPresetId: nil,
+                mode: .manage,
+                onLoadPreset: { _ in },
+                onClearPreset: { }
+            )
+        }
+        .sheet(isPresented: $showWorkoutHistory) {
+            WorkoutHistoryView(store: workoutStore)
+        }
+        .sheet(isPresented: $showHRVHistory) {
+            HRVHistoryView(store: hrvStore)
         }
     }
 

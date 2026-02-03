@@ -7,10 +7,16 @@
 
 import SwiftUI
 
+enum PresetConfigurationMode {
+    case select
+    case manage
+}
+
 struct PresetConfigurationView: View {
     @ObservedObject var presetStorage = PresetStorage.shared
     @Binding var isPresented: Bool
     var currentPresetId: UUID?
+    var mode: PresetConfigurationMode = .select
     var onLoadPreset: (TimerPreset) -> Void
     var onClearPreset: () -> Void
 
@@ -32,7 +38,7 @@ struct PresetConfigurationView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
-                    Button("Cancel") {
+                    Button(mode == .manage ? "Done" : "Cancel") {
                         isPresented = false
                     }
                     .foregroundColor(.white)
@@ -116,13 +122,19 @@ struct PresetConfigurationView: View {
                     }
                     .contentShape(Rectangle())
                     .onTapGesture {
-                        if isCurrentPreset {
-                            // Tapping the currently loaded preset clears it
-                            onClearPreset()
-                            isPresented = false
-                        } else {
-                            onLoadPreset(preset)
-                            isPresented = false
+                        switch mode {
+                        case .select:
+                            if isCurrentPreset {
+                                // Tapping the currently loaded preset clears it
+                                onClearPreset()
+                                isPresented = false
+                            } else {
+                                onLoadPreset(preset)
+                                isPresented = false
+                            }
+                        case .manage:
+                            isCreatingNew = false
+                            editingPreset = preset
                         }
                     }
                     .swipeActions(edge: .trailing, allowsFullSwipe: true) {
