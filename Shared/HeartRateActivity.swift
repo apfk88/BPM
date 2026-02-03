@@ -22,16 +22,18 @@ struct HeartRateActivityAttributes: ActivityAttributes {
         let average: Int?
         let maximum: Int?
         let minimum: Int?
+        let elapsedSeconds: Int?
         let zone: ZoneInfo?
         let isSharing: Bool
         let isViewing: Bool
         let hasError: Bool
 
-        init(bpm: Int?, average: Int?, maximum: Int?, minimum: Int?, zone: ZoneInfo? = nil, isSharing: Bool = false, isViewing: Bool = false, hasError: Bool = false) {
+        init(bpm: Int?, average: Int?, maximum: Int?, minimum: Int?, elapsedSeconds: Int? = nil, zone: ZoneInfo? = nil, isSharing: Bool = false, isViewing: Bool = false, hasError: Bool = false) {
             self.bpm = bpm
             self.average = average
             self.maximum = maximum
             self.minimum = minimum
+            self.elapsedSeconds = elapsedSeconds
             self.zone = zone
             self.isSharing = isSharing
             self.isViewing = isViewing
@@ -39,7 +41,7 @@ struct HeartRateActivityAttributes: ActivityAttributes {
         }
 
         enum CodingKeys: String, CodingKey {
-            case bpm, average, maximum, minimum, zone, isSharing, isViewing, hasError
+            case bpm, average, maximum, minimum, elapsedSeconds, zone, isSharing, isViewing, hasError
         }
 
         init(from decoder: Decoder) throws {
@@ -48,6 +50,7 @@ struct HeartRateActivityAttributes: ActivityAttributes {
             average = try container.decodeIfPresent(Int.self, forKey: .average)
             maximum = try container.decodeIfPresent(Int.self, forKey: .maximum)
             minimum = try container.decodeIfPresent(Int.self, forKey: .minimum)
+            elapsedSeconds = try container.decodeIfPresent(Int.self, forKey: .elapsedSeconds)
             zone = try container.decodeIfPresent(ZoneInfo.self, forKey: .zone)
             isSharing = try container.decodeIfPresent(Bool.self, forKey: .isSharing) ?? false
             isViewing = try container.decodeIfPresent(Bool.self, forKey: .isViewing) ?? false
@@ -60,6 +63,7 @@ struct HeartRateActivityAttributes: ActivityAttributes {
             try container.encodeIfPresent(average, forKey: .average)
             try container.encodeIfPresent(maximum, forKey: .maximum)
             try container.encodeIfPresent(minimum, forKey: .minimum)
+            try container.encodeIfPresent(elapsedSeconds, forKey: .elapsedSeconds)
             try container.encodeIfPresent(zone, forKey: .zone)
             try container.encode(isSharing, forKey: .isSharing)
             try container.encode(isViewing, forKey: .isViewing)
@@ -88,6 +92,15 @@ final class HeartRateActivityController {
     private var activity: Activity<HeartRateActivityAttributes>?
     private let logger = Logger(subsystem: "com.bpmapp.client", category: "HeartRateActivity")
     private var isRequestingActivity = false
+    private var lastBpm: Int?
+    private var lastAverage: Int?
+    private var lastMaximum: Int?
+    private var lastMinimum: Int?
+    private var lastZone: ZoneInfo?
+    private var lastIsSharing: Bool = false
+    private var lastIsViewing: Bool = false
+    private var lastHasError: Bool = false
+    private var lastElapsedSeconds: Int?
     
 
     private init() {
@@ -117,6 +130,23 @@ final class HeartRateActivityController {
     }
 
     func updateActivity(bpm: Int?, average: Int?, maximum: Int?, minimum: Int?, zone: ZoneInfo? = nil, isSharing: Bool = false, isViewing: Bool = false, hasError: Bool = false) {
+        lastBpm = bpm
+        lastAverage = average
+        lastMaximum = maximum
+        lastMinimum = minimum
+        lastZone = zone
+        lastIsSharing = isSharing
+        lastIsViewing = isViewing
+        lastHasError = hasError
+        applyUpdate()
+    }
+
+    func updateTimer(elapsedSeconds: Int?, isRunning: Bool) {
+        lastElapsedSeconds = isRunning ? elapsedSeconds : nil
+        applyUpdate()
+    }
+
+    private func applyUpdate() {
         guard ActivityAuthorizationInfo().areActivitiesEnabled else { return }
 
         // Restore activity if we don't have one stored (e.g., after app restart)
@@ -125,14 +155,15 @@ final class HeartRateActivityController {
         }
 
         let state = HeartRateActivityAttributes.ContentState(
-            bpm: bpm,
-            average: average,
-            maximum: maximum,
-            minimum: minimum,
-            zone: zone,
-            isSharing: isSharing,
-            isViewing: isViewing,
-            hasError: hasError
+            bpm: lastBpm,
+            average: lastAverage,
+            maximum: lastMaximum,
+            minimum: lastMinimum,
+            elapsedSeconds: lastElapsedSeconds,
+            zone: lastZone,
+            isSharing: lastIsSharing,
+            isViewing: lastIsViewing,
+            hasError: lastHasError
         )
 
         Task { @MainActor [weak self] in

@@ -93,6 +93,7 @@ struct HeartRateDisplayView: View {
     @State private var savedWorkoutId: UUID?
     @State private var showWorkoutTitlePrompt = false
     @State private var workoutTitleText = ""
+    @FocusState private var isWorkoutTitleFocused: Bool
     @StateObject private var workoutStore = WorkoutStore.shared
     @AppStorage("BPM_View_ShowExpandedStats") private var showExpandedStats = false
     @AppStorage("BPM_Alert_HeartRateEnabled") private var isHeartRateAlertEnabled = false
@@ -120,6 +121,17 @@ struct HeartRateDisplayView: View {
             if isEmpty {
                 hasSavedWorkout = false
                 savedWorkoutId = nil
+            }
+        }
+        .onChange(of: showWorkoutTitlePrompt) { _, isPresented in
+            if isPresented {
+                workoutTitleText = "Workout"
+                isWorkoutTitleFocused = true
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    UIApplication.shared.sendAction(#selector(UIResponder.selectAll(_:)), to: nil, from: nil, for: nil)
+                }
+            } else {
+                isWorkoutTitleFocused = false
             }
         }
         .sheet(isPresented: $showDevicePicker) {
@@ -1119,13 +1131,13 @@ struct HeartRateDisplayView: View {
                 Text("Are you sure you want to reset? This will clear all timer data.")
             }
             .alert("Workout Title", isPresented: $showWorkoutTitlePrompt) {
-                TextField("Optional title", text: $workoutTitleText)
-                Button("Skip") {
-                    saveCurrentWorkout(title: nil)
-                }
+                TextField("Title", text: $workoutTitleText)
+                    .focused($isWorkoutTitleFocused)
+                    .textInputAutocapitalization(.words)
+                    .disableAutocorrection(true)
                 Button("Save") {
                     let trimmed = workoutTitleText.trimmingCharacters(in: .whitespacesAndNewlines)
-                    saveCurrentWorkout(title: trimmed.isEmpty ? nil : trimmed)
+                    saveCurrentWorkout(title: trimmed.isEmpty ? "Workout" : trimmed)
                 }
                 Button("Cancel", role: .cancel) { }
             } message: {
@@ -1722,7 +1734,7 @@ struct HeartRateDisplayView: View {
         if isCompleted {
             VStack(spacing: 12) {
                 Button {
-                    workoutTitleText = ""
+                    workoutTitleText = "Workout"
                     showWorkoutTitlePrompt = true
                 } label: {
                     Text(hasSavedWorkout ? "Saved" : "Save Workout")

@@ -255,16 +255,16 @@ struct CalorieSettingsView: View {
             return
         }
         let kg = lb / 2.2046226218
-        weightKgText = formatDecimal(kg)
+        weightKgText = formatDecimal(kg, maximumFractionDigits: 2)
         weightLbText = formatDecimal(lb)
     }
 
-    private func formatDecimal(_ value: Double) -> String {
+    private func formatDecimal(_ value: Double, maximumFractionDigits: Int = 1, minimumFractionDigits: Int = 0) -> String {
         let formatter = NumberFormatter()
-        formatter.maximumFractionDigits = 1
-        formatter.minimumFractionDigits = 0
+        formatter.maximumFractionDigits = maximumFractionDigits
+        formatter.minimumFractionDigits = minimumFractionDigits
         formatter.decimalSeparator = "."
-        return formatter.string(from: NSNumber(value: value)) ?? String(format: "%.1f", value)
+        return formatter.string(from: NSNumber(value: value)) ?? String(format: "%.\(maximumFractionDigits)f", value)
     }
 
     private func numericBinding(_ binding: Binding<String>, allowsDecimal: Bool) -> Binding<String> {
