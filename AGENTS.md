@@ -41,7 +41,7 @@
 ## Security & Configuration Tips
 - This is a public repo; do not commit secrets or sensitive data.
 - Backend requires `KV_REST_API_URL` and `KV_REST_API_TOKEN` in Vercel or `backend/.env.local`.
-- API URL selection: staging branches (prefix `staging`) use `https://staging.bpmtracker.app`; other branches use `https://bpmtracker.app`.
+- API URL selection: build script sets `https://bpmtracker.app` by default; runtime override via `BPM_API_BASE_URL` in UserDefaults.
 - Manual override: set `UserDefaults.standard.set(\"https://your-custom-url.com\", forKey: \"BPM_API_BASE_URL\")`.
 - Build phase: add `${SRCROOT}/scripts/set-api-url.sh` before “Compile Sources”.
 

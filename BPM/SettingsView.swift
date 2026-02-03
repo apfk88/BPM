@@ -96,17 +96,6 @@ struct SettingsView: View {
                     }
                 }
 
-            }
-            .navigationTitle("")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Done") {
-                        commitHeartRateThreshold()
-                        dismiss()
-                    }
-                }
-
                 Section(header: Text("History")) {
                     Button {
                         showWorkoutHistory = true
@@ -128,6 +117,16 @@ struct SettingsView: View {
                             Image(systemName: "chevron.right")
                                 .foregroundColor(.secondary)
                         }
+                    }
+                }
+            }
+            .navigationTitle("")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Done") {
+                        commitHeartRateThreshold()
+                        dismiss()
                     }
                 }
             }

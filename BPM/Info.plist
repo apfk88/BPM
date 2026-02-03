@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
 	<key>BPM_API_BASE_URL</key>
-	<string>https://staging.bpmtracker.app</string>
+	<string>https://bpmtracker.app</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 	<key>NSBluetoothAlwaysUsageDescription</key>

@@ -136,7 +136,7 @@ class SharingService: ObservableObject {
                 let error = SharingError.serverError(httpResponse.statusCode)
                 await MainActor.run {
                     if httpResponse.statusCode == 401 {
-                        self.errorMessage = "Authentication required. Staging may have password protection enabled. Please disable it in Vercel dashboard."
+                        self.errorMessage = "Authentication required. Please ensure the sharing API is public."
                     } else if httpResponse.statusCode == 500 {
                         self.errorMessage = "Server error. Please try again later."
                     } else {
@@ -564,4 +564,3 @@ class SharingService: ObservableObject {
         return String(digits.prefix(6))
     }
 }
-
