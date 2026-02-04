@@ -5,6 +5,11 @@ enum WorkoutDefaultsKey {
     static let retentionDays = "BPM_Workouts_RetentionDays"
 }
 
+enum WorkoutICloudKey {
+    static let data = "BPM_Workouts_Data"
+    static let updatedAt = "BPM_Workouts_UpdatedAt"
+}
+
 final class WorkoutStore: ObservableObject {
     static let shared = WorkoutStore()
 
@@ -13,12 +18,19 @@ final class WorkoutStore: ObservableObject {
 
     private let storeURL: URL
     private let userDefaults: UserDefaults
+    private let iCloudStore: NSUbiquitousKeyValueStore
     private let queue = DispatchQueue(label: "bpm.workout-store", qos: .utility)
 
-    init(storeURL: URL = WorkoutStore.defaultStoreURL(), userDefaults: UserDefaults = .standard) {
+    init(
+        storeURL: URL = WorkoutStore.defaultStoreURL(),
+        userDefaults: UserDefaults = .standard,
+        iCloudStore: NSUbiquitousKeyValueStore = .default
+    ) {
         self.storeURL = storeURL
         self.userDefaults = userDefaults
+        self.iCloudStore = iCloudStore
         registerDefaults()
+        registerForICloudChanges()
         load()
     }
 
@@ -132,12 +144,13 @@ final class WorkoutStore: ObservableObject {
     private func load() {
         queue.async {
             do {
-                let data = try Data(contentsOf: self.storeURL)
-                let decoder = JSONDecoder()
-                decoder.dateDecodingStrategy = .iso8601
-                var records = try decoder.decode([WorkoutRecord].self, from: data)
-                records = self.pruneRetentionInternal(records: records, now: Date())
-                self.persist(records: records)
+                self.iCloudStore.synchronize()
+                let local = try self.loadLocalRecords()
+                let remote = try self.loadICloudRecords()
+
+                let selected = self.preferredRecords(local: local, remote: remote)
+                let records = self.pruneRetentionInternal(records: selected.records, now: Date())
+                self.persist(records: records, updatedAt: selected.updatedAt)
                 DispatchQueue.main.async {
                     self.lastError = nil
                     self.workouts = self.sorted(records)
@@ -152,7 +165,7 @@ final class WorkoutStore: ObservableObject {
         }
     }
 
-    private func persist(records: [WorkoutRecord]) {
+    private func persist(records: [WorkoutRecord], updatedAt: Date = Date()) {
         do {
             try ensureDirectoryExists()
             let encoder = JSONEncoder()
@@ -160,6 +173,7 @@ final class WorkoutStore: ObservableObject {
             encoder.dateEncodingStrategy = .iso8601
             let data = try encoder.encode(records)
             try data.write(to: storeURL, options: [.atomic])
+            persistToICloud(data: data, updatedAt: updatedAt)
         } catch {
             DispatchQueue.main.async {
                 self.lastError = "Failed to save workouts"
@@ -183,6 +197,80 @@ final class WorkoutStore: ObservableObject {
 
     private func sorted(_ records: [WorkoutRecord]) -> [WorkoutRecord] {
         records.sorted { $0.startAt > $1.startAt }
+    }
+
+    private func registerForICloudChanges() {
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleICloudChange),
+            name: NSUbiquitousKeyValueStore.didChangeExternallyNotification,
+            object: iCloudStore
+        )
+    }
+
+    @objc private func handleICloudChange() {
+        queue.async {
+            do {
+                let local = try self.loadLocalRecords()
+                let remote = try self.loadICloudRecords()
+                guard let remoteUpdatedAt = remote.updatedAt else { return }
+                let localUpdatedAt = local.updatedAt
+                if localUpdatedAt == nil || remoteUpdatedAt > localUpdatedAt ?? .distantPast {
+                    let records = self.pruneRetentionInternal(records: remote.records, now: Date())
+                    self.persist(records: records, updatedAt: remoteUpdatedAt)
+                    DispatchQueue.main.async {
+                        self.lastError = nil
+                        self.workouts = self.sorted(records)
+                    }
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    self.lastError = "Failed to sync workouts"
+                }
+            }
+        }
+    }
+
+    private func loadLocalRecords() throws -> (records: [WorkoutRecord], updatedAt: Date?) {
+        guard FileManager.default.fileExists(atPath: storeURL.path) else {
+            return ([], nil)
+        }
+        let data = try Data(contentsOf: storeURL)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let records = try decoder.decode([WorkoutRecord].self, from: data)
+        let updatedAt = try? FileManager.default.attributesOfItem(atPath: storeURL.path)[.modificationDate] as? Date
+        return (records, updatedAt)
+    }
+
+    private func loadICloudRecords() throws -> (records: [WorkoutRecord], updatedAt: Date?) {
+        guard let data = iCloudStore.data(forKey: WorkoutICloudKey.data) else {
+            return ([], nil)
+        }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let records = try decoder.decode([WorkoutRecord].self, from: data)
+        let updatedAtValue = iCloudStore.object(forKey: WorkoutICloudKey.updatedAt) as? TimeInterval
+        let updatedAt = updatedAtValue.map { Date(timeIntervalSince1970: $0) }
+        return (records, updatedAt)
+    }
+
+    private func preferredRecords(
+        local: (records: [WorkoutRecord], updatedAt: Date?),
+        remote: (records: [WorkoutRecord], updatedAt: Date?)
+    ) -> (records: [WorkoutRecord], updatedAt: Date) {
+        let localUpdatedAt = local.updatedAt ?? .distantPast
+        let remoteUpdatedAt = remote.updatedAt ?? .distantPast
+        if remoteUpdatedAt > localUpdatedAt {
+            return (remote.records, remoteUpdatedAt)
+        }
+        return (local.records, localUpdatedAt == .distantPast ? Date() : localUpdatedAt)
+    }
+
+    private func persistToICloud(data: Data, updatedAt: Date) {
+        iCloudStore.set(data, forKey: WorkoutICloudKey.data)
+        iCloudStore.set(updatedAt.timeIntervalSince1970, forKey: WorkoutICloudKey.updatedAt)
+        iCloudStore.synchronize()
     }
 
     private func registerDefaults() {
