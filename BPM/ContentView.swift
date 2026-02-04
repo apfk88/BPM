@@ -100,11 +100,23 @@ struct HeartRateDisplayView: View {
     @AppStorage("BPM_Alert_HeartRateThreshold") private var heartRateAlertThreshold = 160
     @AppStorage("BPM_Alert_ZoneEnabled") private var isZoneAlertEnabled = false
     @AppStorage("BPM_Alert_Zones") private var zoneAlertSelections = "3,4,5"
-    @State private var wasAboveHeartRateThreshold = false
-    @State private var lastZoneSeen: HeartRateZone?
+    @State private var showAlertsSheet = false
 
     private var isPad: Bool {
         UIDevice.current.userInterfaceIdiom == .pad
+    }
+
+    private var isAnyAlertEnabled: Bool {
+        isHeartRateAlertEnabled || isZoneAlertEnabled
+    }
+
+    private var selectedZoneSummary: String {
+        let ids = zoneAlertSelections
+            .split(separator: ",")
+            .compactMap { Int($0.trimmingCharacters(in: .whitespaces)) }
+        let zones = HeartRateZone.allCases.filter { ids.contains($0.rawValue) }
+        guard !zones.isEmpty else { return "None" }
+        return zones.map { $0.displayName }.joined(separator: ", ")
     }
 
     var body: some View {
@@ -113,9 +125,6 @@ struct HeartRateDisplayView: View {
                 Color.black.ignoresSafeArea()
                 portraitLayout(geometry: geometry)
             }
-        }
-        .onChange(of: bluetoothManager.currentHeartRate) { _, newValue in
-            handleHeartRateAlerts(for: newValue)
         }
         .onChange(of: timerViewModel.sets.isEmpty) { _, isEmpty in
             if isEmpty {
@@ -153,6 +162,19 @@ struct HeartRateDisplayView: View {
         }
         .sheet(isPresented: $showPaywall) {
             SharePaywallView()
+        }
+        .sheet(isPresented: $showAlertsSheet) {
+            AlertsSheet(
+                isHeartRateAlertEnabled: $isHeartRateAlertEnabled,
+                heartRateAlertThreshold: $heartRateAlertThreshold,
+                isZoneAlertEnabled: $isZoneAlertEnabled,
+                selectedZoneSummary: selectedZoneSummary,
+                onOpenSettings: {
+                    showSettings = true
+                }
+            )
+            .presentationDetents([.height(320)])
+            .presentationDragIndicator(.hidden)
         }
         .sheet(isPresented: $showSettings) {
             SettingsView()
@@ -1077,6 +1099,18 @@ struct HeartRateDisplayView: View {
                         .background(Color.gray.opacity(0.3))
                         .clipShape(Circle())
                         .accessibilityLabel("View Settings")
+                }
+
+                Button {
+                    showAlertsSheet = true
+                } label: {
+                    Image(systemName: isAnyAlertEnabled ? "bell.fill" : "bell")
+                        .font(.system(size: 20))
+                        .foregroundColor(isAnyAlertEnabled ? .green : .white)
+                        .padding(12)
+                        .background(Color.gray.opacity(0.3))
+                        .clipShape(Circle())
+                        .accessibilityLabel("Alerts")
                 }
 
                 Button {
@@ -2227,42 +2261,64 @@ struct HeartRateDisplayView: View {
         }
     }
 
-    private func handleHeartRateAlerts(for heartRate: Int?) {
-        guard appMode == .myDevice else { return }
-        guard let heartRate = heartRate, heartRate > 0 else { return }
+}
 
-        if isHeartRateAlertEnabled {
-            let isAbove = heartRate >= heartRateAlertThreshold
-            if isAbove && !wasAboveHeartRateThreshold {
-                AlertSoundPlayer.shared.playBpmAscending()
-            } else if !isAbove && wasAboveHeartRateThreshold {
-                AlertSoundPlayer.shared.playBpmDescending()
-            }
-            wasAboveHeartRateThreshold = isAbove
-        } else {
-            wasAboveHeartRateThreshold = false
-        }
+private struct AlertsSheet: View {
+    @Binding var isHeartRateAlertEnabled: Bool
+    @Binding var heartRateAlertThreshold: Int
+    @Binding var isZoneAlertEnabled: Bool
+    let selectedZoneSummary: String
+    let onOpenSettings: () -> Void
+    @Environment(\.dismiss) private var dismiss
 
-        if isZoneAlertEnabled {
-            let zone = zoneStorage.currentZone(for: heartRate)
-            if zone != lastZoneSeen {
-                lastZoneSeen = zone
-                if let zone = zone, selectedAlertZones().contains(zone) {
-                    AlertSoundPlayer.shared.playZoneCount(zone.rawValue)
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Alerts")
+                .font(.system(size: 16, weight: .semibold))
+                .padding(.top, 20)
+
+            VStack(spacing: 12) {
+                Toggle("BPM Alert", isOn: $isHeartRateAlertEnabled)
+                HStack {
+                    Text("BPM Threshold")
+                    Spacer()
+                    Text("\(heartRateAlertThreshold) BPM")
+                        .foregroundColor(.secondary)
+                }
+
+                Toggle("Zone Alert", isOn: $isZoneAlertEnabled)
+                HStack {
+                    Text("Selected Zones")
+                    Spacer()
+                    Text(selectedZoneSummary)
+                        .foregroundColor(.secondary)
                 }
             }
-        } else {
-            lastZoneSeen = nil
+
+            Spacer()
+
+            Button("Alert Settings") {
+                dismiss()
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                    onOpenSettings()
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 10)
+            .background(Color.gray.opacity(0.2))
+            .cornerRadius(10)
+
+            Button("Done") {
+                dismiss()
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 10)
+            .background(Color.gray.opacity(0.2))
+            .cornerRadius(10)
         }
+        .padding(.horizontal, 20)
+        .padding(.bottom, 16)
     }
-
-    private func selectedAlertZones() -> Set<HeartRateZone> {
-        let ids = zoneAlertSelections
-            .split(separator: ",")
-            .compactMap { Int($0.trimmingCharacters(in: .whitespaces)) }
-        return Set(HeartRateZone.allCases.filter { ids.contains($0.rawValue) })
-    }
-
 }
 
 private struct ViewSettingsSheet: View {

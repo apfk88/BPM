@@ -114,6 +114,7 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
     private var hasSentNoDataToSharing = false
     private var hasReceivedDataSinceConnect = false
     private var preserveConnectionMessageOnDisconnect = false
+    private var alertState = HeartRateAlertState()
 
     // Sharing integration
     private let sharingService = SharingService.shared
@@ -483,6 +484,7 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
             heartRateSamples.removeAll { $0.timestamp < cutoff }
 
             currentHeartRate = value
+            handleHeartRateAlerts(for: value)
 
             // Update sharing service (throttled to 1 Hz)
             let max = maxHeartRateLastHour
@@ -525,6 +527,7 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
 
     private func handleZeroHeartRateReading() {
         currentHeartRate = nil
+        handleHeartRateAlerts(for: nil)
         sharingService.updateHeartRate(nil, max: nil, avg: nil, min: nil)
 
 #if canImport(ActivityKit)
@@ -548,6 +551,30 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
         invalidateNoDataTimer()
         noDataTimer = Timer.scheduledTimer(withTimeInterval: noDataTimeoutInterval, repeats: false) { [weak self] _ in
             self?.handleNoDataTimeout()
+        }
+    }
+
+    private func handleHeartRateAlerts(for heartRate: Int?) {
+        if sharingService.isViewing {
+            alertState.reset()
+            return
+        }
+
+        let settings = HeartRateAlertSettings.fromDefaults()
+        let decision = alertState.handle(
+            heartRate: heartRate,
+            settings: settings,
+            zoneForHeartRate: { HeartRateZoneStorage.shared.currentZone(for: $0) }
+        )
+
+        if decision.playBpmAscending {
+            AlertSoundPlayer.shared.playBpmAscending()
+        }
+        if decision.playBpmDescending {
+            AlertSoundPlayer.shared.playBpmDescending()
+        }
+        if let zoneCount = decision.playZoneCount {
+            AlertSoundPlayer.shared.playZoneCount(zoneCount)
         }
     }
 
