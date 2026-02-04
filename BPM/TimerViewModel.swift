@@ -1188,7 +1188,9 @@ final class TimerViewModel: ObservableObject {
             }
 
             lastLiveActivityElapsedSeconds = elapsed
-            HeartRateActivityController.shared.updateTimer(elapsedSeconds: elapsed, isRunning: elapsed != nil)
+            Task { @MainActor in
+                HeartRateActivityController.shared.updateTimer(elapsedSeconds: elapsed, isRunning: elapsed != nil)
+            }
         }
         #endif
     }
