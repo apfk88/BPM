@@ -1690,11 +1690,16 @@ struct HeartRateDisplayView: View {
             )
             shareSubject = "Workout Summary"
         case .detail:
-            shareText = timerViewModel.workoutDetailedText(
-                totalTime: totalTime,
-                zoneConfig: zoneStorage.effectiveConfig
-            )
-            shareSubject = "Workout Logs (for AI)"
+            if let record = timerViewModel.workoutRecord(
+                zoneConfig: zoneStorage.effectiveConfig,
+                workoutId: savedWorkoutId,
+                title: nil
+            ) {
+                shareText = record.jsonString()
+            } else {
+                shareText = "{\"error\":\"No workout data available\"}"
+            }
+            shareSubject = "Workout Logs (JSON)"
         }
         showShareSheet = true
     }
