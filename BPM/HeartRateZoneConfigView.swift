@@ -43,7 +43,12 @@ struct HeartRateZoneConfigView: View {
                                     .background(Color.gray.opacity(0.3))
                                     .cornerRadius(8)
                                     .onChange(of: maxHeartRate) { _, newValue in
-                                        if let hrMax = Int(newValue), hrMax > 0 {
+                                        let sanitized = sanitizeMaxHeartRate(newValue)
+                                        if sanitized != newValue {
+                                            maxHeartRate = sanitized
+                                            return
+                                        }
+                                        if let hrMax = Int(sanitized), hrMax > 0 {
                                             recalculateZones(from: hrMax)
                                         }
                                     }
@@ -317,5 +322,10 @@ struct HeartRateZoneConfigView: View {
         config.zone5Max = z5Max
 
         storage.config = config
+    }
+
+    private func sanitizeMaxHeartRate(_ value: String) -> String {
+        let digits = value.filter { $0.isNumber }
+        return String(digits.prefix(3))
     }
 }

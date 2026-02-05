@@ -71,7 +71,12 @@ struct CalorieSettingsView: View {
                 footer: Text("Optional fields increase accuracy.")
             ) {
                 numericRow(label: "Resting HR", text: $restHrText, unit: "bpm", allowsDecimal: false)
-                numericRow(label: "Max HR", text: $maxHrText, unit: "bpm", allowsDecimal: false)
+                numericRow(
+                    label: "Max HR",
+                    text: numericBinding($maxHrText, allowsDecimal: false, maxDigits: 3),
+                    unit: "bpm",
+                    allowsDecimal: false
+                )
                 numericRow(label: "VO2max", text: $vo2MaxText, unit: "ml/kg/min", allowsDecimal: true)
                 numericRow(label: "RMR", text: $rmrText, unit: "kcal/day", allowsDecimal: true)
                 numericRow(label: "Body Fat", text: $bodyFatText, unit: "%", allowsDecimal: true)
@@ -267,7 +272,7 @@ struct CalorieSettingsView: View {
         return formatter.string(from: NSNumber(value: value)) ?? String(format: "%.\(maximumFractionDigits)f", value)
     }
 
-    private func numericBinding(_ binding: Binding<String>, allowsDecimal: Bool) -> Binding<String> {
+    private func numericBinding(_ binding: Binding<String>, allowsDecimal: Bool, maxDigits: Int? = nil) -> Binding<String> {
         Binding(
             get: { binding.wrappedValue },
             set: { newValue in
@@ -288,7 +293,11 @@ struct CalorieSettingsView: View {
                     }
                     binding.wrappedValue = String(compacted)
                 } else {
-                    binding.wrappedValue = String(filtered)
+                    if let maxDigits {
+                        binding.wrappedValue = String(filtered.prefix(maxDigits))
+                    } else {
+                        binding.wrappedValue = String(filtered)
+                    }
                 }
             }
         )

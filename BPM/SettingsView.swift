@@ -174,7 +174,7 @@ private struct ZoneSettingsView: View {
                 footer: Text("If you don't know your max heart rate, use 220 minus your age.")
             ) {
                 HStack {
-                    TextField("", text: numericBinding($maxHeartRate))
+                    TextField("", text: numericBinding($maxHeartRate, maxDigits: 3))
                         .keyboardType(.numberPad)
                         .font(.system(size: 18, weight: .medium, design: .monospaced))
                         .multilineTextAlignment(.center)
@@ -345,12 +345,16 @@ private struct ZoneSettingsView: View {
         }
     }
 
-    private func numericBinding(_ binding: Binding<String>) -> Binding<String> {
+    private func numericBinding(_ binding: Binding<String>, maxDigits: Int? = nil) -> Binding<String> {
         Binding(
             get: { binding.wrappedValue },
             set: { newValue in
                 let filtered = newValue.filter { $0.isNumber }
-                binding.wrappedValue = filtered
+                if let maxDigits {
+                    binding.wrappedValue = String(filtered.prefix(maxDigits))
+                } else {
+                    binding.wrappedValue = filtered
+                }
             }
         )
     }
