@@ -13,7 +13,6 @@ final class AlertSoundPlayer {
     private let sampleRate: Double = 44_100
     private let amplitude: Float = 0.6
     private let queue = DispatchQueue(label: "bpm.alert-sound-player")
-    private var isEngineRunning = false
 
     private init() {
         let format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 1)!
@@ -43,8 +42,8 @@ final class AlertSoundPlayer {
             var delay: TimeInterval = 0
             for frequency in frequencies {
                 let buffer = self.makeBuffer(frequency: frequency, duration: toneDuration)
-                DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
-                    self.player.scheduleBuffer(buffer, at: nil, options: .interrupts, completionHandler: nil)
+                self.queue.asyncAfter(deadline: .now() + delay) { [weak self] in
+                    self?.player.scheduleBuffer(buffer, at: nil, options: .interrupts, completionHandler: nil)
                 }
                 delay += toneDuration + gap
             }
@@ -52,15 +51,17 @@ final class AlertSoundPlayer {
     }
 
     private func ensureEngineRunning() {
-        guard !isEngineRunning else { return }
         do {
             try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, options: [.duckOthers])
             try AVAudioSession.sharedInstance().setActive(true)
-            try engine.start()
-            player.play()
-            isEngineRunning = true
+            if !engine.isRunning {
+                try engine.start()
+            }
+            if !player.isPlaying {
+                player.play()
+            }
         } catch {
-            isEngineRunning = false
+            engine.stop()
         }
     }
 
