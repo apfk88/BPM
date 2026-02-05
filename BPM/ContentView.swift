@@ -106,6 +106,14 @@ struct HeartRateDisplayView: View {
         UIDevice.current.userInterfaceIdiom == .pad
     }
 
+    private var shouldShowTenthsInTimer: Bool {
+        var total = max(timerViewModel.elapsedTime, timerViewModel.frozenElapsedTime)
+        if timerViewModel.state == .cooldown || timerViewModel.state == .cooldownPaused {
+            total = max(total, timerViewModel.frozenElapsedTime + timerViewModel.currentSetTime)
+        }
+        return total < 3600
+    }
+
     private var isAnyAlertEnabled: Bool {
         isHeartRateAlertEnabled || isZoneAlertEnabled
     }
@@ -392,7 +400,7 @@ struct HeartRateDisplayView: View {
         let labelSize: CGFloat = 14.0
         let valueSize: CGFloat = isPad ? 28.0 : 32.0
         let totalTimeValue = formatTime(totalTime, showTenths: false)
-        let avgSetValue = timerViewModel.avgSetTime.map { formatTime($0, showTenths: false) } ?? "---"
+        let avgSetValue = timerViewModel.avgSetTime.map { formatTime($0, showTenths: shouldShowTenthsInTimer) } ?? "---"
         let avgBPMValue = timerViewModel.avgHeartRate.map(String.init) ?? "---"
 
         return HStack(spacing: 0) {
@@ -1272,9 +1280,9 @@ struct HeartRateDisplayView: View {
             let totalTimeTitle = "Total Time"
             let setTimeValue: String = {
                 if timerViewModel.isCompleted {
-                    return timerViewModel.avgSetTime.map { formatTime($0) } ?? "---"
+                    return timerViewModel.avgSetTime.map { formatTime($0, showTenths: shouldShowTenthsInTimer) } ?? "---"
                 } else {
-                    return formatTime(displaySetTime)
+                    return formatTime(displaySetTime, showTenths: shouldShowTenthsInTimer)
                 }
             }()
             // Landscape: show Total, Set, BPM
@@ -1345,9 +1353,9 @@ struct HeartRateDisplayView: View {
             let totalTimeTitle = "Total Time"
             let setTimeValue: String = {
                 if timerViewModel.isCompleted {
-                    return timerViewModel.avgSetTime.map { formatTime($0) } ?? "---"
+                    return timerViewModel.avgSetTime.map { formatTime($0, showTenths: shouldShowTenthsInTimer) } ?? "---"
                 } else {
-                    return formatTime(displaySetTime)
+                    return formatTime(displaySetTime, showTenths: shouldShowTenthsInTimer)
                 }
             }()
             
@@ -1411,6 +1419,7 @@ struct HeartRateDisplayView: View {
         let columnCount = isLandscape ? 6 : 4 // 6 columns in landscape (add Max BPM and Min BPM), 4 in portrait
         let columnWidth = (screenWidth - (isLandscape ? 80 : 40) - 24 - (columnSpacing * CGFloat(columnCount - 1))) / CGFloat(columnCount) // Equal width columns
         let workSetCount = timerViewModel.sets.filter { !$0.isRestSet && !$0.isCooldownSet }.count
+        let showTenths = shouldShowTenthsInTimer
         
         ScrollViewReader { proxy in
             ZStack(alignment: .top) {
@@ -1470,7 +1479,7 @@ struct HeartRateDisplayView: View {
                                     .foregroundColor(rowColor)
                                     .frame(width: columnWidth, alignment: .center)
 
-                                Text(formatTime(setTime))
+                                Text(formatTime(setTime, showTenths: showTenths))
                                     .font(.system(size: fontSize, weight: .medium, design: .monospaced))
                                     .foregroundColor(rowColor)
                                     .frame(width: columnWidth, alignment: .center)
@@ -1492,7 +1501,7 @@ struct HeartRateDisplayView: View {
                                         .frame(width: columnWidth, alignment: .center)
                                 }
 
-                                Text(formatTime(totalTime))
+                                Text(formatTime(totalTime, showTenths: showTenths))
                                     .font(.system(size: fontSize, weight: .medium, design: .monospaced))
                                     .foregroundColor(rowColor)
                                     .frame(width: columnWidth, alignment: .center)
@@ -1506,7 +1515,7 @@ struct HeartRateDisplayView: View {
                         if timerViewModel.isPresetMode && timerViewModel.state == .idle && timerViewModel.sets.isEmpty {
                             // Show all placeholders when not started
                             ForEach(timerViewModel.presetPlaceholderSets) { set in
-                                presetPlaceholderRow(set: set, fontSize: fontSize, columnWidth: columnWidth, columnSpacing: columnSpacing, isLandscape: isLandscape)
+                                presetPlaceholderRow(set: set, fontSize: fontSize, columnWidth: columnWidth, columnSpacing: columnSpacing, isLandscape: isLandscape, showTenths: showTenths)
                             }
                         }
                         
@@ -1526,7 +1535,7 @@ struct HeartRateDisplayView: View {
                                     .foregroundColor(.white)
                                     .frame(width: columnWidth, alignment: .center)
                                 
-                                Text(formatTime(timerViewModel.currentSetTime))
+                                Text(formatTime(timerViewModel.currentSetTime, showTenths: showTenths))
                                     .font(.system(size: fontSize, weight: .medium, design: .monospaced))
                                     .foregroundColor(.white)
                                     .frame(width: columnWidth, alignment: .center)
@@ -1548,7 +1557,7 @@ struct HeartRateDisplayView: View {
                                         .frame(width: columnWidth, alignment: .center)
                                 }
                                 
-                                Text(formatTime(timerViewModel.elapsedTime))
+                                Text(formatTime(timerViewModel.elapsedTime, showTenths: showTenths))
                                     .font(.system(size: fontSize, weight: .medium, design: .monospaced))
                                     .foregroundColor(.white)
                                     .frame(width: columnWidth, alignment: .center)
@@ -1576,7 +1585,7 @@ struct HeartRateDisplayView: View {
                                     .foregroundColor(.white)
                                     .frame(width: columnWidth, alignment: .center)
                                 
-                                Text(formatTime(timerViewModel.currentSetTime))
+                                Text(formatTime(timerViewModel.currentSetTime, showTenths: showTenths))
                                     .font(.system(size: fontSize, weight: .medium, design: .monospaced))
                                     .foregroundColor(.white)
                                     .frame(width: columnWidth, alignment: .center)
@@ -1598,7 +1607,7 @@ struct HeartRateDisplayView: View {
                                         .frame(width: columnWidth, alignment: .center)
                                 }
                                 
-                                Text(formatTime(totalTime))
+                                Text(formatTime(totalTime, showTenths: showTenths))
                                     .font(.system(size: fontSize, weight: .medium, design: .monospaced))
                                     .foregroundColor(.white)
                                     .frame(width: columnWidth, alignment: .center)
@@ -1611,7 +1620,7 @@ struct HeartRateDisplayView: View {
                         // Remaining future placeholder rows for preset mode (grayed out, shown after active row)
                         if timerViewModel.isPresetMode && (timerViewModel.state == .running || timerViewModel.state == .paused || timerViewModel.state == .cooldown || timerViewModel.state == .cooldownPaused) {
                             ForEach(timerViewModel.remainingPresetPlaceholderSets) { set in
-                                presetPlaceholderRow(set: set, fontSize: fontSize, columnWidth: columnWidth, columnSpacing: columnSpacing, isLandscape: isLandscape)
+                                presetPlaceholderRow(set: set, fontSize: fontSize, columnWidth: columnWidth, columnSpacing: columnSpacing, isLandscape: isLandscape, showTenths: showTenths)
                             }
                         }
                     }
@@ -2204,7 +2213,7 @@ struct HeartRateDisplayView: View {
     }
     
     @ViewBuilder
-    private func presetPlaceholderRow(set: SetRecord, fontSize: CGFloat, columnWidth: CGFloat, columnSpacing: CGFloat, isLandscape: Bool) -> some View {
+    private func presetPlaceholderRow(set: SetRecord, fontSize: CGFloat, columnWidth: CGFloat, columnSpacing: CGFloat, isLandscape: Bool, showTenths: Bool) -> some View {
         let rowColor: Color = .gray.opacity(0.4)
 
         HStack(spacing: columnSpacing) {
@@ -2213,7 +2222,7 @@ struct HeartRateDisplayView: View {
                 .foregroundColor(rowColor)
                 .frame(width: columnWidth, alignment: .center)
 
-            Text(formatTime(set.setTime))
+            Text(formatTime(set.setTime, showTenths: showTenths))
                 .font(.system(size: fontSize, weight: .medium, design: .monospaced))
                 .foregroundColor(rowColor)
                 .frame(width: columnWidth, alignment: .center)
@@ -2235,7 +2244,7 @@ struct HeartRateDisplayView: View {
                     .frame(width: columnWidth, alignment: .center)
             }
 
-            Text(formatTime(set.totalTime))
+            Text(formatTime(set.totalTime, showTenths: showTenths))
                 .font(.system(size: fontSize, weight: .medium, design: .monospaced))
                 .foregroundColor(rowColor)
                 .frame(width: columnWidth, alignment: .center)
@@ -2275,7 +2284,7 @@ private struct AlertsSheet: View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Alerts")
                 .font(.system(size: 16, weight: .semibold))
-                .padding(.top, 20)
+                .padding(.top, 28)
 
             VStack(spacing: 12) {
                 Toggle("BPM Alert", isOn: $isHeartRateAlertEnabled)
