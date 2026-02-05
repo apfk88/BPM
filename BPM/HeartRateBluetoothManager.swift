@@ -549,9 +549,11 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
 
     private func scheduleNoDataTimeout() {
         invalidateNoDataTimer()
-        noDataTimer = Timer.scheduledTimer(withTimeInterval: noDataTimeoutInterval, repeats: false) { [weak self] _ in
+        let timer = Timer(timeInterval: noDataTimeoutInterval, repeats: false) { [weak self] _ in
             self?.handleNoDataTimeout()
         }
+        noDataTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
     }
 
     private func handleHeartRateAlerts(for heartRate: Int?) {
