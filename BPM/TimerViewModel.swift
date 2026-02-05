@@ -1581,7 +1581,7 @@ final class TimerViewModel: ObservableObject {
 
         lines.append("BPM Workout Detail Export")
         lines.append("Context:")
-        lines.append("- App: BPM (iOS heart-rate timer).")
+        lines.append("- App: BPM (iOS heart-rate app).")
         lines.append("- Heart rate samples: ~1 Hz from a Bluetooth heart rate monitor; values are bpm.")
         lines.append("- Zones: derived from max HR (default 190) or user config; zone is chosen by lower-bound thresholds.")
         lines.append("- Sets: work/rest/cooldown; total time includes workout + cooldown; workout time is pre-cooldown.")

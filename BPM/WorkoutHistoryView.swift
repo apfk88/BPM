@@ -91,11 +91,11 @@ private struct WorkoutHistoryRow: View {
             HStack(spacing: 12) {
                 statChip(label: "Avg", value: record.avgHr)
                 statChip(label: "Max", value: record.maxHr)
-                if let total = record.caloriesTotal {
-                    Text("Cal \(Int(round(total)))")
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
-                }
+            }
+            if let caloriesSummaryText {
+                Text(caloriesSummaryText)
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
             }
         }
         .padding(.vertical, 4)
@@ -105,6 +105,15 @@ private struct WorkoutHistoryRow: View {
         Text("\(label) \(value.map(String.init) ?? "---")")
             .font(.subheadline)
             .foregroundColor(.secondary)
+    }
+
+    private var caloriesSummaryText: String? {
+        guard let total = record.caloriesTotal else { return nil }
+        let totalText = "Total \(Int(round(total)))"
+        if let active = record.caloriesActive {
+            return "Calories: \(totalText) • Active \(Int(round(active)))"
+        }
+        return "Calories: \(totalText)"
     }
 
     private func dateString(_ date: Date) -> String {
@@ -146,7 +155,10 @@ private struct WorkoutDetailView: View {
                 detailRow(label: "Max BPM", value: record.maxHr.map(String.init))
                 detailRow(label: "Min BPM", value: record.minHr.map(String.init))
                 if let caloriesTotal = record.caloriesTotal {
-                    detailRow(label: "Calories", value: String(Int(round(caloriesTotal))))
+                    detailRow(label: "Calories (Total)", value: String(Int(round(caloriesTotal))))
+                }
+                if let caloriesActive = record.caloriesActive {
+                    detailRow(label: "Calories (Active)", value: String(Int(round(caloriesActive))))
                 }
             }
 

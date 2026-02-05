@@ -751,7 +751,7 @@ struct HeartRateDisplayView: View {
                             Image(systemName: "stopwatch")
                                 .renderingMode(.template)
                                 .font(.system(size: scaledButtonSize))
-                            Text("Timer")
+                            Text("Workout")
                                 .font(.system(size: max(10.0, 12.0 * scaleFactor), weight: .medium))
                         }
                         .foregroundColor(isTimerMode ? .green : .white)
@@ -867,7 +867,7 @@ struct HeartRateDisplayView: View {
                             Image(systemName: "stopwatch")
                                 .renderingMode(.template)
                                 .font(.system(size: scaledButtonSize))
-                            Text("Timer")
+                            Text("Workout")
                                 .font(.system(size: max(10.0, 12.0 * scaleFactor), weight: .medium))
                         }
                         .foregroundColor(isTimerMode ? .green : .white)
@@ -1155,22 +1155,22 @@ struct HeartRateDisplayView: View {
             }
             .padding(.horizontal, 20)
             .padding(.top, 4)
-            .alert("Clear Timer", isPresented: $showClearAlert) {
+            .alert("Clear Workout", isPresented: $showClearAlert) {
                 Button("Cancel", role: .cancel) { }
                 Button("Clear", role: .destructive) {
                     timerViewModel.reset()
                     isTimerMode = false
                 }
             } message: {
-                Text("Are you sure you want to clear all timer data? This cannot be undone.")
+                Text("Are you sure you want to clear all workout data? This cannot be undone.")
             }
-            .alert("Reset Timer", isPresented: $showResetAlert) {
+            .alert("Reset Workout", isPresented: $showResetAlert) {
                 Button("Cancel", role: .cancel) { }
                 Button("Reset", role: .destructive) {
                     timerViewModel.reset()
                 }
             } message: {
-                Text("Are you sure you want to reset? This will clear all timer data.")
+                Text("Are you sure you want to reset? This will clear all workout data.")
             }
             .alert("Workout Title", isPresented: $showWorkoutTitlePrompt) {
                 TextField("Title", text: $workoutTitleText)
