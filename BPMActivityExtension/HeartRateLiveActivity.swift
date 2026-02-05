@@ -31,11 +31,7 @@ struct HeartRateLiveActivity: Widget {
                     }
                 }
                 DynamicIslandExpandedRegion(.bottom) {
-                    if let elapsed = context.state.elapsedSeconds {
-                        Text("Time \(formatDuration(elapsed))")
-                            .font(.headline)
-                            .foregroundStyle(.secondary)
-                    } else if let average = context.state.average {
+                    if let average = context.state.average {
                         Text("Avg \(average) • \(context.state.trendDescription)")
                             .font(.headline)
                             .foregroundStyle(.secondary)
@@ -58,7 +54,14 @@ struct HeartRateLiveActivity: Widget {
                     .allowsTightening(true)
                 .foregroundColor(textColor)
             } compactTrailing: {
-                EmptyView()
+                if let elapsed = context.state.elapsedSeconds {
+                    Text(formatDuration(elapsed))
+                        .font(.system(size: 16, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                        .allowsTightening(true)
+                }
             } minimal: {
                 let textColor: Color = {
                     if context.state.hasError {
