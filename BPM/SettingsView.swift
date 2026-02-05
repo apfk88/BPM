@@ -18,8 +18,6 @@ struct SettingsView: View {
     @State private var didLoadHeartRateThreshold = false
     @FocusState private var isHeartRateThresholdFocused: Bool
     @StateObject private var workoutStore = WorkoutStore.shared
-    @State private var sharePayload: SharePayload?
-    @StateObject private var hrvStore = HRVStore.shared
 
     var body: some View {
         NavigationView {
@@ -84,14 +82,10 @@ struct SettingsView: View {
                 }
 
                 Section(header: Text("History")) {
-                    Button("Export All History (JSON)") {
-                        let payload = """
-                        {
-                          "workouts": \(workoutStore.exportAllJSON()),
-                          "hrv": \(hrvStore.exportAllJSON())
-                        }
-                        """
-                        sharePayload = SharePayload(items: [payload], subject: "BPM History Export (JSON)")
+                    NavigationLink {
+                        WorkoutHistoryView(store: workoutStore)
+                    } label: {
+                        Text("Workout History")
                     }
                 }
             }
@@ -123,9 +117,6 @@ struct SettingsView: View {
                 commitHeartRateThreshold()
             }
         }
-        .sheet(item: $sharePayload) { payload in
-            ShareSheet(items: payload.items, subject: payload.subject)
-        }
     }
 
     private var selectedZoneSummary: String {
@@ -143,12 +134,6 @@ struct SettingsView: View {
         heartRateAlertThreshold = clamped
         heartRateAlertThresholdText = String(clamped)
     }
-}
-
-private struct SharePayload: Identifiable {
-    let id = UUID()
-    let items: [Any]
-    let subject: String
 }
 
 private struct ZoneSettingsView: View {
