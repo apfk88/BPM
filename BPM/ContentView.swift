@@ -1780,7 +1780,7 @@ struct HeartRateDisplayView: View {
         let restSetDisabled = isPresetMode || timerViewModel.state != .running || isInCooldownMode || timerViewModel.isTimingRestSet || isCompleted
         
         if isCompleted {
-            VStack(spacing: 12) {
+            VStack(spacing: buttonSpacing) {
                 Button {
                     workoutTitleText = "Workout"
                     showWorkoutTitlePrompt = true
@@ -1788,6 +1788,9 @@ struct HeartRateDisplayView: View {
                     Text(hasSavedWorkout ? "Saved" : "Save Workout")
                         .font(.system(size: buttonFontSize, weight: .semibold))
                         .foregroundColor(hasSavedWorkout ? .gray : .white)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                        .allowsTightening(true)
                         .frame(maxWidth: .infinity)
                         .padding(.horizontal, buttonPaddingSize * 1.5)
                         .padding(.vertical, buttonPaddingSize)
@@ -2284,7 +2287,7 @@ private struct AlertsSheet: View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Alerts")
                 .font(.system(size: 16, weight: .semibold))
-                .padding(.top, 28)
+                .padding(.top, 36)
 
             VStack(spacing: 12) {
                 Toggle("BPM Alert", isOn: $isHeartRateAlertEnabled)
