@@ -11,6 +11,18 @@ enum HealthKitActivityOption: String, CaseIterable, Identifiable {
     case traditionalStrength
     case running
     case cycling
+    case walking
+    case hiking
+    case rowing
+    case swimming
+    case elliptical
+    case stairClimbing
+    case yoga
+    case dance
+    case mixedCardio
+    case basketball
+    case soccer
+    case tennis
     case other
 
     var id: String { rawValue }
@@ -27,6 +39,30 @@ enum HealthKitActivityOption: String, CaseIterable, Identifiable {
             return "Running"
         case .cycling:
             return "Cycling"
+        case .walking:
+            return "Walking"
+        case .hiking:
+            return "Hiking"
+        case .rowing:
+            return "Rowing"
+        case .swimming:
+            return "Swimming"
+        case .elliptical:
+            return "Elliptical"
+        case .stairClimbing:
+            return "Stair Climbing"
+        case .yoga:
+            return "Yoga"
+        case .dance:
+            return "Dance"
+        case .mixedCardio:
+            return "Mixed Cardio"
+        case .basketball:
+            return "Basketball"
+        case .soccer:
+            return "Soccer"
+        case .tennis:
+            return "Tennis"
         case .other:
             return "Other"
         }
@@ -44,6 +80,30 @@ enum HealthKitActivityOption: String, CaseIterable, Identifiable {
             return .running
         case .cycling:
             return .cycling
+        case .walking:
+            return .walking
+        case .hiking:
+            return .hiking
+        case .rowing:
+            return .rowing
+        case .swimming:
+            return .swimming
+        case .elliptical:
+            return .elliptical
+        case .stairClimbing:
+            return .stairClimbing
+        case .yoga:
+            return .yoga
+        case .dance:
+            return .dance
+        case .mixedCardio:
+            return .mixedCardio
+        case .basketball:
+            return .basketball
+        case .soccer:
+            return .soccer
+        case .tennis:
+            return .tennis
         case .other:
             return .other
         }

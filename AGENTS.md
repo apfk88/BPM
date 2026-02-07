@@ -77,3 +77,5 @@
 - Added Apple Health status/connect row in Settings.
 - Added configurable top-4 HealthKit workout types in Settings; default order is Functional Strength, HIIT, Running, Cycling.
 - Save title prompt now pre-fills from selected workout type (e.g., Running -> "Running") and uses that if left blank.
+- Workout Types selector list expanded with more activities; still choose ordered top-4 quick picks.
+- Apple Health connect/status moved out of the top section into lower-priority Integrations.

@@ -4,7 +4,6 @@
 //
 //  Created by OpenAI on 11/5/25.
 //
-
 import Foundation
 import SwiftUI
 struct SettingsView: View {
@@ -27,19 +26,6 @@ struct SettingsView: View {
         NavigationView {
             List {
                 Section {
-                    Button {
-                        Task {
-                            await requestHealthKitAccess()
-                        }
-                    } label: {
-                        HStack {
-                            Text("Apple Health")
-                                .foregroundColor(.primary)
-                            Spacer()
-                            Text(healthKitStatusText)
-                                .foregroundColor(healthKitStatusColor)
-                        }
-                    }
                     NavigationLink {
                         ZoneSettingsView()
                     } label: {
@@ -65,7 +51,7 @@ struct SettingsView: View {
                         showPresetSheet = true
                     } label: {
                         HStack {
-                            Text("Presets")
+                            Text("Workout Presets")
                                 .foregroundColor(.primary)
                             Spacer()
                             Image(systemName: "chevron.right")
@@ -129,6 +115,21 @@ struct SettingsView: View {
                         Text("HRV History")
                     }
                 }
+                Section(header: Text("Integrations")) {
+                    Button {
+                        Task {
+                            await requestHealthKitAccess()
+                        }
+                    } label: {
+                        HStack {
+                            Text("Apple Health")
+                                .foregroundColor(.primary)
+                            Spacer()
+                            Text(healthKitStatusText)
+                                .foregroundColor(healthKitStatusColor)
+                        }
+                    }
+                }
             }
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
@@ -169,7 +170,6 @@ struct SettingsView: View {
             }
         }
     }
-
     private var healthKitStatusText: String {
         if let healthKitStatusMessage {
             return healthKitStatusMessage
