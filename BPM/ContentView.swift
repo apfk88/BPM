@@ -114,6 +114,8 @@ struct HeartRateDisplayView: View {
     @AppStorage("BPM_Alert_ZoneEnabled") private var isZoneAlertEnabled = false
     @AppStorage("BPM_Alert_Zones") private var zoneAlertSelections = "3,4,5"
     @State private var showAlertsSheet = false
+    @State private var showTimerMenuDialog = false
+    @State private var hasChangedTimerViewModeInSession = false
 
     private var isPad: Bool {
         UIDevice.current.userInterfaceIdiom == .pad
@@ -139,6 +141,7 @@ struct HeartRateDisplayView: View {
         var nextMode = timerViewMode
         nextMode.cycle()
         timerViewModeRawValue = nextMode.rawValue
+        hasChangedTimerViewModeInSession = true
     }
 
     private var isAnyAlertEnabled: Bool {
@@ -165,6 +168,11 @@ struct HeartRateDisplayView: View {
             if isEmpty {
                 hasSavedWorkout = false
                 savedWorkoutId = nil
+            }
+        }
+        .onChange(of: isTimerMode) { _, isActive in
+            if isActive && !hasChangedTimerViewModeInSession {
+                timerViewModeRawValue = TimerViewMode.table.rawValue
             }
         }
         .onChange(of: showWorkoutTitlePrompt) { _, isPresented in
@@ -1201,24 +1209,8 @@ struct HeartRateDisplayView: View {
                         .accessibilityLabel("Cycle View Mode")
                 }
 
-                Menu {
-                    Button {
-                        showPresetSheet = true
-                    } label: {
-                        Label("Presets", systemImage: "timer")
-                    }
-
-                    Button {
-                        showAlertsSheet = true
-                    } label: {
-                        Label("Alerts", systemImage: isAnyAlertEnabled ? "bell.fill" : "bell")
-                    }
-
-                    Button {
-                        showWorkoutHistory = true
-                    } label: {
-                        Label("Workout History", systemImage: "clock.arrow.circlepath")
-                    }
+                Button {
+                    showTimerMenuDialog = true
                 } label: {
                     Image(systemName: "line.3.horizontal.circle")
                         .font(.system(size: 20))
@@ -1251,6 +1243,18 @@ struct HeartRateDisplayView: View {
             }
             .padding(.horizontal, 20)
             .padding(.top, 4)
+            .confirmationDialog("Timer Menu", isPresented: $showTimerMenuDialog, titleVisibility: .visible) {
+                Button("Presets") {
+                    showPresetSheet = true
+                }
+                Button("Alerts") {
+                    showAlertsSheet = true
+                }
+                Button("Workout History") {
+                    showWorkoutHistory = true
+                }
+                Button("Cancel", role: .cancel) { }
+            }
             .alert("Clear Workout", isPresented: $showClearAlert) {
                 Button("Cancel", role: .cancel) { }
                 Button("Clear", role: .destructive) {
