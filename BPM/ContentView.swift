@@ -59,6 +59,23 @@ private enum CollapsedStatDisplay {
     }
 }
 
+private enum TimerViewMode: String {
+    case table
+    case stats
+    case chart
+
+    mutating func cycle() {
+        switch self {
+        case .table:
+            self = .stats
+        case .stats:
+            self = .chart
+        case .chart:
+            self = .table
+        }
+    }
+}
+
 
 struct HeartRateDisplayView: View {
     @EnvironmentObject var bluetoothManager: HeartRateBluetoothManager
@@ -75,8 +92,7 @@ struct HeartRateDisplayView: View {
     @State private var portraitBottomContentHeight: CGFloat = 0
     @State private var heartRateExtremumDisplay: HeartRateExtremumDisplay = .max
     @State private var collapsedStatDisplay: CollapsedStatDisplay = .max
-    @AppStorage("BPM_View_ShowChart") private var showChart = false
-    @AppStorage("BPM_View_ShowZones") private var showZones = false
+    @AppStorage("BPM_View_TimerMode") private var timerViewModeRawValue = TimerViewMode.table.rawValue
     @State private var showSessionZones = false
     @State private var showPresetSheet = false
     @State private var showPaywall = false
@@ -87,7 +103,6 @@ struct HeartRateDisplayView: View {
     @State private var showShareSheet = false
     @State private var shareText = ""
     @State private var shareSubject = ""
-    @State private var showViewSettingsSheet = false
     @State private var showWorkoutHistory = false
     @State private var hasSavedWorkout = false
     @State private var savedWorkoutId: UUID?
@@ -95,7 +110,6 @@ struct HeartRateDisplayView: View {
     @State private var workoutTitleText = ""
     @FocusState private var isWorkoutTitleFocused: Bool
     @StateObject private var workoutStore = WorkoutStore.shared
-    @AppStorage("BPM_View_ShowExpandedStats") private var showExpandedStats = false
     @AppStorage("BPM_Alert_HeartRateEnabled") private var isHeartRateAlertEnabled = false
     @AppStorage("BPM_Alert_HeartRateThreshold") private var heartRateAlertThreshold = 160
     @AppStorage("BPM_Alert_ZoneEnabled") private var isZoneAlertEnabled = false
@@ -112,6 +126,20 @@ struct HeartRateDisplayView: View {
             total = max(total, timerViewModel.frozenElapsedTime + timerViewModel.currentSetTime)
         }
         return total < 3600
+    }
+
+    private var timerViewMode: TimerViewMode {
+        TimerViewMode(rawValue: timerViewModeRawValue) ?? .table
+    }
+
+    private var isTimerEmptyState: Bool {
+        timerViewModel.state == .idle && timerViewModel.sets.isEmpty
+    }
+
+    private func cycleTimerViewMode() {
+        var nextMode = timerViewMode
+        nextMode.cycle()
+        timerViewModeRawValue = nextMode.rawValue
     }
 
     private var isAnyAlertEnabled: Bool {
@@ -433,21 +461,6 @@ struct HeartRateDisplayView: View {
         value == "---" ? .gray : preferred
     }
 
-    private func completedSummaryDetailRow() -> some View {
-        let labelSize: CGFloat = 14.0
-        let valueSize: CGFloat = isPad ? 28.0 : 32.0
-        let maxBPMValue = timerViewModel.maxHeartRate.map(String.init) ?? "---"
-        let hrrValue = timerViewModel.heartRateRecovery.map(String.init) ?? "---"
-        let caloriesValue = caloriesDisplayValue
-
-        return HStack(spacing: 0) {
-            summaryStatColumn(title: "Max BPM", value: maxBPMValue, labelSize: labelSize, valueSize: valueSize)
-            summaryStatColumn(title: "Calories", value: caloriesValue, labelSize: labelSize, valueSize: valueSize)
-            summaryStatColumn(title: "HRR", value: hrrValue, labelSize: labelSize, valueSize: valueSize)
-        }
-        .padding(.horizontal, 12)
-    }
-
     private func timerDisplayTimes() -> (total: TimeInterval, set: TimeInterval) {
         let isCooldown = timerViewModel.state == .cooldown || timerViewModel.state == .cooldownPaused
         let isPresetMode = timerViewModel.isPresetMode
@@ -468,9 +481,9 @@ struct HeartRateDisplayView: View {
 
     private func runningExpandedPanel(totalTime: TimeInterval, setTime: TimeInterval, isLandscape: Bool, containerSize: CGSize) -> some View {
         let bpmValue = displayedHeartRate.map(String.init) ?? "---"
-        let totalTimeValue = formatTime(totalTime, showTenths: false)
+        let totalTimeValue = isTimerEmptyState ? "---" : formatTime(totalTime, showTenths: false)
         let setNumberValue = expandedSetNumberValue
-        let setTimeValue = formatTime(setTime, showTenths: false)
+        let setTimeValue = isTimerEmptyState ? "---" : formatTime(setTime, showTenths: false)
         let maxBPMValue = timerViewModel.maxHeartRate.map(String.init) ?? "---"
         let avgBPMValue = timerViewModel.avgHeartRate.map(String.init) ?? "---"
         let caloriesValue = caloriesDisplayValue
@@ -1200,15 +1213,15 @@ struct HeartRateDisplayView: View {
                 Spacer()
 
                 Button {
-                    showViewSettingsSheet = true
+                    cycleTimerViewMode()
                 } label: {
-                    Image(systemName: "slider.horizontal.3")
+                    Image(systemName: "eye")
                         .font(.system(size: 20))
                         .foregroundColor(.white)
                         .padding(12)
                         .background(Color.gray.opacity(0.3))
                         .clipShape(Circle())
-                        .accessibilityLabel("View Settings")
+                        .accessibilityLabel("Cycle View Mode")
                 }
 
                 Button {
@@ -1287,17 +1300,8 @@ struct HeartRateDisplayView: View {
             } message: {
                 Text("Add a title for this workout (optional).")
             }
-            .sheet(isPresented: $showViewSettingsSheet) {
-                ViewSettingsSheet(
-                    showChart: $showChart,
-                    showZones: $showZones,
-                    showExpandedStats: $showExpandedStats
-                )
-                .presentationDetents([.height(290)])
-                .presentationDragIndicator(.hidden)
-            }
 
-            if showExpandedStats {
+            if timerViewMode == .stats {
                 GeometryReader { proxy in
                     let times = timerDisplayTimes()
                     runningExpandedPanel(
@@ -1314,31 +1318,26 @@ struct HeartRateDisplayView: View {
                 stopwatchDisplay()
                     .padding(.top, 12)
 
-                // Heart rate chart (when enabled)
-                if showChart {
+                if timerViewMode == .chart {
                     HeartRateChartView(timerViewModel: timerViewModel, isLandscape: isLandscape)
                         .padding(.horizontal, isLandscape ? 40 : 20)
                         .padding(.top, 12)
-                }
 
-                // Time in Zone view (when enabled)
-                if showZones {
                     TimerTimeInZoneView(timerViewModel: timerViewModel, zoneStorage: zoneStorage, isLandscape: isLandscape)
                         .padding(.horizontal, isLandscape ? 40 : 20)
-                        .padding(.top, showChart ? 12 : 8)
-                }
-
-                Rectangle()
-                    .fill(Color.gray.opacity(0.3))
-                    .frame(height: 1)
-                    .padding(.horizontal, isLandscape ? 40 : 20)
-                    .padding(.top, (showChart || showZones) ? 12 : 16)
-
-                // Set tracking table
-                if !timerViewModel.sets.isEmpty || timerViewModel.state == .running || timerViewModel.state == .paused || timerViewModel.state == .cooldown || timerViewModel.state == .cooldownPaused || (timerViewModel.isPresetMode && timerViewModel.state == .idle) {
-                    setsTable(isLandscape: isLandscape, screenWidth: geometry.size.width)
+                        .padding(.top, 12)
+                } else {
+                    Rectangle()
+                        .fill(Color.gray.opacity(0.3))
+                        .frame(height: 1)
                         .padding(.horizontal, isLandscape ? 40 : 20)
-                        .padding(.top, 8)
+                        .padding(.top, 16)
+
+                    if !timerViewModel.sets.isEmpty || timerViewModel.state == .running || timerViewModel.state == .paused || timerViewModel.state == .cooldown || timerViewModel.state == .cooldownPaused || (timerViewModel.isPresetMode && timerViewModel.state == .idle) {
+                        setsTable(isLandscape: isLandscape, screenWidth: geometry.size.width)
+                            .padding(.horizontal, isLandscape ? 40 : 20)
+                            .padding(.top, 8)
+                    }
                 }
                 
                 Spacer(minLength: 0)
@@ -1347,7 +1346,7 @@ struct HeartRateDisplayView: View {
             // Timer control buttons at bottom
             timerControlButtons(isLandscape: isLandscape, screenWidth: geometry.size.width)
                 .frame(
-                    minHeight: showExpandedStats ? expandedControlsReserveHeight(screenWidth: geometry.size.width, isLandscape: isLandscape) : nil,
+                    minHeight: timerViewMode == .stats ? expandedControlsReserveHeight(screenWidth: geometry.size.width, isLandscape: isLandscape) : nil,
                     alignment: .top
                 )
                 .padding(.bottom, geometry.safeAreaInsets.bottom)
@@ -1385,9 +1384,6 @@ struct HeartRateDisplayView: View {
 
         if timerViewModel.isCompleted {
             completedSummaryRow(totalTime: totalTime)
-            if showExpandedStats {
-                completedSummaryDetailRow()
-            }
         } else {
             // Set label changes based on mode
             let setLabel: String = "Set Time"
@@ -1408,8 +1404,11 @@ struct HeartRateDisplayView: View {
 
             // Pre-calculate complex values to help compiler type-checking
             let totalTimeTitle = "Total Time"
+            let totalTimeValue = isTimerEmptyState ? "---" : formatTime(totalTime, showTenths: false)
             let setTimeValue: String = {
-                if timerViewModel.isCompleted {
+                if isTimerEmptyState {
+                    return "---"
+                } else if timerViewModel.isCompleted {
                     return timerViewModel.avgSetTime.map { formatTime($0, showTenths: shouldShowTenthsInTimer) } ?? "---"
                 } else {
                     return formatTime(displaySetTime, showTenths: shouldShowTenthsInTimer)
@@ -1420,7 +1419,7 @@ struct HeartRateDisplayView: View {
                 HStack(spacing: 16) {
                     landscapeStatColumn(
                         title: totalTimeTitle,
-                        value: formatTime(totalTime, showTenths: false),
+                        value: totalTimeValue,
                         alignment: .leading
                     )
 
@@ -1454,9 +1453,6 @@ struct HeartRateDisplayView: View {
 
         if timerViewModel.isCompleted {
             completedSummaryRow(totalTime: totalTime)
-            if showExpandedStats {
-                completedSummaryDetailRow()
-            }
         } else {
             // Set label changes based on mode
             let setLabel: String = "Set Time"
@@ -1477,8 +1473,11 @@ struct HeartRateDisplayView: View {
 
             // Pre-calculate complex values
             let totalTimeTitle = "Total Time"
+            let totalTimeValue = isTimerEmptyState ? "---" : formatTime(totalTime, showTenths: false)
             let setTimeValue: String = {
-                if timerViewModel.isCompleted {
+                if isTimerEmptyState {
+                    return "---"
+                } else if timerViewModel.isCompleted {
                     return timerViewModel.avgSetTime.map { formatTime($0, showTenths: shouldShowTenthsInTimer) } ?? "---"
                 } else {
                     return formatTime(displaySetTime, showTenths: shouldShowTenthsInTimer)
@@ -1498,9 +1497,9 @@ struct HeartRateDisplayView: View {
                             .font(.system(size: 14, weight: .medium))
                             .foregroundColor(.gray)
                             .multilineTextAlignment(.center)
-                        Text(formatTime(totalTime, showTenths: false))
+                        Text(totalTimeValue)
                             .font(.system(size: 32, weight: .bold, design: .monospaced))
-                            .foregroundColor(valueTextColor(formatTime(totalTime, showTenths: false)))
+                            .foregroundColor(valueTextColor(totalTimeValue))
                     }
                     .frame(maxWidth: .infinity, alignment: .center)
 
@@ -2483,46 +2482,6 @@ private struct AlertsSheet: View {
             .padding(.vertical, 10)
             .background(Color.gray.opacity(0.2))
             .cornerRadius(10)
-
-            Button("Done") {
-                dismiss()
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 10)
-            .background(Color.gray.opacity(0.2))
-            .cornerRadius(10)
-        }
-        .padding(.horizontal, 20)
-        .padding(.bottom, 16)
-    }
-}
-
-private struct ViewSettingsSheet: View {
-    @Binding var showChart: Bool
-    @Binding var showZones: Bool
-    @Binding var showExpandedStats: Bool
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("View Settings")
-                .font(.system(size: 16, weight: .semibold))
-                .padding(.top, 20)
-
-            VStack(spacing: 12) {
-                Toggle("Expanded Stats", isOn: $showExpandedStats)
-                Toggle("BPM Chart", isOn: $showChart)
-                Toggle("Zone Chart", isOn: $showZones)
-
-                if showExpandedStats {
-                    Text("Expanded Stats hides the set table.")
-                        .font(.system(size: 12))
-                        .foregroundColor(.gray)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-            }
-
-            Spacer()
 
             Button("Done") {
                 dismiss()
