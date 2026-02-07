@@ -533,8 +533,8 @@ struct HeartRateDisplayView: View {
     }
 
     private func expandedMetricCell(title: String, value: String, valueColor: Color = .white, tileWidth: CGFloat, tileHeight: CGFloat) -> some View {
-        let labelSize = max(9, tileHeight * 0.16)
-        let valueSize = max(14, tileHeight * 0.42)
+        let labelSize = max(8, tileHeight * 0.13)
+        let valueSize = max(13, tileHeight * 0.38)
         let verticalInset = max(8, tileHeight * 0.08)
         return VStack(spacing: max(2, tileHeight * 0.04)) {
             Text(title)
@@ -1306,6 +1306,7 @@ struct HeartRateDisplayView: View {
                         isLandscape: isLandscape,
                         containerSize: proxy.size
                     )
+                    .padding(.top, 8)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             } else {
