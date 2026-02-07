@@ -18,7 +18,7 @@ struct TimeInZoneView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: isLandscape ? 6 : 10) {
+        VStack(alignment: .leading, spacing: isLandscape ? 7 : 12) {
             ForEach(HeartRateZone.allCases.reversed(), id: \.rawValue) { zone in
                 let data = zoneData.first { $0.zone == zone } ?? ZoneTimeData(zone: zone, duration: 0)
                 ZoneBarRow(
@@ -68,6 +68,10 @@ private struct ZoneBarRow: View {
     let totalTime: TimeInterval
     let isLandscape: Bool
     @Binding var showPercentages: Bool
+    
+    private var barHeight: CGFloat {
+        isLandscape ? 17 : 22
+    }
 
     private var percentage: Double {
         guard totalTime > 0 else { return 0 }
@@ -88,17 +92,17 @@ private struct ZoneBarRow: View {
                     // Background
                     RoundedRectangle(cornerRadius: 4)
                         .fill(Color.gray.opacity(0.3))
-                        .frame(height: isLandscape ? 16 : 20)
+                        .frame(height: barHeight)
 
                     // Filled portion
                     if percentage > 0 {
                         RoundedRectangle(cornerRadius: 4)
                             .fill(zone.color)
-                            .frame(width: max(4, geometry.size.width * percentage), height: isLandscape ? 16 : 20)
+                            .frame(width: max(4, geometry.size.width * percentage), height: barHeight)
                     }
                 }
             }
-            .frame(height: isLandscape ? 16 : 20)
+            .frame(height: barHeight)
 
             // Duration text
             Text(showPercentages ? formatPercentage(percentage) : formatDuration(duration))

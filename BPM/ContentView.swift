@@ -1062,7 +1062,6 @@ struct HeartRateDisplayView: View {
 
     @ViewBuilder
     private func sessionZoneSection(isLandscape: Bool, horizontalPadding: CGFloat) -> some View {
-        let buttonSize: CGFloat = isLandscape ? 11.0 : 12.0
         let chartTopPadding: CGFloat = isLandscape ? 1.5 : 2.0
         let chartBottomPadding: CGFloat = isLandscape ? 2.0 : 4.0
 
@@ -1071,21 +1070,11 @@ struct HeartRateDisplayView: View {
                 bluetoothManager: bluetoothManager,
                 zoneStorage: zoneStorage,
                 isLandscape: isLandscape,
-                verticalPadding: isLandscape ? 4.0 : 6.0
+                verticalPadding: isLandscape ? 4.0 : 8.0
             )
             .frame(maxWidth: .infinity)
             .padding(.top, chartTopPadding)
             .padding(.bottom, chartBottomPadding)
-
-            Button {
-                showSettings = true
-            } label: {
-                Text("Configure")
-                    .font(.system(size: buttonSize, weight: .semibold))
-                    .foregroundColor(.gray)
-                    .underline()
-            }
-            .frame(maxWidth: .infinity, alignment: .center)
         }
         .padding(.horizontal, horizontalPadding)
     }
@@ -1681,12 +1670,12 @@ struct HeartRateDisplayView: View {
                                     .foregroundColor(rowColor)
                                     .frame(width: columnWidth, alignment: .center)
 
-                                Text("")
+                                Text("---")
                                     .font(.system(size: fontSize, weight: .medium, design: .monospaced))
                                     .foregroundColor(rowColor)
                                     .frame(width: columnWidth, alignment: .center)
 
-                                Text("")
+                                Text("---")
                                     .font(.system(size: fontSize, weight: .medium, design: .monospaced))
                                     .foregroundColor(rowColor)
                                     .frame(width: columnWidth, alignment: .center)
@@ -1703,7 +1692,7 @@ struct HeartRateDisplayView: View {
                                         .frame(width: columnWidth, alignment: .center)
                                 }
 
-                                Text("")
+                                Text("---")
                                     .font(.system(size: fontSize, weight: .medium, design: .monospaced))
                                     .foregroundColor(rowColor)
                                     .frame(width: columnWidth, alignment: .center)
