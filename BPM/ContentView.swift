@@ -419,7 +419,7 @@ struct HeartRateDisplayView: View {
         case .insufficient(let remaining):
             return formatWaitTime(remaining)
         case .disabled:
-            return "Setup"
+            return "---"
         }
     }
 
@@ -427,6 +427,10 @@ struct HeartRateDisplayView: View {
         let clamped = max(0, remaining)
         let totalSeconds = Int(ceil(clamped))
         return "\(totalSeconds)s"
+    }
+
+    private func valueTextColor(_ value: String, preferred: Color = .white) -> Color {
+        value == "---" ? .gray : preferred
     }
 
     private func completedSummaryDetailRow() -> some View {
@@ -444,19 +448,102 @@ struct HeartRateDisplayView: View {
         .padding(.horizontal, 12)
     }
 
-    private func runningExpandedRow(isLandscape: Bool) -> some View {
-        let labelSize: CGFloat = 14.0
-        let valueSize: CGFloat = isLandscape ? 24.0 : (isPad ? 28.0 : 32.0)
+    private func timerDisplayTimes() -> (total: TimeInterval, set: TimeInterval) {
+        let isCooldown = timerViewModel.state == .cooldown || timerViewModel.state == .cooldownPaused
+        let isPresetMode = timerViewModel.isPresetMode
+        let totalTime = isCooldown ? timerViewModel.frozenElapsedTime : (timerViewModel.isCompleted ? timerViewModel.frozenElapsedTime : timerViewModel.elapsedTime)
+        let setTime: TimeInterval = {
+            if timerViewModel.isCompleted {
+                return timerViewModel.avgSetTime ?? 0
+            } else if isCooldown || (isPresetMode && timerViewModel.presetPhase == .cooldown) {
+                return timerViewModel.presetPhaseTimeRemaining > 0 ? timerViewModel.presetPhaseTimeRemaining : max(0, 120.0 - timerViewModel.currentSetTime)
+            } else if isPresetMode {
+                return timerViewModel.presetPhaseTimeRemaining
+            } else {
+                return timerViewModel.currentSetTime
+            }
+        }()
+        return (total: totalTime, set: setTime)
+    }
+
+    private func runningExpandedPanel(totalTime: TimeInterval, setTime: TimeInterval, isLandscape: Bool, containerSize: CGSize) -> some View {
+        let bpmValue = displayedHeartRate.map(String.init) ?? "---"
+        let totalTimeValue = formatTime(totalTime, showTenths: false)
+        let setNumberValue = expandedSetNumberValue
+        let setTimeValue = formatTime(setTime, showTenths: shouldShowTenthsInTimer)
         let maxBPMValue = timerViewModel.maxHeartRate.map(String.init) ?? "---"
         let avgBPMValue = timerViewModel.avgHeartRate.map(String.init) ?? "---"
         let caloriesValue = caloriesDisplayValue
+        let zone = zoneStorage.currentZone(for: displayedHeartRate)
+        let zoneValue = zone?.displayName ?? "---"
+        let zoneColor = zone?.color ?? .gray
+        let horizontalPadding: CGFloat = isLandscape ? 14 : 10
+        let verticalPadding: CGFloat = isLandscape ? 12 : 10
+        let columnSpacing: CGFloat = isLandscape ? 12 : 10
+        let rowSpacing: CGFloat = isLandscape ? 12 : 10
+        let tileFromWidth = (containerSize.width - (horizontalPadding * 2) - columnSpacing) / 2
+        let tileFromHeight = (containerSize.height - (verticalPadding * 2) - (rowSpacing * 3)) / 4
+        let tileSide = max(1, floor(min(tileFromWidth, tileFromHeight)))
+        let gridWidth = (tileSide * 2) + columnSpacing
 
-        return HStack(spacing: 0) {
-            summaryStatColumn(title: "Max BPM", value: maxBPMValue, labelSize: labelSize, valueSize: valueSize)
-            summaryStatColumn(title: "Avg BPM", value: avgBPMValue, labelSize: labelSize, valueSize: valueSize)
-            summaryStatColumn(title: "Calories", value: caloriesValue, labelSize: labelSize, valueSize: valueSize)
+        let columns = [
+            GridItem(.fixed(tileSide), spacing: columnSpacing),
+            GridItem(.fixed(tileSide), spacing: columnSpacing)
+        ]
+
+        return VStack(spacing: 0) {
+            LazyVGrid(columns: columns, alignment: .center, spacing: rowSpacing) {
+                expandedMetricCell(title: "BPM", value: bpmValue, tileSide: tileSide)
+                expandedMetricCell(title: "Total Time", value: totalTimeValue, tileSide: tileSide)
+                expandedMetricCell(title: "Set Number", value: setNumberValue, tileSide: tileSide)
+                expandedMetricCell(title: "Set Time", value: setTimeValue, tileSide: tileSide)
+                expandedMetricCell(title: "Avg BPM", value: avgBPMValue, tileSide: tileSide)
+                expandedMetricCell(title: "Max BPM", value: maxBPMValue, tileSide: tileSide)
+                expandedMetricCell(title: "Zone", value: zoneValue, valueColor: zoneColor, tileSide: tileSide)
+                expandedMetricCell(title: "Calories", value: caloriesValue, tileSide: tileSide)
+            }
+            .frame(width: gridWidth)
         }
-        .padding(.horizontal, isLandscape ? 20 : 12)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+        .padding(.horizontal, horizontalPadding)
+        .padding(.vertical, verticalPadding)
+    }
+
+    private var expandedSetNumberValue: String {
+        let completedWorkSets = timerViewModel.sets.filter { !$0.isRestSet && !$0.isCooldownSet }.count
+        if timerViewModel.state == .running || timerViewModel.state == .paused {
+            if timerViewModel.isTimingRestSet {
+                return completedWorkSets > 0 ? String(completedWorkSets) : "---"
+            }
+            return String(completedWorkSets + 1)
+        }
+        return completedWorkSets > 0 ? String(completedWorkSets) : "---"
+    }
+
+    private func expandedMetricCell(title: String, value: String, valueColor: Color = .white, tileSide: CGFloat) -> some View {
+        let labelSize = max(9, tileSide * 0.11)
+        let valueSize = max(14, tileSide * 0.28)
+        return VStack(spacing: 2) {
+            Text(title)
+                .font(.system(size: labelSize, weight: .medium))
+                .foregroundColor(.gray)
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+            Text(value)
+                .font(.system(size: valueSize, weight: .bold, design: .monospaced))
+                .foregroundColor(valueTextColor(value, preferred: valueColor))
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+                .allowsTightening(true)
+        }
+        .padding(10)
+        .frame(width: tileSide, height: tileSide, alignment: .center)
+        .background(Color.white.opacity(0.05))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(Color.white.opacity(0.08), lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 12))
     }
 
     private func summaryStatColumn(title: String, value: String, labelSize: CGFloat, valueSize: CGFloat) -> some View {
@@ -468,7 +555,7 @@ struct HeartRateDisplayView: View {
                 .minimumScaleFactor(0.7)
             Text(value)
                 .font(.system(size: valueSize, weight: .bold, design: .monospaced))
-                .foregroundColor(.white)
+                .foregroundColor(valueTextColor(value))
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
                 .allowsTightening(true)
@@ -949,13 +1036,14 @@ struct HeartRateDisplayView: View {
         // Use same font sizes as timer bar stats
         let labelSize: CGFloat = 14.0
         let valueSize: CGFloat = isLandscape ? 24.0 : 32.0
+        let displayValue = customText ?? value.map(String.init) ?? "---"
         return VStack(spacing: 4 * scaleFactor) {
             Text(title)
                 .font(.system(size: labelSize, weight: .medium))
                 .foregroundColor(.gray)
-            Text(customText ?? value.map(String.init) ?? "---")
+            Text(displayValue)
                 .font(.system(size: valueSize, weight: .bold, design: .monospaced))
-                .foregroundColor((value == nil && customText == nil) ? .gray : .white)
+                .foregroundColor(valueTextColor(displayValue))
                 .frame(minWidth: 60 * scaleFactor) // Ensure enough width for triple digits
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -1031,7 +1119,7 @@ struct HeartRateDisplayView: View {
                 .foregroundColor(.gray)
             Text(value)
                 .font(.system(size: 24, weight: .bold, design: .monospaced))
-                .foregroundColor(.white)
+                .foregroundColor(valueTextColor(value))
                 .frame(minWidth: alignment == .center ? 90 : 100, alignment: alignment == .leading ? .leading : (alignment == .trailing ? .trailing : .center))
         }
     }
@@ -1045,7 +1133,7 @@ struct HeartRateDisplayView: View {
                     .foregroundColor(.gray)
                 Text(timerViewModel.heartRateRecovery.map(String.init) ?? "---")
                     .font(.system(size: 24, weight: .bold, design: .monospaced))
-                    .foregroundColor(.white)
+                    .foregroundColor(valueTextColor(timerViewModel.heartRateRecovery.map(String.init) ?? "---"))
                     .frame(minWidth: 50, alignment: .center)
             }
         } else {
@@ -1055,7 +1143,7 @@ struct HeartRateDisplayView: View {
                     .foregroundColor(.gray)
                 Text(displayedHeartRate.map(String.init) ?? "---")
                     .font(.system(size: 24, weight: .bold, design: .monospaced))
-                    .foregroundColor(.white)
+                    .foregroundColor(valueTextColor(displayedHeartRate.map(String.init) ?? "---"))
                     .frame(minWidth: 50, alignment: .center)
             }
         }
@@ -1191,42 +1279,55 @@ struct HeartRateDisplayView: View {
                     showZones: $showZones,
                     showExpandedStats: $showExpandedStats
                 )
-                .presentationDetents([.height(260)])
+                .presentationDetents([.height(290)])
                 .presentationDragIndicator(.hidden)
             }
 
-            // Stopwatch display with BPM (or completion stats when done)
-            stopwatchDisplay()
-                .padding(.top, 12)
-
-            // Heart rate chart (when enabled)
-            if showChart {
-                HeartRateChartView(timerViewModel: timerViewModel, isLandscape: isLandscape)
-                    .padding(.horizontal, isLandscape ? 40 : 20)
+            if showExpandedStats {
+                GeometryReader { proxy in
+                    let times = timerDisplayTimes()
+                    runningExpandedPanel(
+                        totalTime: times.total,
+                        setTime: times.set,
+                        isLandscape: isLandscape,
+                        containerSize: proxy.size
+                    )
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+            } else {
+                // Stopwatch display with BPM (or completion stats when done)
+                stopwatchDisplay()
                     .padding(.top, 12)
-            }
 
-            // Time in Zone view (when enabled)
-            if showZones {
-                TimerTimeInZoneView(timerViewModel: timerViewModel, zoneStorage: zoneStorage, isLandscape: isLandscape)
+                // Heart rate chart (when enabled)
+                if showChart {
+                    HeartRateChartView(timerViewModel: timerViewModel, isLandscape: isLandscape)
+                        .padding(.horizontal, isLandscape ? 40 : 20)
+                        .padding(.top, 12)
+                }
+
+                // Time in Zone view (when enabled)
+                if showZones {
+                    TimerTimeInZoneView(timerViewModel: timerViewModel, zoneStorage: zoneStorage, isLandscape: isLandscape)
+                        .padding(.horizontal, isLandscape ? 40 : 20)
+                        .padding(.top, showChart ? 12 : 8)
+                }
+
+                Rectangle()
+                    .fill(Color.gray.opacity(0.3))
+                    .frame(height: 1)
                     .padding(.horizontal, isLandscape ? 40 : 20)
-                    .padding(.top, showChart ? 12 : 8)
-            }
+                    .padding(.top, (showChart || showZones) ? 12 : 16)
 
-            Rectangle()
-                .fill(Color.gray.opacity(0.3))
-                .frame(height: 1)
-                .padding(.horizontal, isLandscape ? 40 : 20)
-                .padding(.top, (showChart || showZones) ? 8 : 6)
-
-            // Set tracking table
-            if !timerViewModel.sets.isEmpty || timerViewModel.state == .running || timerViewModel.state == .paused || timerViewModel.state == .cooldown || timerViewModel.state == .cooldownPaused || (timerViewModel.isPresetMode && timerViewModel.state == .idle) {
-                setsTable(isLandscape: isLandscape, screenWidth: geometry.size.width)
-                    .padding(.horizontal, isLandscape ? 40 : 20)
-                    .padding(.top, 8)
+                // Set tracking table
+                if !timerViewModel.sets.isEmpty || timerViewModel.state == .running || timerViewModel.state == .paused || timerViewModel.state == .cooldown || timerViewModel.state == .cooldownPaused || (timerViewModel.isPresetMode && timerViewModel.state == .idle) {
+                    setsTable(isLandscape: isLandscape, screenWidth: geometry.size.width)
+                        .padding(.horizontal, isLandscape ? 40 : 20)
+                        .padding(.top, 8)
+                }
+                
+                Spacer(minLength: 0)
             }
-            
-            Spacer(minLength: 0)
             
             // Timer control buttons at bottom
             timerControlButtons(isLandscape: isLandscape, screenWidth: geometry.size.width)
@@ -1311,10 +1412,6 @@ struct HeartRateDisplayView: View {
                     )
                 }
                 .padding(.horizontal, 20)
-
-                if showExpandedStats {
-                    runningExpandedRow(isLandscape: true)
-                }
             }
         }
     }
@@ -1374,7 +1471,7 @@ struct HeartRateDisplayView: View {
                             .multilineTextAlignment(.center)
                         Text(formatTime(totalTime, showTenths: false))
                             .font(.system(size: 32, weight: .bold, design: .monospaced))
-                            .foregroundColor(.white)
+                            .foregroundColor(valueTextColor(formatTime(totalTime, showTenths: false)))
                     }
                     .frame(maxWidth: .infinity, alignment: .center)
 
@@ -1385,7 +1482,7 @@ struct HeartRateDisplayView: View {
                             .multilineTextAlignment(.center)
                         Text(setTimeValue)
                             .font(.system(size: 32, weight: .bold, design: .monospaced))
-                            .foregroundColor(.white)
+                            .foregroundColor(valueTextColor(setTimeValue))
                     }
                     .frame(maxWidth: .infinity, alignment: .center)
 
@@ -1396,16 +1493,12 @@ struct HeartRateDisplayView: View {
                             .multilineTextAlignment(.center)
                         Text(bpmValue)
                             .font(.system(size: 32, weight: .bold, design: .monospaced))
-                            .foregroundColor(.white)
+                            .foregroundColor(valueTextColor(bpmValue))
                     }
                     .frame(maxWidth: .infinity, alignment: .center)
                     .contentShape(Rectangle())
                 }
                 .padding(.horizontal, 8)
-
-                if showExpandedStats {
-                    runningExpandedRow(isLandscape: false)
-                }
             }
         }
     }
@@ -1486,18 +1579,18 @@ struct HeartRateDisplayView: View {
 
                                 Text(avgBPM.map(String.init) ?? "---")
                                     .font(.system(size: fontSize, weight: .medium, design: .monospaced))
-                                    .foregroundColor(rowColor)
+                                    .foregroundColor(valueTextColor(avgBPM.map(String.init) ?? "---", preferred: rowColor))
                                     .frame(width: columnWidth, alignment: .center)
 
                                 if isLandscape {
                                     Text(minBPM.map(String.init) ?? "---")
                                         .font(.system(size: fontSize, weight: .medium, design: .monospaced))
-                                        .foregroundColor(rowColor)
+                                        .foregroundColor(valueTextColor(minBPM.map(String.init) ?? "---", preferred: rowColor))
                                         .frame(width: columnWidth, alignment: .center)
 
                                     Text(maxBPM.map(String.init) ?? "---")
                                         .font(.system(size: fontSize, weight: .medium, design: .monospaced))
-                                        .foregroundColor(rowColor)
+                                        .foregroundColor(valueTextColor(maxBPM.map(String.init) ?? "---", preferred: rowColor))
                                         .frame(width: columnWidth, alignment: .center)
                                 }
 
@@ -1542,18 +1635,18 @@ struct HeartRateDisplayView: View {
                                 
                                 Text(currentAvgBPM.map(String.init) ?? "---")
                                     .font(.system(size: fontSize, weight: .medium, design: .monospaced))
-                                    .foregroundColor(.white)
+                                    .foregroundColor(valueTextColor(currentAvgBPM.map(String.init) ?? "---"))
                                     .frame(width: columnWidth, alignment: .center)
                                 
                                 if isLandscape {
                                     Text(currentMinBPM.map(String.init) ?? "---")
                                         .font(.system(size: fontSize, weight: .medium, design: .monospaced))
-                                        .foregroundColor(.white)
+                                        .foregroundColor(valueTextColor(currentMinBPM.map(String.init) ?? "---"))
                                         .frame(width: columnWidth, alignment: .center)
                                     
                                     Text(currentMaxBPM.map(String.init) ?? "---")
                                         .font(.system(size: fontSize, weight: .medium, design: .monospaced))
-                                        .foregroundColor(.white)
+                                        .foregroundColor(valueTextColor(currentMaxBPM.map(String.init) ?? "---"))
                                         .frame(width: columnWidth, alignment: .center)
                                 }
                                 
@@ -1592,18 +1685,18 @@ struct HeartRateDisplayView: View {
                                 
                                 Text(cooldownAvgBPM.map(String.init) ?? "---")
                                     .font(.system(size: fontSize, weight: .medium, design: .monospaced))
-                                    .foregroundColor(.white)
+                                    .foregroundColor(valueTextColor(cooldownAvgBPM.map(String.init) ?? "---"))
                                     .frame(width: columnWidth, alignment: .center)
                                 
                                 if isLandscape {
                                     Text(cooldownMinBPM.map(String.init) ?? "---")
                                         .font(.system(size: fontSize, weight: .medium, design: .monospaced))
-                                        .foregroundColor(.white)
+                                        .foregroundColor(valueTextColor(cooldownMinBPM.map(String.init) ?? "---"))
                                         .frame(width: columnWidth, alignment: .center)
                                     
                                     Text(cooldownMaxBPM.map(String.init) ?? "---")
                                         .font(.system(size: fontSize, weight: .medium, design: .monospaced))
-                                        .foregroundColor(.white)
+                                        .foregroundColor(valueTextColor(cooldownMaxBPM.map(String.init) ?? "---"))
                                         .frame(width: columnWidth, alignment: .center)
                                 }
                                 
@@ -2346,9 +2439,16 @@ private struct ViewSettingsSheet: View {
                 .padding(.top, 20)
 
             VStack(spacing: 12) {
+                Toggle("Expanded Stats", isOn: $showExpandedStats)
                 Toggle("BPM Chart", isOn: $showChart)
                 Toggle("Zone Chart", isOn: $showZones)
-                Toggle("Expanded Stats", isOn: $showExpandedStats)
+
+                if showExpandedStats {
+                    Text("Expanded Stats hides the set table.")
+                        .font(.system(size: 12))
+                        .foregroundColor(.gray)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
             }
 
             Spacer()
