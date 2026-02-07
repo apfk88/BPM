@@ -18,6 +18,7 @@ struct SettingsView: View {
     @State private var didLoadHeartRateThreshold = false
     @FocusState private var isHeartRateThresholdFocused: Bool
     @StateObject private var workoutStore = WorkoutStore.shared
+    @State private var showPresetSheet = false
 
     var body: some View {
         NavigationView {
@@ -33,6 +34,19 @@ struct SettingsView: View {
                         CalorieSettingsView()
                     } label: {
                         Text("Calorie Settings")
+                    }
+
+                    Button {
+                        showPresetSheet = true
+                    } label: {
+                        HStack {
+                            Text("Presets")
+                                .foregroundColor(.primary)
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundColor(.secondary)
+                        }
                     }
                 }
 
@@ -105,6 +119,15 @@ struct SettingsView: View {
                 heartRateAlertThresholdText = String(heartRateAlertThreshold)
                 didLoadHeartRateThreshold = true
             }
+        }
+        .sheet(isPresented: $showPresetSheet) {
+            PresetConfigurationView(
+                isPresented: $showPresetSheet,
+                currentPresetId: nil,
+                mode: .manage,
+                onLoadPreset: { _ in },
+                onClearPreset: { }
+            )
         }
         .onChange(of: heartRateAlertThresholdText) { _, newValue in
             let digitsOnly = newValue.filter { $0.isNumber }

@@ -102,19 +102,12 @@ struct HeartRateDisplayView: View {
     @State private var showShareSheet = false
     @State private var shareText = ""
     @State private var shareSubject = ""
-    @State private var showWorkoutHistory = false
     @State private var hasSavedWorkout = false
     @State private var savedWorkoutId: UUID?
     @State private var showWorkoutTitlePrompt = false
     @State private var workoutTitleText = ""
     @FocusState private var isWorkoutTitleFocused: Bool
     @StateObject private var workoutStore = WorkoutStore.shared
-    @AppStorage("BPM_Alert_HeartRateEnabled") private var isHeartRateAlertEnabled = false
-    @AppStorage("BPM_Alert_HeartRateThreshold") private var heartRateAlertThreshold = 160
-    @AppStorage("BPM_Alert_ZoneEnabled") private var isZoneAlertEnabled = false
-    @AppStorage("BPM_Alert_Zones") private var zoneAlertSelections = "3,4,5"
-    @State private var showAlertsSheet = false
-    @State private var showTimerMenuDialog = false
     @State private var hasChangedTimerViewModeInSession = false
 
     private var isPad: Bool {
@@ -142,19 +135,6 @@ struct HeartRateDisplayView: View {
         nextMode.cycle()
         timerViewModeRawValue = nextMode.rawValue
         hasChangedTimerViewModeInSession = true
-    }
-
-    private var isAnyAlertEnabled: Bool {
-        isHeartRateAlertEnabled || isZoneAlertEnabled
-    }
-
-    private var selectedZoneSummary: String {
-        let ids = zoneAlertSelections
-            .split(separator: ",")
-            .compactMap { Int($0.trimmingCharacters(in: .whitespaces)) }
-        let zones = HeartRateZone.allCases.filter { ids.contains($0.rawValue) }
-        guard !zones.isEmpty else { return "None" }
-        return zones.map { $0.displayName }.joined(separator: ", ")
     }
 
     var body: some View {
@@ -206,24 +186,8 @@ struct HeartRateDisplayView: View {
         .sheet(isPresented: $showPaywall) {
             SharePaywallView()
         }
-        .sheet(isPresented: $showAlertsSheet) {
-            AlertsSheet(
-                isHeartRateAlertEnabled: $isHeartRateAlertEnabled,
-                heartRateAlertThreshold: $heartRateAlertThreshold,
-                isZoneAlertEnabled: $isZoneAlertEnabled,
-                selectedZoneSummary: selectedZoneSummary,
-                onOpenSettings: {
-                    showSettings = true
-                }
-            )
-            .presentationDetents([.height(320)])
-            .presentationDragIndicator(.hidden)
-        }
         .sheet(isPresented: $showSettings) {
             SettingsView()
-        }
-        .sheet(isPresented: $showWorkoutHistory) {
-            WorkoutHistoryView(store: workoutStore)
         }
         .sheet(isPresented: $showShareSheet) {
             ShareSheet(items: [shareText], subject: shareSubject)
@@ -1210,15 +1174,15 @@ struct HeartRateDisplayView: View {
                 }
 
                 Button {
-                    showTimerMenuDialog = true
+                    showSettings = true
                 } label: {
-                    Image(systemName: "line.3.horizontal.circle")
+                    Image(systemName: "gearshape")
                         .font(.system(size: 20))
-                        .foregroundColor(isAnyAlertEnabled ? .green : .white)
+                        .foregroundColor(.white)
                         .padding(12)
                         .background(Color.gray.opacity(0.3))
                         .clipShape(Circle())
-                        .accessibilityLabel("Timer Menu")
+                        .accessibilityLabel("Settings")
                 }
 
                 Button {
@@ -1243,18 +1207,6 @@ struct HeartRateDisplayView: View {
             }
             .padding(.horizontal, 20)
             .padding(.top, 4)
-            .confirmationDialog("Timer Menu", isPresented: $showTimerMenuDialog, titleVisibility: .visible) {
-                Button("Presets") {
-                    showPresetSheet = true
-                }
-                Button("Alerts") {
-                    showAlertsSheet = true
-                }
-                Button("Workout History") {
-                    showWorkoutHistory = true
-                }
-                Button("Cancel", role: .cancel) { }
-            }
             .alert("Clear Workout", isPresented: $showClearAlert) {
                 Button("Cancel", role: .cancel) { }
                 Button("Clear", role: .destructive) {
@@ -2481,62 +2433,4 @@ struct HeartRateDisplayView: View {
         }
     }
 
-}
-
-private struct AlertsSheet: View {
-    @Binding var isHeartRateAlertEnabled: Bool
-    @Binding var heartRateAlertThreshold: Int
-    @Binding var isZoneAlertEnabled: Bool
-    let selectedZoneSummary: String
-    let onOpenSettings: () -> Void
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Alerts")
-                .font(.system(size: 16, weight: .semibold))
-                .padding(.top, 36)
-
-            VStack(spacing: 12) {
-                Toggle("BPM Alert", isOn: $isHeartRateAlertEnabled)
-                HStack {
-                    Text("BPM Threshold")
-                    Spacer()
-                    Text("\(heartRateAlertThreshold) BPM")
-                        .foregroundColor(.secondary)
-                }
-
-                Toggle("Zone Alert", isOn: $isZoneAlertEnabled)
-                HStack {
-                    Text("Selected Zones")
-                    Spacer()
-                    Text(selectedZoneSummary)
-                        .foregroundColor(.secondary)
-                }
-            }
-
-            Spacer()
-
-            Button("Alert Settings") {
-                dismiss()
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-                    onOpenSettings()
-                }
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 10)
-            .background(Color.gray.opacity(0.2))
-            .cornerRadius(10)
-
-            Button("Done") {
-                dismiss()
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 10)
-            .background(Color.gray.opacity(0.2))
-            .cornerRadius(10)
-        }
-        .padding(.horizontal, 20)
-        .padding(.bottom, 16)
-    }
 }
