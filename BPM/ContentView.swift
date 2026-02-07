@@ -299,15 +299,22 @@ struct HeartRateDisplayView: View {
                     HStack {
                         Spacer()
                         Button {
+                            showDevicePicker = true
+                        } label: {
+                            topBarCircleIcon(
+                                systemName: heartIconName,
+                                color: heartButtonColor,
+                                accessibilityLabel: "Device Picker"
+                            )
+                        }
+
+                        Button {
                             showSettings = true
                         } label: {
-                            Image(systemName: "gearshape")
-                                .font(.system(size: 20))
-                                .foregroundColor(.white)
-                                .padding(12)
-                                .background(Color.gray.opacity(0.3))
-                                .clipShape(Circle())
-                                .accessibilityLabel("Settings")
+                            topBarCircleIcon(
+                                systemName: "gearshape",
+                                accessibilityLabel: "Settings"
+                            )
                         }
                     }
                     .padding(.horizontal, 20)
@@ -320,6 +327,7 @@ struct HeartRateDisplayView: View {
                     }
                     .frame(maxWidth: 320, alignment: .center)
                     .padding(.horizontal, 24)
+                    .padding(.top, 8)
                 }
                 .padding(.top, 4)
             }
@@ -1149,43 +1157,6 @@ struct HeartRateDisplayView: View {
             // Top bar with device picker, view settings, and clear button
             HStack(spacing: 8) {
                 Button {
-                    showDevicePicker = true
-                } label: {
-                    Image(systemName: heartIconName)
-                        .font(.system(size: 20))
-                        .foregroundColor(heartButtonColor)
-                        .padding(12)
-                        .background(Color.gray.opacity(0.3))
-                        .clipShape(Circle())
-                }
-
-                Spacer()
-
-                Button {
-                    cycleTimerViewMode()
-                } label: {
-                    Image(systemName: "eye")
-                        .font(.system(size: 20))
-                        .foregroundColor(.white)
-                        .padding(12)
-                        .background(Color.gray.opacity(0.3))
-                        .clipShape(Circle())
-                        .accessibilityLabel("Cycle View Mode")
-                }
-
-                Button {
-                    showSettings = true
-                } label: {
-                    Image(systemName: "gearshape")
-                        .font(.system(size: 20))
-                        .foregroundColor(.white)
-                        .padding(12)
-                        .background(Color.gray.opacity(0.3))
-                        .clipShape(Circle())
-                        .accessibilityLabel("Settings")
-                }
-
-                Button {
                     // Only show alert if there's workout data to lose
                     if hasSavedWorkout {
                         timerViewModel.reset()
@@ -1197,12 +1168,37 @@ struct HeartRateDisplayView: View {
                         isTimerMode = false
                     }
                 } label: {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 20))
-                        .foregroundColor(.white)
-                        .padding(12)
-                        .background(Color.gray.opacity(0.3))
-                        .clipShape(Circle())
+                    topBarCircleIcon(systemName: "xmark")
+                }
+
+                Spacer()
+
+                Button {
+                    cycleTimerViewMode()
+                } label: {
+                    topBarCircleIcon(
+                        systemName: "eye",
+                        accessibilityLabel: "Cycle View Mode"
+                    )
+                }
+
+                Button {
+                    showDevicePicker = true
+                } label: {
+                    topBarCircleIcon(
+                        systemName: heartIconName,
+                        color: heartButtonColor,
+                        accessibilityLabel: "Device Picker"
+                    )
+                }
+
+                Button {
+                    showSettings = true
+                } label: {
+                    topBarCircleIcon(
+                        systemName: "gearshape",
+                        accessibilityLabel: "Settings"
+                    )
                 }
             }
             .padding(.horizontal, 20)
@@ -2431,6 +2427,17 @@ struct HeartRateDisplayView: View {
         } else {
             return String(format: "%d:%02d.%d", minutes, seconds, tenths)
         }
+    }
+
+    private func topBarCircleIcon(systemName: String, color: Color = .white, accessibilityLabel: String? = nil) -> some View {
+        Image(systemName: systemName)
+            .font(.system(size: 20))
+            .frame(width: 20, height: 20)
+            .foregroundColor(color)
+            .padding(12)
+            .background(Color.gray.opacity(0.3))
+            .clipShape(Circle())
+            .accessibilityLabel(accessibilityLabel ?? systemName)
     }
 
 }

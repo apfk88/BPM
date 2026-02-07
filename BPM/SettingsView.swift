@@ -18,6 +18,7 @@ struct SettingsView: View {
     @State private var didLoadHeartRateThreshold = false
     @FocusState private var isHeartRateThresholdFocused: Bool
     @StateObject private var workoutStore = WorkoutStore.shared
+    @StateObject private var hrvStore = HRVStore.shared
     @State private var showPresetSheet = false
 
     var body: some View {
@@ -100,6 +101,12 @@ struct SettingsView: View {
                         WorkoutHistoryView(store: workoutStore)
                     } label: {
                         Text("Workout History")
+                    }
+
+                    NavigationLink {
+                        HRVHistoryView(store: hrvStore)
+                    } label: {
+                        Text("HRV History")
                     }
                 }
             }

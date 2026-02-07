@@ -15,10 +15,10 @@ struct HRVMeasurementView: View {
     @State private var showClearAlert = false
     @State private var showStopAlert = false
     @State private var showDevicePicker = false
+    @State private var showSettings = false
     @State private var showFirstTimeAlert = false
     @State private var hasShownFirstTimeAlert = false
     @State private var pendingMeasurement = false
-    @State private var showHistory = false
     @State private var hasSavedRecord = false
     @State private var savedRecordId: UUID?
     @StateObject private var hrvStore = HRVStore.shared
@@ -63,32 +63,8 @@ struct HRVMeasurementView: View {
                 Color.black.ignoresSafeArea()
                 
                 VStack(spacing: 0) {
-                    // Top bar with device picker and close button
-                    HStack {
-                        Button {
-                            showDevicePicker = true
-                        } label: {
-                            Image(systemName: heartIconName)
-                                .font(.system(size: 20))
-                                .foregroundColor(heartButtonColor)
-                                .padding(12)
-                                .background(Color.gray.opacity(0.3))
-                                .clipShape(Circle())
-                        }
-                        
-                        Spacer()
-
-                        Button {
-                            showHistory = true
-                        } label: {
-                            Image(systemName: "clock.arrow.circlepath")
-                                .font(.system(size: 20))
-                                .foregroundColor(.white)
-                                .padding(12)
-                                .background(Color.gray.opacity(0.3))
-                                .clipShape(Circle())
-                        }
-                        
+                    // Top bar with close on left and controls on right
+                    HStack(spacing: 8) {
                         Button {
                             if viewModel.isCompleted {
                                 if hasSavedRecord {
@@ -104,12 +80,25 @@ struct HRVMeasurementView: View {
                                 onDismiss()
                             }
                         } label: {
-                            Image(systemName: "xmark")
-                                .font(.system(size: 20))
-                                .foregroundColor(.white)
-                                .padding(12)
-                                .background(Color.gray.opacity(0.3))
-                                .clipShape(Circle())
+                            topBarCircleIcon(systemName: "xmark")
+                        }
+
+                        Spacer()
+
+                        Button {
+                            showDevicePicker = true
+                        } label: {
+                            topBarCircleIcon(
+                                systemName: heartIconName,
+                                color: heartButtonColor,
+                                accessibilityLabel: "Device Picker"
+                            )
+                        }
+
+                        Button {
+                            showSettings = true
+                        } label: {
+                            topBarCircleIcon(systemName: "gearshape", accessibilityLabel: "Settings")
                         }
                     }
                     .padding(.horizontal, 20)
@@ -119,8 +108,8 @@ struct HRVMeasurementView: View {
                             .environmentObject(bluetoothManager)
                             .environmentObject(sharingService)
                     }
-                    .sheet(isPresented: $showHistory) {
-                        HRVHistoryView(store: hrvStore)
+                    .sheet(isPresented: $showSettings) {
+                        SettingsView()
                     }
                     .alert("Stop Measurement", isPresented: $showStopAlert) {
                         Button("Cancel", role: .cancel) { }
@@ -362,6 +351,17 @@ struct HRVMeasurementView: View {
                 .fixedSize(horizontal: false, vertical: true)
         }
         .frame(width: 80 * scaleFactor, alignment: .center) // Fixed width to prevent layout shifts
+    }
+
+    private func topBarCircleIcon(systemName: String, color: Color = .white, accessibilityLabel: String? = nil) -> some View {
+        Image(systemName: systemName)
+            .font(.system(size: 20))
+            .frame(width: 20, height: 20)
+            .foregroundColor(color)
+            .padding(12)
+            .background(Color.gray.opacity(0.3))
+            .clipShape(Circle())
+            .accessibilityLabel(accessibilityLabel ?? systemName)
     }
 
     private func saveCurrentRecord() {
