@@ -1350,13 +1350,23 @@ struct HeartRateDisplayView: View {
                     .padding(.top, 18)
 
                 if timerViewMode == .chart {
-                    HeartRateChartView(timerViewModel: timerViewModel, isLandscape: isLandscape)
-                        .padding(.horizontal, isLandscape ? 40 : 20)
-                        .padding(.top, 12)
+                    GeometryReader { proxy in
+                        let horizontalPadding: CGFloat = isLandscape ? 40 : 20
+                        let chartSpacing: CGFloat = 12
+                        let availableHeight = max(0, proxy.size.height - chartSpacing)
+                        let panelHeight = availableHeight / 2
 
-                    TimerTimeInZoneView(timerViewModel: timerViewModel, zoneStorage: zoneStorage, isLandscape: isLandscape)
-                        .padding(.horizontal, isLandscape ? 40 : 20)
+                        VStack(spacing: chartSpacing) {
+                            HeartRateChartView(timerViewModel: timerViewModel, isLandscape: isLandscape)
+                                .frame(maxWidth: .infinity, maxHeight: panelHeight)
+
+                            TimerTimeInZoneView(timerViewModel: timerViewModel, zoneStorage: zoneStorage, isLandscape: isLandscape)
+                                .frame(maxWidth: .infinity, maxHeight: panelHeight, alignment: .top)
+                        }
+                        .padding(.horizontal, horizontalPadding)
                         .padding(.top, 12)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                    }
                 } else {
                     Rectangle()
                         .fill(Color.gray.opacity(0.3))
@@ -1368,8 +1378,9 @@ struct HeartRateDisplayView: View {
                         .padding(.horizontal, isLandscape ? 40 : 20)
                         .padding(.top, 8)
                 }
-                
-                Spacer(minLength: 0)
+                if timerViewMode != .chart {
+                    Spacer(minLength: 0)
+                }
             }
             
             // Timer control buttons at bottom

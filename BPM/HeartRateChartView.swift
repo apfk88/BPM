@@ -61,21 +61,7 @@ struct HeartRateChartView: View {
                     .frame(minWidth: 0)
             }
             .padding(.leading, 8)
-            .frame(height: isLandscape ? 120 : 200)
-            .overlay {
-                // Overlay empty state message
-                VStack(spacing: 8) {
-                    Text("No heart rate data")
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundColor(.gray.opacity(0.6))
-                    
-                    Text("Start your workout to see heart rate over time")
-                        .font(.system(size: 11))
-                        .foregroundColor(.gray.opacity(0.4))
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, 20)
-                }
-            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             VStack(spacing: 0) {
                 // Chart with segments
@@ -181,7 +167,7 @@ struct HeartRateChartView: View {
                         }
                     }
                 }
-                .frame(height: isLandscape ? 120 : 200)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
                 
                 // Selection info display
                 if let selectedTime = selectedTime,
@@ -261,4 +247,3 @@ struct HeartRateChartView: View {
         let time: TimeInterval
     }
 }
-
