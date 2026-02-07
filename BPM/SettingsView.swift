@@ -7,13 +7,14 @@
 
 import Foundation
 import SwiftUI
-
 struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @AppStorage("BPM_Alert_HeartRateEnabled") private var isHeartRateAlertEnabled = false
     @AppStorage("BPM_Alert_HeartRateThreshold") private var heartRateAlertThreshold = 160
     @AppStorage("BPM_Alert_ZoneEnabled") private var isZoneAlertEnabled = false
     @AppStorage("BPM_Alert_Zones") private var zoneAlertSelections = "3,4,5"
+    @AppStorage(HealthKitWorkoutTypeDefaultsKey.quickSelection)
+    private var healthKitQuickTypesRawValue = HealthKitWorkoutTypeSettings.defaultQuickSelectionRawValue()
     @State private var heartRateAlertThresholdText = ""
     @State private var didLoadHeartRateThreshold = false
     @FocusState private var isHeartRateThresholdFocused: Bool
@@ -22,7 +23,6 @@ struct SettingsView: View {
     @StateObject private var healthKitSyncService = HealthKitWorkoutSyncService.shared
     @State private var showPresetSheet = false
     @State private var healthKitStatusMessage: String?
-
     var body: some View {
         NavigationView {
             List {
@@ -40,19 +40,27 @@ struct SettingsView: View {
                                 .foregroundColor(healthKitStatusColor)
                         }
                     }
-
                     NavigationLink {
                         ZoneSettingsView()
                     } label: {
                         Text("Zone Settings")
                     }
-
                     NavigationLink {
                         CalorieSettingsView()
                     } label: {
                         Text("Calorie Settings")
                     }
-
+                    NavigationLink {
+                        HealthKitWorkoutTypesSettingsView()
+                    } label: {
+                        HStack {
+                            Text("Workout Types")
+                            Spacer()
+                            Text(healthKitQuickTypesSummary)
+                                .foregroundColor(.secondary)
+                                .lineLimit(1)
+                        }
+                    }
                     Button {
                         showPresetSheet = true
                     } label: {
@@ -66,7 +74,6 @@ struct SettingsView: View {
                         }
                     }
                 }
-
                 Section(
                     header: VStack(alignment: .leading, spacing: 4) {
                         Text("Zone Alert")
@@ -87,7 +94,6 @@ struct SettingsView: View {
                         }
                     }
                 }
-
                 Section(
                     header: VStack(alignment: .leading, spacing: 4) {
                         Text("BPM Alert")
@@ -111,14 +117,12 @@ struct SettingsView: View {
                             .foregroundColor(.secondary)
                     }
                 }
-
                 Section(header: Text("History")) {
                     NavigationLink {
                         WorkoutHistoryView(store: workoutStore)
                     } label: {
                         Text("Workout History")
                     }
-
                     NavigationLink {
                         HRVHistoryView(store: hrvStore)
                     } label: {
@@ -220,6 +224,11 @@ struct SettingsView: View {
         let zones = HeartRateZone.allCases.filter { ids.contains($0.rawValue) }
         guard !zones.isEmpty else { return "None" }
         return zones.map { $0.displayName }.joined(separator: ", ")
+    }
+
+    private var healthKitQuickTypesSummary: String {
+        let options = HealthKitWorkoutTypeSettings.quickSelection(from: healthKitQuickTypesRawValue)
+        return options.map(\.title).joined(separator: ", ")
     }
 
     private func commitHeartRateThreshold() {

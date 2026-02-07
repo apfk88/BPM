@@ -7,7 +7,6 @@
 
 import SwiftUI
 import UIKit
-import HealthKit
 
 enum AppMode {
     case myDevice
@@ -77,51 +76,6 @@ private enum TimerViewMode: String {
     }
 }
 
-private enum HealthKitActivityOption: String, CaseIterable, Identifiable {
-    case functionalStrength
-    case hiit
-    case traditionalStrength
-    case running
-    case cycling
-    case other
-
-    var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .functionalStrength:
-            return "Functional Strength"
-        case .hiit:
-            return "HIIT"
-        case .traditionalStrength:
-            return "Traditional Strength"
-        case .running:
-            return "Running"
-        case .cycling:
-            return "Cycling"
-        case .other:
-            return "Other"
-        }
-    }
-
-    var workoutType: HKWorkoutActivityType {
-        switch self {
-        case .functionalStrength:
-            return .functionalStrengthTraining
-        case .hiit:
-            return .highIntensityIntervalTraining
-        case .traditionalStrength:
-            return .traditionalStrengthTraining
-        case .running:
-            return .running
-        case .cycling:
-            return .cycling
-        case .other:
-            return .other
-        }
-    }
-}
-
 private struct HealthKitSyncBannerState {
     let message: String
     let workoutId: UUID
@@ -145,6 +99,8 @@ struct HeartRateDisplayView: View {
     @State private var heartRateExtremumDisplay: HeartRateExtremumDisplay = .max
     @State private var collapsedStatDisplay: CollapsedStatDisplay = .max
     @AppStorage("BPM_View_TimerMode") private var timerViewModeRawValue = TimerViewMode.table.rawValue
+    @AppStorage(HealthKitWorkoutTypeDefaultsKey.quickSelection)
+    private var healthKitQuickTypesRawValue = HealthKitWorkoutTypeSettings.defaultQuickSelectionRawValue()
     @State private var showPresetSheet = false
     @State private var showPaywall = false
     @State private var showSettings = false
@@ -187,6 +143,14 @@ struct HeartRateDisplayView: View {
         timerViewModel.state == .idle && timerViewModel.sets.isEmpty
     }
 
+    private var configuredHealthKitQuickTypes: [HealthKitActivityOption] {
+        HealthKitWorkoutTypeSettings.quickSelection(from: healthKitQuickTypesRawValue)
+    }
+
+    private var defaultHealthKitActivityOption: HealthKitActivityOption {
+        configuredHealthKitQuickTypes.first ?? .functionalStrength
+    }
+
     private func cycleTimerViewMode() {
         var nextMode = timerViewMode
         nextMode.cycle()
@@ -215,7 +179,6 @@ struct HeartRateDisplayView: View {
         }
         .onChange(of: showWorkoutTitlePrompt) { _, isPresented in
             if isPresented {
-                workoutTitleText = "Workout"
                 isWorkoutTitleFocused = true
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                     UIApplication.shared.sendAction(#selector(UIResponder.selectAll(_:)), to: nil, from: nil, for: nil)
@@ -251,35 +214,10 @@ struct HeartRateDisplayView: View {
             ShareSheet(items: [shareText], subject: shareSubject)
         }
         .confirmationDialog("Workout Type", isPresented: $showHealthKitActivityPicker, titleVisibility: .visible) {
-            Button("Functional Strength (Default)") {
-                pendingHealthKitActivityOption = .functionalStrength
-                workoutTitleText = "Workout"
-                showWorkoutTitlePrompt = true
-            }
-            Button("HIIT") {
-                pendingHealthKitActivityOption = .hiit
-                workoutTitleText = "Workout"
-                showWorkoutTitlePrompt = true
-            }
-            Button("Traditional Strength") {
-                pendingHealthKitActivityOption = .traditionalStrength
-                workoutTitleText = "Workout"
-                showWorkoutTitlePrompt = true
-            }
-            Button("Running") {
-                pendingHealthKitActivityOption = .running
-                workoutTitleText = "Workout"
-                showWorkoutTitlePrompt = true
-            }
-            Button("Cycling") {
-                pendingHealthKitActivityOption = .cycling
-                workoutTitleText = "Workout"
-                showWorkoutTitlePrompt = true
-            }
-            Button("Other") {
-                pendingHealthKitActivityOption = .other
-                workoutTitleText = "Workout"
-                showWorkoutTitlePrompt = true
+            ForEach(configuredHealthKitQuickTypes) { option in
+                Button(option.title) {
+                    selectHealthKitActivity(option)
+                }
             }
             Button("Cancel", role: .cancel) { }
         } message: {
@@ -306,6 +244,10 @@ struct HeartRateDisplayView: View {
                 IdleTimer.disable()
             }
             healthKitSyncService.refreshAuthorizationState()
+            healthKitQuickTypesRawValue = HealthKitWorkoutTypeSettings.encodedQuickSelection(
+                HealthKitWorkoutTypeSettings.quickSelection(from: healthKitQuickTypesRawValue)
+            )
+            pendingHealthKitActivityOption = defaultHealthKitActivityOption
             
             // Set up timer heart rate callback - use friend's heart rate when viewing
             timerViewModel.currentHeartRate = { [weak bluetoothManager, weak sharingService] in
@@ -1311,11 +1253,11 @@ struct HeartRateDisplayView: View {
                     .disableAutocorrection(true)
                 Button("Save") {
                     let trimmed = workoutTitleText.trimmingCharacters(in: .whitespacesAndNewlines)
-                    let title = trimmed.isEmpty ? "Workout" : trimmed
+                    let title = trimmed.isEmpty ? pendingHealthKitActivityOption.title : trimmed
                     saveCurrentWorkout(title: title, activityOption: pendingHealthKitActivityOption)
                 }
                 Button("Cancel", role: .cancel) {
-                    pendingHealthKitActivityOption = .functionalStrength
+                    pendingHealthKitActivityOption = defaultHealthKitActivityOption
                 }
             } message: {
                 Text("Add a title for this workout (optional).")
@@ -1924,6 +1866,12 @@ struct HeartRateDisplayView: View {
         showShareSheet = true
     }
 
+    private func selectHealthKitActivity(_ option: HealthKitActivityOption) {
+        pendingHealthKitActivityOption = option
+        workoutTitleText = option.title
+        showWorkoutTitlePrompt = true
+    }
+
     private func saveCurrentWorkout(title: String?, activityOption: HealthKitActivityOption) {
         guard let record = timerViewModel.workoutRecord(
             zoneConfig: zoneStorage.effectiveConfig,
@@ -1935,7 +1883,7 @@ struct HeartRateDisplayView: View {
         workoutStore.saveWorkout(record)
         savedWorkoutId = record.id
         hasSavedWorkout = true
-        pendingHealthKitActivityOption = .functionalStrength
+        pendingHealthKitActivityOption = defaultHealthKitActivityOption
 
         Task {
             await syncSavedWorkoutToHealthKit(record: record, activityOption: activityOption)
@@ -2059,7 +2007,7 @@ struct HeartRateDisplayView: View {
                 }
 
                 Button {
-                    pendingHealthKitActivityOption = .functionalStrength
+                    pendingHealthKitActivityOption = defaultHealthKitActivityOption
                     showHealthKitActivityPicker = true
                 } label: {
                     Text(hasSavedWorkout ? "Saved" : "Save Workout")

@@ -72,6 +72,8 @@
 
 ## Session Notes (2026-02-07)
 - HealthKit workout sync added on timer Save flow (not on End).
-- Save flow prompts workout type each time (quick list: Functional Strength default, HIIT, Traditional Strength, Running, Cycling, Other).
+- Save flow prompts workout type each time (quick list is user-configurable from Settings).
 - HealthKit writes include workout + calories + heart-rate samples; failures keep local save and show inline retry banner.
 - Added Apple Health status/connect row in Settings.
+- Added configurable top-4 HealthKit workout types in Settings; default order is Functional Strength, HIIT, Running, Cycling.
+- Save title prompt now pre-fills from selected workout type (e.g., Running -> "Running") and uses that if left blank.
