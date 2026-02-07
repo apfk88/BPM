@@ -1364,11 +1364,9 @@ struct HeartRateDisplayView: View {
                         .padding(.horizontal, isLandscape ? 40 : 20)
                         .padding(.top, 16)
 
-                    if !timerViewModel.sets.isEmpty || timerViewModel.state == .running || timerViewModel.state == .paused || timerViewModel.state == .cooldown || timerViewModel.state == .cooldownPaused || (timerViewModel.isPresetMode && timerViewModel.state == .idle) {
-                        setsTable(isLandscape: isLandscape, screenWidth: geometry.size.width)
-                            .padding(.horizontal, isLandscape ? 40 : 20)
-                            .padding(.top, 8)
-                    }
+                    setsTable(isLandscape: isLandscape, screenWidth: geometry.size.width)
+                        .padding(.horizontal, isLandscape ? 40 : 20)
+                        .padding(.top, 8)
                 }
                 
                 Spacer(minLength: 0)
@@ -1571,6 +1569,7 @@ struct HeartRateDisplayView: View {
         let columnCount = isLandscape ? 6 : 4 // 6 columns in landscape (add Max BPM and Min BPM), 4 in portrait
         let columnWidth = (screenWidth - (isLandscape ? 80 : 40) - 24 - (columnSpacing * CGFloat(columnCount - 1))) / CGFloat(columnCount) // Equal width columns
         let workSetCount = timerViewModel.sets.filter { !$0.isRestSet && !$0.isCooldownSet }.count
+        let showDefaultEmptyRow = timerViewModel.state == .idle && timerViewModel.sets.isEmpty && !timerViewModel.isPresetMode
         let showTenths = shouldShowTenthsInTimer
         
         ScrollViewReader { proxy in
@@ -1661,6 +1660,46 @@ struct HeartRateDisplayView: View {
                             .padding(.horizontal, 12)
                             .padding(.vertical, 8)
                             .id(set.id)
+                        }
+
+                        if showDefaultEmptyRow {
+                            let rowColor: Color = .gray.opacity(0.5)
+                            HStack(spacing: columnSpacing) {
+                                Text("1")
+                                    .font(.system(size: fontSize, weight: .medium))
+                                    .foregroundColor(rowColor)
+                                    .frame(width: columnWidth, alignment: .center)
+
+                                Text("")
+                                    .font(.system(size: fontSize, weight: .medium, design: .monospaced))
+                                    .foregroundColor(rowColor)
+                                    .frame(width: columnWidth, alignment: .center)
+
+                                Text("")
+                                    .font(.system(size: fontSize, weight: .medium, design: .monospaced))
+                                    .foregroundColor(rowColor)
+                                    .frame(width: columnWidth, alignment: .center)
+
+                                if isLandscape {
+                                    Text("")
+                                        .font(.system(size: fontSize, weight: .medium, design: .monospaced))
+                                        .foregroundColor(rowColor)
+                                        .frame(width: columnWidth, alignment: .center)
+
+                                    Text("")
+                                        .font(.system(size: fontSize, weight: .medium, design: .monospaced))
+                                        .foregroundColor(rowColor)
+                                        .frame(width: columnWidth, alignment: .center)
+                                }
+
+                                Text("")
+                                    .font(.system(size: fontSize, weight: .medium, design: .monospaced))
+                                    .foregroundColor(rowColor)
+                                    .frame(width: columnWidth, alignment: .center)
+                            }
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .id("empty-placeholder-1")
                         }
 
                         // Future placeholder rows for preset mode (grayed out)
