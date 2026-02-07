@@ -100,6 +100,9 @@ struct HRVMeasurementView: View {
                         } label: {
                             topBarCircleIcon(systemName: "gearshape", accessibilityLabel: "Settings")
                         }
+
+                        // Keep heart/settings aligned with timer-mode icon columns.
+                        topBarCirclePlaceholder()
                     }
                     .padding(.horizontal, 20)
                     .padding(.top, 4)
@@ -361,6 +364,12 @@ struct HRVMeasurementView: View {
             .background(Color.gray.opacity(0.3))
             .clipShape(Circle())
             .accessibilityLabel(accessibilityLabel ?? systemName)
+    }
+
+    private func topBarCirclePlaceholder() -> some View {
+        Color.clear
+            .frame(width: 44, height: 44)
+            .accessibilityHidden(true)
     }
 
     private func saveCurrentRecord() {
