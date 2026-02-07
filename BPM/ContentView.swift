@@ -1339,25 +1339,11 @@ struct HeartRateDisplayView: View {
             
             // Timer control buttons at bottom
             timerControlButtons(isLandscape: isLandscape, screenWidth: geometry.size.width)
-                .frame(
-                    minHeight: timerViewMode == .stats ? expandedControlsReserveHeight(screenWidth: geometry.size.width, isLandscape: isLandscape) : nil,
-                    alignment: .top
-                )
                 .padding(.bottom, geometry.safeAreaInsets.bottom)
         }
         .transaction { transaction in
             transaction.animation = nil
         }
-    }
-
-    private func expandedControlsReserveHeight(screenWidth: CGFloat, isLandscape: Bool) -> CGFloat {
-        guard !isLandscape else { return 0 }
-        let scaleFactor = min(1.0, screenWidth / 375.0)
-        let buttonSpacing = max(12.0, 16.0 * scaleFactor)
-        let buttonFontSize = max(14.0, 18.0 * scaleFactor)
-        let buttonPaddingSize = max(12.0, 16.0 * scaleFactor)
-        let estimatedRowHeight = buttonFontSize + (buttonPaddingSize * 2) + 6
-        return (estimatedRowHeight * 2) + buttonSpacing + 40
     }
     
     @ViewBuilder
