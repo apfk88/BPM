@@ -95,7 +95,7 @@ enum HealthKitActivityOption: String, CaseIterable, Identifiable {
         case .yoga:
             return .yoga
         case .dance:
-            return .dance
+            return .cardioDance
         case .mixedCardio:
             return .mixedCardio
         case .basketball:
