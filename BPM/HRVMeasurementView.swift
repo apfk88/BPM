@@ -59,6 +59,7 @@ struct HRVMeasurementView: View {
     
     var body: some View {
         GeometryReader { geometry in
+            let primaryDisplayFontSize = min(geometry.size.width * 0.36, geometry.size.height * 0.27)
             ZStack {
                 Color.black.ignoresSafeArea()
                 
@@ -166,19 +167,19 @@ struct HRVMeasurementView: View {
                                 // Show HRV value in same position as timer
                                 if let hrv = viewModel.hrvValue {
                                     Text("\(Int(hrv.rounded()))ms")
-                                        .font(.system(size: min(geometry.size.width * 0.4, geometry.size.height * 0.3), weight: .bold, design: .monospaced))
+                                        .font(.system(size: primaryDisplayFontSize, weight: .bold, design: .monospaced))
                                         .foregroundColor(.white)
                                         .minimumScaleFactor(0.5)
                                         .lineLimit(1)
                                 } else {
                                     Text("---")
-                                        .font(.system(size: min(geometry.size.width * 0.4, geometry.size.height * 0.3), weight: .bold, design: .monospaced))
+                                        .font(.system(size: primaryDisplayFontSize, weight: .bold, design: .monospaced))
                                         .foregroundColor(.gray)
                                 }
                             } else {
                                 // Show countdown timer
                                 Text(formatTime(viewModel.remainingTime))
-                                    .font(.system(size: min(geometry.size.width * 0.4, geometry.size.height * 0.3), weight: .bold, design: .monospaced))
+                                    .font(.system(size: primaryDisplayFontSize, weight: .bold, design: .monospaced))
                                     .foregroundColor(.white)
                             }
                             
