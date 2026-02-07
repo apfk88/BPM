@@ -93,7 +93,6 @@ struct HeartRateDisplayView: View {
     @State private var heartRateExtremumDisplay: HeartRateExtremumDisplay = .max
     @State private var collapsedStatDisplay: CollapsedStatDisplay = .max
     @AppStorage("BPM_View_TimerMode") private var timerViewModeRawValue = TimerViewMode.table.rawValue
-    @State private var showSessionZones = false
     @State private var showPresetSheet = false
     @State private var showPaywall = false
     @State private var showSettings = false
@@ -445,7 +444,7 @@ struct HeartRateDisplayView: View {
         case .available(let estimate):
             return String(Int(round(estimate.totalKcal)))
         case .insufficient(let remaining):
-            return formatWaitTime(remaining)
+            return isTimerEmptyState ? "---" : formatWaitTime(remaining)
         case .disabled:
             return "---"
         }
@@ -782,44 +781,35 @@ struct HeartRateDisplayView: View {
         if appMode == .myDevice {
             // Portrait mode - stats above buttons
             VStack(spacing: max(12.0, 16.0 * scaleFactor)) {
-                VStack(spacing: showSessionZones ? 4.0 : 0.0) {
-                    // Stats row: Avg, Min, Max, Zone - equal width columns
-                    HStack(spacing: 0) {
-                        statColumn(
-                            title: "Avg",
-                            value: bluetoothManager.avgHeartRateLastHour,
-                            scaleFactor: scaleFactor,
-                            isLandscape: false
-                        )
-                        .frame(maxWidth: .infinity)
-                        statColumn(
-                            title: "Min",
-                            value: bluetoothManager.minHeartRateLastHour,
-                            scaleFactor: scaleFactor,
-                            isLandscape: false
-                        )
-                        .frame(maxWidth: .infinity)
-                        statColumn(
-                            title: "Max",
-                            value: bluetoothManager.maxHeartRateLastHour,
-                            scaleFactor: scaleFactor,
-                            isLandscape: false
-                        )
-                        .frame(maxWidth: .infinity)
-                        zoneStatColumn(
-                            heartRate: displayedHeartRate,
-                            scaleFactor: scaleFactor,
-                            isLandscape: false,
-                            isExpanded: showSessionZones
-                        ) {
-                            toggleSessionZones()
-                        }
-                        .frame(maxWidth: .infinity)
-                    }
-
-                    if showSessionZones {
-                        sessionZoneSection(isLandscape: false, horizontalPadding: 0)
-                    }
+                // Stats row: Avg, Min, Max, Zone - equal width columns
+                HStack(spacing: 0) {
+                    statColumn(
+                        title: "Avg",
+                        value: bluetoothManager.avgHeartRateLastHour,
+                        scaleFactor: scaleFactor,
+                        isLandscape: false
+                    )
+                    .frame(maxWidth: .infinity)
+                    statColumn(
+                        title: "Min",
+                        value: bluetoothManager.minHeartRateLastHour,
+                        scaleFactor: scaleFactor,
+                        isLandscape: false
+                    )
+                    .frame(maxWidth: .infinity)
+                    statColumn(
+                        title: "Max",
+                        value: bluetoothManager.maxHeartRateLastHour,
+                        scaleFactor: scaleFactor,
+                        isLandscape: false
+                    )
+                    .frame(maxWidth: .infinity)
+                    zoneStatColumn(
+                        heartRate: displayedHeartRate,
+                        scaleFactor: scaleFactor,
+                        isLandscape: false
+                    )
+                    .frame(maxWidth: .infinity)
                 }
 
                 // Buttons row with labels - equal width
@@ -1054,31 +1044,6 @@ struct HeartRateDisplayView: View {
         }
     }
 
-    private func toggleSessionZones() {
-        withAnimation(.easeInOut(duration: 0.15)) {
-            showSessionZones.toggle()
-        }
-    }
-
-    @ViewBuilder
-    private func sessionZoneSection(isLandscape: Bool, horizontalPadding: CGFloat) -> some View {
-        let chartTopPadding: CGFloat = isLandscape ? 1.5 : 2.0
-        let chartBottomPadding: CGFloat = isLandscape ? 2.0 : 4.0
-
-        VStack(spacing: isLandscape ? 4 : 6) {
-            SessionTimeInZoneView(
-                bluetoothManager: bluetoothManager,
-                zoneStorage: zoneStorage,
-                isLandscape: isLandscape,
-                verticalPadding: isLandscape ? 4.0 : 8.0
-            )
-            .frame(maxWidth: .infinity)
-            .padding(.top, chartTopPadding)
-            .padding(.bottom, chartBottomPadding)
-        }
-        .padding(.horizontal, horizontalPadding)
-    }
-
     private func statColumn(title: String, value: Int?, customText: String? = nil, scaleFactor: Double = 1.0, isLandscape: Bool = false, onTap: (() -> Void)? = nil) -> some View {
         // Use same font sizes as timer bar stats
         let labelSize: CGFloat = 14.0
@@ -1111,29 +1076,21 @@ struct HeartRateDisplayView: View {
         }
     }
 
-    private func zoneStatColumn(heartRate: Int?, scaleFactor: Double, isLandscape: Bool, isExpanded: Bool, onTap: @escaping () -> Void) -> some View {
+    private func zoneStatColumn(heartRate: Int?, scaleFactor: Double, isLandscape: Bool) -> some View {
         let labelSize: CGFloat = 14.0
         let valueSize: CGFloat = isLandscape ? 24.0 : 32.0
         let zone = zoneStorage.currentZone(for: heartRate)
 
         return VStack(spacing: 4 * scaleFactor) {
-            HStack(spacing: 2) {
-                Text("Zone")
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 10, weight: .medium))
-                    .rotationEffect(.degrees(isExpanded ? 180 : 0))
-                    .animation(.easeInOut(duration: 0.15), value: isExpanded)
-            }
-            .font(.system(size: labelSize, weight: .medium))
-            .foregroundColor(.gray)
+            Text("Zone")
+                .font(.system(size: labelSize, weight: .medium))
+                .foregroundColor(.gray)
             Text(zone?.displayName ?? "---")
                 .font(.system(size: valueSize, weight: .bold, design: .monospaced))
                 .foregroundColor(zone?.color ?? .gray)
                 .frame(minWidth: 40 * scaleFactor)
                 .fixedSize(horizontal: false, vertical: true)
         }
-        .contentShape(Rectangle())
-        .onTapGesture(perform: onTap)
     }
 
     private func shouldShowError(for mode: AppMode) -> Bool {
@@ -1244,28 +1201,32 @@ struct HeartRateDisplayView: View {
                         .accessibilityLabel("Cycle View Mode")
                 }
 
-                Button {
-                    showAlertsSheet = true
+                Menu {
+                    Button {
+                        showPresetSheet = true
+                    } label: {
+                        Label("Presets", systemImage: "timer")
+                    }
+
+                    Button {
+                        showAlertsSheet = true
+                    } label: {
+                        Label("Alerts", systemImage: isAnyAlertEnabled ? "bell.fill" : "bell")
+                    }
+
+                    Button {
+                        showWorkoutHistory = true
+                    } label: {
+                        Label("Workout History", systemImage: "clock.arrow.circlepath")
+                    }
                 } label: {
-                    Image(systemName: isAnyAlertEnabled ? "bell.fill" : "bell")
+                    Image(systemName: "line.3.horizontal.circle")
                         .font(.system(size: 20))
                         .foregroundColor(isAnyAlertEnabled ? .green : .white)
                         .padding(12)
                         .background(Color.gray.opacity(0.3))
                         .clipShape(Circle())
-                        .accessibilityLabel("Alerts")
-                }
-
-                Button {
-                    showWorkoutHistory = true
-                } label: {
-                    Image(systemName: "clock.arrow.circlepath")
-                        .font(.system(size: 20))
-                        .foregroundColor(.white)
-                        .padding(12)
-                        .background(Color.gray.opacity(0.3))
-                        .clipShape(Circle())
-                        .accessibilityLabel("Workout History")
+                        .accessibilityLabel("Timer Menu")
                 }
 
                 Button {
@@ -1963,6 +1924,7 @@ struct HeartRateDisplayView: View {
         let isCompleted = timerViewModel.isCompleted
         let isPresetMode = timerViewModel.isPresetMode
         let isStartState = timerViewModel.state == .idle && timerViewModel.sets.isEmpty
+        let presetName = timerViewModel.activePreset?.name.isEmpty == false ? (timerViewModel.activePreset?.name ?? "") : "Custom Preset"
 
         // Work Set and Rest Set are completely disabled in preset mode
         // Otherwise: Work Set is available while the workout timer is running (both work and rest phases)
@@ -2111,6 +2073,8 @@ struct HeartRateDisplayView: View {
                                 .stroke(Color.gray.opacity(0.22), lineWidth: 1)
                         )
                     }
+                } else {
+                    presetNamePlaceholder(text: presetName, buttonFontSize: buttonFontSize, buttonPaddingSize: buttonPaddingSize)
                 }
             }
             .padding(.horizontal, buttonPadding)
@@ -2267,13 +2231,16 @@ struct HeartRateDisplayView: View {
                     }
                     .disabled(restSetDisabled)
                     .frame(maxWidth: .infinity)
+                } else {
+                    presetNamePlaceholder(text: presetName, buttonFontSize: buttonFontSize, buttonPaddingSize: buttonPaddingSize)
+                        .frame(maxWidth: .infinity)
                 }
             }
             .padding(.horizontal, buttonPadding)
             .padding(.vertical, 20)
             .background(Color.black.opacity(0.8))
         } else {
-            // Portrait: two rows (or one row in preset mode)
+            // Portrait: always two rows
             VStack(spacing: buttonSpacing) {
                 // Top row: Start/Pause/Reset, End, Cool (Cool hidden in preset mode)
                 HStack(spacing: buttonSpacing) {
@@ -2393,7 +2360,7 @@ struct HeartRateDisplayView: View {
                     }
                 }
 
-                // Bottom row: Work Set, Rest Set (hidden in preset mode)
+                // Bottom row: Work/Rest controls or preset label
                 if !isPresetMode {
                     HStack(spacing: buttonSpacing) {
                         Button {
@@ -2440,12 +2407,30 @@ struct HeartRateDisplayView: View {
                         .disabled(restSetDisabled)
                         .frame(maxWidth: .infinity)
                     }
+                } else {
+                    presetNamePlaceholder(text: presetName, buttonFontSize: buttonFontSize, buttonPaddingSize: buttonPaddingSize)
                 }
             }
             .padding(.horizontal, buttonPadding)
             .padding(.vertical, 20)
             .background(Color.black.opacity(0.8))
         }
+    }
+
+    private func presetNamePlaceholder(text: String, buttonFontSize: CGFloat, buttonPaddingSize: CGFloat) -> some View {
+        Text("Preset: \(text)")
+            .font(.system(size: buttonFontSize, weight: .semibold))
+            .foregroundColor(.gray.opacity(0.55))
+            .lineLimit(1)
+            .minimumScaleFactor(0.8)
+            .allowsTightening(true)
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, buttonPaddingSize * 1.5)
+            .padding(.vertical, buttonPaddingSize)
+            .overlay(
+                RoundedRectangle(cornerRadius: buttonPaddingSize)
+                    .stroke(Color.gray.opacity(0.22), lineWidth: 1)
+            )
     }
     
     @ViewBuilder
