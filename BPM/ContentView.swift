@@ -1968,38 +1968,80 @@ struct HeartRateDisplayView: View {
             .padding(.vertical, 20)
             .background(Color.black.opacity(0.8))
         } else if isStartState {
-            HStack(spacing: buttonSpacing) {
-                Button {
-                    if isPresetMode {
-                        timerViewModel.startPreset()
-                    } else {
-                        timerViewModel.start()
+            VStack(spacing: buttonSpacing) {
+                HStack(spacing: buttonSpacing) {
+                    Button {
+                        if isPresetMode {
+                            timerViewModel.startPreset()
+                        } else {
+                            timerViewModel.start()
+                        }
+                    } label: {
+                        Text("Start")
+                            .font(.system(size: buttonFontSize, weight: .semibold))
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding(.horizontal, buttonPaddingSize * 1.5)
+                            .padding(.vertical, buttonPaddingSize)
+                            .background(Color.gray.opacity(0.3))
+                            .cornerRadius(buttonPaddingSize)
                     }
-                } label: {
-                    Text("Start")
-                        .font(.system(size: buttonFontSize, weight: .semibold))
-                        .foregroundColor(.white)
-                        .frame(maxWidth: .infinity)
-                        .padding(.horizontal, buttonPaddingSize * 1.5)
-                        .padding(.vertical, buttonPaddingSize)
-                        .background(Color.gray.opacity(0.3))
-                        .cornerRadius(buttonPaddingSize)
-                }
-                .frame(maxWidth: .infinity)
+                    .frame(maxWidth: .infinity)
 
-                Button {
-                    showPresetSheet = true
-                } label: {
-                    Text("Load Preset")
-                        .font(.system(size: buttonFontSize, weight: .semibold))
-                        .foregroundColor(.white)
+                    Button {
+                        showPresetSheet = true
+                    } label: {
+                        Text("Load Preset")
+                            .font(.system(size: buttonFontSize, weight: .semibold))
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding(.horizontal, buttonPaddingSize * 1.5)
+                            .padding(.vertical, buttonPaddingSize)
+                            .background(Color.gray.opacity(0.3))
+                            .cornerRadius(buttonPaddingSize)
+                    }
+                    .frame(maxWidth: .infinity)
+                }
+
+                if !isPresetMode {
+                    HStack(spacing: buttonSpacing) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "plus")
+                                .font(.system(size: buttonFontSize, weight: .semibold))
+                            Text("Work Set")
+                                .font(.system(size: buttonFontSize, weight: .semibold))
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.75)
+                                .allowsTightening(true)
+                        }
+                        .foregroundColor(.gray.opacity(0.55))
                         .frame(maxWidth: .infinity)
                         .padding(.horizontal, buttonPaddingSize * 1.5)
                         .padding(.vertical, buttonPaddingSize)
-                        .background(Color.gray.opacity(0.3))
-                        .cornerRadius(buttonPaddingSize)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: buttonPaddingSize)
+                                .stroke(Color.gray.opacity(0.35), lineWidth: 1)
+                        )
+
+                        HStack(spacing: 4) {
+                            Image(systemName: "plus")
+                                .font(.system(size: buttonFontSize, weight: .semibold))
+                            Text("Rest Set")
+                                .font(.system(size: buttonFontSize, weight: .semibold))
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.75)
+                                .allowsTightening(true)
+                        }
+                        .foregroundColor(.gray.opacity(0.55))
+                        .frame(maxWidth: .infinity)
+                        .padding(.horizontal, buttonPaddingSize * 1.5)
+                        .padding(.vertical, buttonPaddingSize)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: buttonPaddingSize)
+                                .stroke(Color.gray.opacity(0.35), lineWidth: 1)
+                        )
+                    }
                 }
-                .frame(maxWidth: .infinity)
             }
             .padding(.horizontal, buttonPadding)
             .padding(.vertical, 20)
