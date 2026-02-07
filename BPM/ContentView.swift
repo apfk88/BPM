@@ -302,15 +302,15 @@ struct HeartRateDisplayView: View {
                             showSettings = true
                         } label: {
                             Image(systemName: "gearshape")
-                                .font(.system(size: 16, weight: .semibold))
-                                .foregroundColor(.white.opacity(0.85))
-                                .padding(10)
-                                .background(Color.white.opacity(0.08))
+                                .font(.system(size: 20))
+                                .foregroundColor(.white)
+                                .padding(12)
+                                .background(Color.gray.opacity(0.3))
                                 .clipShape(Circle())
                                 .accessibilityLabel("Settings")
                         }
                     }
-                    .padding(.horizontal, 16)
+                    .padding(.horizontal, 20)
 
                     VStack(spacing: 8) {
                         connectionPrompt
@@ -321,7 +321,7 @@ struct HeartRateDisplayView: View {
                     .frame(maxWidth: 320, alignment: .center)
                     .padding(.horizontal, 24)
                 }
-                .padding(.top, 6)
+                .padding(.top, 4)
             }
         }
     }
