@@ -79,3 +79,5 @@
 - Save title prompt now pre-fills from selected workout type (e.g., Running -> "Running") and uses that if left blank.
 - Workout Types selector list expanded with more activities; still choose ordered top-4 quick picks.
 - Apple Health connect/status moved out of the top section into lower-priority Integrations.
+- Simulator default for validation: iOS 26.x on base `iPhone 17` profile (not iOS 18 devices).
+- After every commit/push, refresh the simulator and leave Simulator app open.
