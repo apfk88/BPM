@@ -1347,7 +1347,7 @@ struct HeartRateDisplayView: View {
             } else {
                 // Stopwatch display with BPM (or completion stats when done)
                 stopwatchDisplay()
-                    .padding(.top, 12)
+                    .padding(.top, 18)
 
                 if timerViewMode == .chart {
                     HeartRateChartView(timerViewModel: timerViewModel, isLandscape: isLandscape)
@@ -2045,13 +2045,13 @@ struct HeartRateDisplayView: View {
                                 .minimumScaleFactor(0.75)
                                 .allowsTightening(true)
                         }
-                        .foregroundColor(.gray.opacity(0.55))
+                        .foregroundColor(.gray.opacity(0.42))
                         .frame(maxWidth: .infinity)
                         .padding(.horizontal, buttonPaddingSize * 1.5)
                         .padding(.vertical, buttonPaddingSize)
                         .overlay(
                             RoundedRectangle(cornerRadius: buttonPaddingSize)
-                                .stroke(Color.gray.opacity(0.35), lineWidth: 1)
+                                .stroke(Color.gray.opacity(0.22), lineWidth: 1)
                         )
 
                         HStack(spacing: 4) {
@@ -2063,13 +2063,13 @@ struct HeartRateDisplayView: View {
                                 .minimumScaleFactor(0.75)
                                 .allowsTightening(true)
                         }
-                        .foregroundColor(.gray.opacity(0.55))
+                        .foregroundColor(.gray.opacity(0.42))
                         .frame(maxWidth: .infinity)
                         .padding(.horizontal, buttonPaddingSize * 1.5)
                         .padding(.vertical, buttonPaddingSize)
                         .overlay(
                             RoundedRectangle(cornerRadius: buttonPaddingSize)
-                                .stroke(Color.gray.opacity(0.35), lineWidth: 1)
+                                .stroke(Color.gray.opacity(0.22), lineWidth: 1)
                         )
                     }
                 }
