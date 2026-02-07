@@ -83,7 +83,7 @@ struct WorkoutSetSummary: Codable, Identifiable {
 }
 
 struct WorkoutRecord: Codable, Identifiable {
-    static let schemaVersion = 1
+    static let schemaVersion = 2
 
     let id: UUID
     let schemaVersion: Int
@@ -103,6 +103,9 @@ struct WorkoutRecord: Codable, Identifiable {
     let notes: String?
     let source: String
     let appVersion: String
+    let healthKitWorkoutUUID: UUID?
+    let healthKitSyncedAt: Date?
+    let healthKitLastError: String?
     let createdAt: Date
     let updatedAt: Date
 }
@@ -153,5 +156,37 @@ extension WorkoutRecord {
             return String(format: "%d:%02d:%02d", hours, minutes, seconds)
         }
         return String(format: "%d:%02d", minutes, seconds)
+    }
+
+    func updatingHealthKitSync(
+        workoutUUID: UUID?,
+        syncedAt: Date?,
+        lastError: String?
+    ) -> WorkoutRecord {
+        WorkoutRecord(
+            id: id,
+            schemaVersion: schemaVersion,
+            title: title,
+            startAt: startAt,
+            endAt: endAt,
+            durationSeconds: durationSeconds,
+            avgHr: avgHr,
+            maxHr: maxHr,
+            minHr: minHr,
+            hrv: hrv,
+            caloriesTotal: caloriesTotal,
+            caloriesActive: caloriesActive,
+            hrSamples: hrSamples,
+            zones: zones,
+            sets: sets,
+            notes: notes,
+            source: source,
+            appVersion: appVersion,
+            healthKitWorkoutUUID: workoutUUID,
+            healthKitSyncedAt: syncedAt,
+            healthKitLastError: lastError,
+            createdAt: createdAt,
+            updatedAt: Date()
+        )
     }
 }

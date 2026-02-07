@@ -72,6 +72,9 @@ final class WorkoutStore: ObservableObject {
                     notes: record.notes,
                     source: record.source,
                     appVersion: record.appVersion,
+                    healthKitWorkoutUUID: record.healthKitWorkoutUUID,
+                    healthKitSyncedAt: record.healthKitSyncedAt,
+                    healthKitLastError: record.healthKitLastError,
                     createdAt: records[existingIndex].createdAt,
                     updatedAt: now
                 )
@@ -96,6 +99,9 @@ final class WorkoutStore: ObservableObject {
                     notes: record.notes,
                     source: record.source,
                     appVersion: record.appVersion,
+                    healthKitWorkoutUUID: record.healthKitWorkoutUUID,
+                    healthKitSyncedAt: record.healthKitSyncedAt,
+                    healthKitLastError: record.healthKitLastError,
                     createdAt: now,
                     updatedAt: now
                 )

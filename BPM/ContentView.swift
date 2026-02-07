@@ -7,6 +7,7 @@
 
 import SwiftUI
 import UIKit
+import HealthKit
 
 enum AppMode {
     case myDevice
@@ -76,6 +77,57 @@ private enum TimerViewMode: String {
     }
 }
 
+private enum HealthKitActivityOption: String, CaseIterable, Identifiable {
+    case functionalStrength
+    case hiit
+    case traditionalStrength
+    case running
+    case cycling
+    case other
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .functionalStrength:
+            return "Functional Strength"
+        case .hiit:
+            return "HIIT"
+        case .traditionalStrength:
+            return "Traditional Strength"
+        case .running:
+            return "Running"
+        case .cycling:
+            return "Cycling"
+        case .other:
+            return "Other"
+        }
+    }
+
+    var workoutType: HKWorkoutActivityType {
+        switch self {
+        case .functionalStrength:
+            return .functionalStrengthTraining
+        case .hiit:
+            return .highIntensityIntervalTraining
+        case .traditionalStrength:
+            return .traditionalStrengthTraining
+        case .running:
+            return .running
+        case .cycling:
+            return .cycling
+        case .other:
+            return .other
+        }
+    }
+}
+
+private struct HealthKitSyncBannerState {
+    let message: String
+    let workoutId: UUID
+    let activityOption: HealthKitActivityOption
+}
+
 
 struct HeartRateDisplayView: View {
     @EnvironmentObject var bluetoothManager: HeartRateBluetoothManager
@@ -108,7 +160,12 @@ struct HeartRateDisplayView: View {
     @State private var workoutTitleText = ""
     @FocusState private var isWorkoutTitleFocused: Bool
     @StateObject private var workoutStore = WorkoutStore.shared
+    @StateObject private var healthKitSyncService = HealthKitWorkoutSyncService.shared
     @State private var hasChangedTimerViewModeInSession = false
+    @State private var showHealthKitActivityPicker = false
+    @State private var pendingHealthKitActivityOption: HealthKitActivityOption = .functionalStrength
+    @State private var healthKitSyncBannerState: HealthKitSyncBannerState?
+    @State private var isHealthKitSyncInFlight = false
 
     private var isPad: Bool {
         UIDevice.current.userInterfaceIdiom == .pad
@@ -148,6 +205,7 @@ struct HeartRateDisplayView: View {
             if isEmpty {
                 hasSavedWorkout = false
                 savedWorkoutId = nil
+                healthKitSyncBannerState = nil
             }
         }
         .onChange(of: isTimerMode) { _, isActive in
@@ -192,6 +250,41 @@ struct HeartRateDisplayView: View {
         .sheet(isPresented: $showShareSheet) {
             ShareSheet(items: [shareText], subject: shareSubject)
         }
+        .confirmationDialog("Workout Type", isPresented: $showHealthKitActivityPicker, titleVisibility: .visible) {
+            Button("Functional Strength (Default)") {
+                pendingHealthKitActivityOption = .functionalStrength
+                workoutTitleText = "Workout"
+                showWorkoutTitlePrompt = true
+            }
+            Button("HIIT") {
+                pendingHealthKitActivityOption = .hiit
+                workoutTitleText = "Workout"
+                showWorkoutTitlePrompt = true
+            }
+            Button("Traditional Strength") {
+                pendingHealthKitActivityOption = .traditionalStrength
+                workoutTitleText = "Workout"
+                showWorkoutTitlePrompt = true
+            }
+            Button("Running") {
+                pendingHealthKitActivityOption = .running
+                workoutTitleText = "Workout"
+                showWorkoutTitlePrompt = true
+            }
+            Button("Cycling") {
+                pendingHealthKitActivityOption = .cycling
+                workoutTitleText = "Workout"
+                showWorkoutTitlePrompt = true
+            }
+            Button("Other") {
+                pendingHealthKitActivityOption = .other
+                workoutTitleText = "Workout"
+                showWorkoutTitlePrompt = true
+            }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("Choose an activity type for Apple Health.")
+        }
         .alert("Disconnect Sharing", isPresented: $showDisconnectAlert) {
             Button("Cancel", role: .cancel) { }
             Button("Disconnect", role: .destructive) {
@@ -212,6 +305,7 @@ struct HeartRateDisplayView: View {
                 bluetoothManager.startScanning()
                 IdleTimer.disable()
             }
+            healthKitSyncService.refreshAuthorizationState()
             
             // Set up timer heart rate callback - use friend's heart rate when viewing
             timerViewModel.currentHeartRate = { [weak bluetoothManager, weak sharingService] in
@@ -1217,9 +1311,12 @@ struct HeartRateDisplayView: View {
                     .disableAutocorrection(true)
                 Button("Save") {
                     let trimmed = workoutTitleText.trimmingCharacters(in: .whitespacesAndNewlines)
-                    saveCurrentWorkout(title: trimmed.isEmpty ? "Workout" : trimmed)
+                    let title = trimmed.isEmpty ? "Workout" : trimmed
+                    saveCurrentWorkout(title: title, activityOption: pendingHealthKitActivityOption)
                 }
-                Button("Cancel", role: .cancel) { }
+                Button("Cancel", role: .cancel) {
+                    pendingHealthKitActivityOption = .functionalStrength
+                }
             } message: {
                 Text("Add a title for this workout (optional).")
             }
@@ -1827,7 +1924,7 @@ struct HeartRateDisplayView: View {
         showShareSheet = true
     }
 
-    private func saveCurrentWorkout(title: String?) {
+    private func saveCurrentWorkout(title: String?, activityOption: HealthKitActivityOption) {
         guard let record = timerViewModel.workoutRecord(
             zoneConfig: zoneStorage.effectiveConfig,
             workoutId: savedWorkoutId,
@@ -1838,6 +1935,74 @@ struct HeartRateDisplayView: View {
         workoutStore.saveWorkout(record)
         savedWorkoutId = record.id
         hasSavedWorkout = true
+        pendingHealthKitActivityOption = .functionalStrength
+
+        Task {
+            await syncSavedWorkoutToHealthKit(record: record, activityOption: activityOption)
+        }
+    }
+
+    @MainActor
+    private func syncSavedWorkoutToHealthKit(record: WorkoutRecord, activityOption: HealthKitActivityOption) async {
+        if record.healthKitWorkoutUUID != nil {
+            healthKitSyncBannerState = nil
+            return
+        }
+
+        isHealthKitSyncInFlight = true
+        defer { isHealthKitSyncInFlight = false }
+
+        do {
+            let result = try await healthKitSyncService.syncWorkout(
+                record: record,
+                activityType: activityOption.workoutType
+            )
+            let syncedRecord = record.updatingHealthKitSync(
+                workoutUUID: result.workoutUUID,
+                syncedAt: Date(),
+                lastError: nil
+            )
+            workoutStore.saveWorkout(syncedRecord)
+            healthKitSyncBannerState = nil
+        } catch let syncError as HealthKitSyncError {
+            let failedRecord = record.updatingHealthKitSync(
+                workoutUUID: nil,
+                syncedAt: nil,
+                lastError: syncError.userFacingMessage
+            )
+            workoutStore.saveWorkout(failedRecord)
+            healthKitSyncBannerState = HealthKitSyncBannerState(
+                message: syncError.userFacingMessage,
+                workoutId: record.id,
+                activityOption: activityOption
+            )
+        } catch {
+            let message = "Could not save workout to Apple Health: \(error.localizedDescription)"
+            let failedRecord = record.updatingHealthKitSync(
+                workoutUUID: nil,
+                syncedAt: nil,
+                lastError: message
+            )
+            workoutStore.saveWorkout(failedRecord)
+            healthKitSyncBannerState = HealthKitSyncBannerState(
+                message: message,
+                workoutId: record.id,
+                activityOption: activityOption
+            )
+        }
+    }
+
+    @MainActor
+    private func retryFailedHealthKitSync() {
+        guard let bannerState = healthKitSyncBannerState else { return }
+        guard let record = workoutStore.workouts.first(where: { $0.id == bannerState.workoutId }) else {
+            healthKitSyncBannerState = nil
+            return
+        }
+
+        Task {
+            await syncSavedWorkoutToHealthKit(record: record, activityOption: bannerState.activityOption)
+        }
     }
     
     @ViewBuilder
@@ -1862,9 +2027,40 @@ struct HeartRateDisplayView: View {
         
         if isCompleted {
             VStack(spacing: buttonSpacing) {
+                if let bannerState = healthKitSyncBannerState {
+                    HStack(spacing: 10) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundColor(.orange)
+
+                        Text(bannerState.message)
+                            .font(.system(size: max(12, buttonFontSize * 0.78), weight: .medium))
+                            .foregroundColor(.gray)
+                            .multilineTextAlignment(.leading)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+
+                        Button {
+                            retryFailedHealthKitSync()
+                        } label: {
+                            Text(isHealthKitSyncInFlight ? "Retrying..." : "Retry")
+                                .font(.system(size: max(12, buttonFontSize * 0.82), weight: .semibold))
+                                .foregroundColor(isHealthKitSyncInFlight ? .gray : .white)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 6)
+                                .background(isHealthKitSyncInFlight ? Color.gray.opacity(0.2) : Color.gray.opacity(0.35))
+                                .cornerRadius(8)
+                        }
+                        .disabled(isHealthKitSyncInFlight)
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
+                    .background(Color.gray.opacity(0.1))
+                    .cornerRadius(10)
+                }
+
                 Button {
-                    workoutTitleText = "Workout"
-                    showWorkoutTitlePrompt = true
+                    pendingHealthKitActivityOption = .functionalStrength
+                    showHealthKitActivityPicker = true
                 } label: {
                     Text(hasSavedWorkout ? "Saved" : "Save Workout")
                         .font(.system(size: buttonFontSize, weight: .semibold))

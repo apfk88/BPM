@@ -6,6 +6,10 @@
 	<string>https://bpmtracker.app</string>
 	<key>NSBluetoothAlwaysUsageDescription</key>
 	<string>Connect to Bluetooth heart rate monitors.</string>
+	<key>NSHealthShareUsageDescription</key>
+	<string>Write saved workouts to Apple Health.</string>
+	<key>NSHealthUpdateUsageDescription</key>
+	<string>Write workout and heart rate data to Apple Health.</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>audio</string>

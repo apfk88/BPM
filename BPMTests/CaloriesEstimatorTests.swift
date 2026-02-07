@@ -52,7 +52,11 @@ struct CaloriesEstimatorTests {
         }
 
         #expect(estimate.method == .hrRegression)
-        let expectedPerMin = 0.239 * (-55.097 + 0.631 * 150 + 0.199 * 80 + 0.202 * 40)
+        let base = -55.097
+        let hrComponent = 0.631 * 150.0
+        let weightComponent = 0.199 * 80.0
+        let ageComponent = 0.202 * 40.0
+        let expectedPerMin = 0.239 * (base + hrComponent + weightComponent + ageComponent)
         #expect(abs(estimate.totalKcal - expectedPerMin * 5) < 0.2)
     }
 

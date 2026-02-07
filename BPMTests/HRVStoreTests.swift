@@ -3,7 +3,7 @@ import Testing
 @testable import BPM
 
 struct HRVStoreTests {
-    @Test func savesAndLoadsRecords() async {
+    @Test func savesAndLoadsRecords() async throws {
         let tempURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("hrv-\(UUID().uuidString).json")
         let defaults = UserDefaults(suiteName: "hrv-store-\(UUID().uuidString)")!

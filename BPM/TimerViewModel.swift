@@ -1508,6 +1508,9 @@ final class TimerViewModel: ObservableObject {
             notes: nil,
             source: "phone",
             appVersion: appVersionString(),
+            healthKitWorkoutUUID: nil,
+            healthKitSyncedAt: nil,
+            healthKitLastError: nil,
             createdAt: Date(),
             updatedAt: Date()
         )

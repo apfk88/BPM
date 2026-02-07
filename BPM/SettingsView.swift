@@ -19,12 +19,28 @@ struct SettingsView: View {
     @FocusState private var isHeartRateThresholdFocused: Bool
     @StateObject private var workoutStore = WorkoutStore.shared
     @StateObject private var hrvStore = HRVStore.shared
+    @StateObject private var healthKitSyncService = HealthKitWorkoutSyncService.shared
     @State private var showPresetSheet = false
+    @State private var healthKitStatusMessage: String?
 
     var body: some View {
         NavigationView {
             List {
                 Section {
+                    Button {
+                        Task {
+                            await requestHealthKitAccess()
+                        }
+                    } label: {
+                        HStack {
+                            Text("Apple Health")
+                                .foregroundColor(.primary)
+                            Spacer()
+                            Text(healthKitStatusText)
+                                .foregroundColor(healthKitStatusColor)
+                        }
+                    }
+
                     NavigationLink {
                         ZoneSettingsView()
                     } label: {
@@ -126,6 +142,7 @@ struct SettingsView: View {
                 heartRateAlertThresholdText = String(heartRateAlertThreshold)
                 didLoadHeartRateThreshold = true
             }
+            healthKitSyncService.refreshAuthorizationState()
         }
         .sheet(isPresented: $showPresetSheet) {
             PresetConfigurationView(
@@ -147,6 +164,53 @@ struct SettingsView: View {
                 commitHeartRateThreshold()
             }
         }
+    }
+
+    private var healthKitStatusText: String {
+        if let healthKitStatusMessage {
+            return healthKitStatusMessage
+        }
+
+        switch healthKitSyncService.authorizationState {
+        case .authorized:
+            return "Connected"
+        case .denied:
+            return "Not Connected"
+        case .unavailable:
+            return "Unavailable"
+        case .requesting:
+            return "Connecting..."
+        case .unknown:
+            return "Not Connected"
+        }
+    }
+
+    private var healthKitStatusColor: Color {
+        if healthKitStatusMessage != nil {
+            return .orange
+        }
+
+        switch healthKitSyncService.authorizationState {
+        case .authorized:
+            return .green
+        case .requesting:
+            return .secondary
+        case .denied, .unavailable, .unknown:
+            return .secondary
+        }
+    }
+
+    @MainActor
+    private func requestHealthKitAccess() async {
+        healthKitStatusMessage = nil
+        do {
+            try await healthKitSyncService.requestWriteAuthorization()
+        } catch let syncError as HealthKitSyncError {
+            healthKitStatusMessage = syncError.userFacingMessage
+        } catch {
+            healthKitStatusMessage = error.localizedDescription
+        }
+        healthKitSyncService.refreshAuthorizationState()
     }
 
     private var selectedZoneSummary: String {

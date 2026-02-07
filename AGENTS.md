@@ -69,3 +69,9 @@
 - Alert sounds: BPM uses ascending/descending tones; zone alerts are repeated beeps with slightly longer gap; cooldown removed.
 - Settings layout: Zone Settings + Calorie Settings links; Zone alert top-level; BPM alert input; no title.
 - Next planned work: Apple Watch integration + workout history (see specs in docs).
+
+## Session Notes (2026-02-07)
+- HealthKit workout sync added on timer Save flow (not on End).
+- Save flow prompts workout type each time (quick list: Functional Strength default, HIIT, Traditional Strength, Running, Cycling, Other).
+- HealthKit writes include workout + calories + heart-rate samples; failures keep local save and show inline retry banner.
+- Added Apple Health status/connect row in Settings.
