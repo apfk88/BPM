@@ -470,39 +470,37 @@ struct HeartRateDisplayView: View {
         let bpmValue = displayedHeartRate.map(String.init) ?? "---"
         let totalTimeValue = formatTime(totalTime, showTenths: false)
         let setNumberValue = expandedSetNumberValue
-        let setTimeValue = formatTime(setTime, showTenths: shouldShowTenthsInTimer)
+        let setTimeValue = formatTime(setTime, showTenths: false)
         let maxBPMValue = timerViewModel.maxHeartRate.map(String.init) ?? "---"
         let avgBPMValue = timerViewModel.avgHeartRate.map(String.init) ?? "---"
         let caloriesValue = caloriesDisplayValue
         let zone = zoneStorage.currentZone(for: displayedHeartRate)
         let zoneValue = zone?.displayName ?? "---"
         let zoneColor = zone?.color ?? .gray
-        let horizontalPadding: CGFloat = isLandscape ? 14 : 10
+        let horizontalPadding: CGFloat = isLandscape ? 14 : 8
         let verticalPadding: CGFloat = isLandscape ? 12 : 10
         let columnSpacing: CGFloat = isLandscape ? 12 : 10
         let rowSpacing: CGFloat = isLandscape ? 12 : 10
-        let tileFromWidth = (containerSize.width - (horizontalPadding * 2) - columnSpacing) / 2
-        let tileFromHeight = (containerSize.height - (verticalPadding * 2) - (rowSpacing * 3)) / 4
-        let tileSide = max(1, floor(min(tileFromWidth, tileFromHeight)))
-        let gridWidth = (tileSide * 2) + columnSpacing
+        let tileWidth = max(1, floor((containerSize.width - (horizontalPadding * 2) - columnSpacing) / 2))
+        let tileHeight = max(1, floor((containerSize.height - (verticalPadding * 2) - (rowSpacing * 3)) / 4))
 
         let columns = [
-            GridItem(.fixed(tileSide), spacing: columnSpacing),
-            GridItem(.fixed(tileSide), spacing: columnSpacing)
+            GridItem(.fixed(tileWidth), spacing: columnSpacing),
+            GridItem(.fixed(tileWidth), spacing: columnSpacing)
         ]
 
         return VStack(spacing: 0) {
             LazyVGrid(columns: columns, alignment: .center, spacing: rowSpacing) {
-                expandedMetricCell(title: "BPM", value: bpmValue, tileSide: tileSide)
-                expandedMetricCell(title: "Total Time", value: totalTimeValue, tileSide: tileSide)
-                expandedMetricCell(title: "Set Number", value: setNumberValue, tileSide: tileSide)
-                expandedMetricCell(title: "Set Time", value: setTimeValue, tileSide: tileSide)
-                expandedMetricCell(title: "Avg BPM", value: avgBPMValue, tileSide: tileSide)
-                expandedMetricCell(title: "Max BPM", value: maxBPMValue, tileSide: tileSide)
-                expandedMetricCell(title: "Zone", value: zoneValue, valueColor: zoneColor, tileSide: tileSide)
-                expandedMetricCell(title: "Calories", value: caloriesValue, tileSide: tileSide)
+                expandedMetricCell(title: "BPM", value: bpmValue, tileWidth: tileWidth, tileHeight: tileHeight)
+                expandedMetricCell(title: "Total Time", value: totalTimeValue, tileWidth: tileWidth, tileHeight: tileHeight)
+                expandedMetricCell(title: "Set Number", value: setNumberValue, tileWidth: tileWidth, tileHeight: tileHeight)
+                expandedMetricCell(title: "Set Time", value: setTimeValue, tileWidth: tileWidth, tileHeight: tileHeight)
+                expandedMetricCell(title: "Avg BPM", value: avgBPMValue, tileWidth: tileWidth, tileHeight: tileHeight)
+                expandedMetricCell(title: "Max BPM", value: maxBPMValue, tileWidth: tileWidth, tileHeight: tileHeight)
+                expandedMetricCell(title: "Zone", value: zoneValue, valueColor: zoneColor, tileWidth: tileWidth, tileHeight: tileHeight)
+                expandedMetricCell(title: "Calories", value: caloriesValue, tileWidth: tileWidth, tileHeight: tileHeight)
             }
-            .frame(width: gridWidth)
+            .frame(maxWidth: .infinity, alignment: .center)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
         .padding(.horizontal, horizontalPadding)
@@ -510,20 +508,35 @@ struct HeartRateDisplayView: View {
     }
 
     private var expandedSetNumberValue: String {
-        let completedWorkSets = timerViewModel.sets.filter { !$0.isRestSet && !$0.isCooldownSet }.count
+        if timerViewModel.state == .cooldown || timerViewModel.state == .cooldownPaused {
+            let nextCooldownNumber = timerViewModel.sets.filter { $0.isCooldownSet }.count + 1
+            return "C\(nextCooldownNumber)"
+        }
+
         if timerViewModel.state == .running || timerViewModel.state == .paused {
             if timerViewModel.isTimingRestSet {
-                return completedWorkSets > 0 ? String(completedWorkSets) : "---"
+                if let activeRestSet = timerViewModel.sets.last(where: { $0.isRestSet && !$0.isCooldownSet }),
+                   let associatedWorkSetNumber = activeRestSet.associatedWorkSetNumber {
+                    return "\(associatedWorkSetNumber)R"
+                }
+                let completedWorkSets = timerViewModel.sets.filter { !$0.isRestSet && !$0.isCooldownSet }.count
+                return completedWorkSets > 0 ? "\(completedWorkSets)R" : "---"
             }
+            let completedWorkSets = timerViewModel.sets.filter { !$0.isRestSet && !$0.isCooldownSet }.count
             return String(completedWorkSets + 1)
         }
-        return completedWorkSets > 0 ? String(completedWorkSets) : "---"
+
+        if let lastSet = timerViewModel.sets.last {
+            return timerViewModel.displayLabel(for: lastSet)
+        }
+        return "---"
     }
 
-    private func expandedMetricCell(title: String, value: String, valueColor: Color = .white, tileSide: CGFloat) -> some View {
-        let labelSize = max(9, tileSide * 0.11)
-        let valueSize = max(14, tileSide * 0.28)
-        return VStack(spacing: 2) {
+    private func expandedMetricCell(title: String, value: String, valueColor: Color = .white, tileWidth: CGFloat, tileHeight: CGFloat) -> some View {
+        let labelSize = max(9, tileHeight * 0.16)
+        let valueSize = max(14, tileHeight * 0.42)
+        let verticalInset = max(8, tileHeight * 0.08)
+        return VStack(spacing: max(2, tileHeight * 0.04)) {
             Text(title)
                 .font(.system(size: labelSize, weight: .medium))
                 .foregroundColor(.gray)
@@ -536,8 +549,9 @@ struct HeartRateDisplayView: View {
                 .minimumScaleFactor(0.75)
                 .allowsTightening(true)
         }
-        .padding(10)
-        .frame(width: tileSide, height: tileSide, alignment: .center)
+        .padding(.horizontal, 8)
+        .padding(.vertical, verticalInset)
+        .frame(width: tileWidth, height: tileHeight, alignment: .center)
         .background(Color.white.opacity(0.05))
         .overlay(
             RoundedRectangle(cornerRadius: 12)
@@ -1331,11 +1345,25 @@ struct HeartRateDisplayView: View {
             
             // Timer control buttons at bottom
             timerControlButtons(isLandscape: isLandscape, screenWidth: geometry.size.width)
+                .frame(
+                    minHeight: showExpandedStats ? expandedControlsReserveHeight(screenWidth: geometry.size.width, isLandscape: isLandscape) : nil,
+                    alignment: .top
+                )
                 .padding(.bottom, geometry.safeAreaInsets.bottom)
         }
         .transaction { transaction in
             transaction.animation = nil
         }
+    }
+
+    private func expandedControlsReserveHeight(screenWidth: CGFloat, isLandscape: Bool) -> CGFloat {
+        guard !isLandscape else { return 0 }
+        let scaleFactor = min(1.0, screenWidth / 375.0)
+        let buttonSpacing = max(12.0, 16.0 * scaleFactor)
+        let buttonFontSize = max(14.0, 18.0 * scaleFactor)
+        let buttonPaddingSize = max(12.0, 16.0 * scaleFactor)
+        let estimatedRowHeight = buttonFontSize + (buttonPaddingSize * 2) + 6
+        return (estimatedRowHeight * 2) + buttonSpacing + 40
     }
     
     @ViewBuilder
