@@ -2,45 +2,42 @@ import SwiftUI
 
 struct HRVHistoryView: View {
     @ObservedObject var store: HRVStore
-    @Environment(\.dismiss) private var dismiss
     @State private var shareItems: [Any] = []
     @State private var shareSubject: String = ""
     @State private var showShareSheet = false
 
     var body: some View {
-        NavigationView {
-            List {
-                if store.records.isEmpty {
-                    Text("No HRV sessions yet.")
-                        .foregroundColor(.secondary)
-                } else {
-                    ForEach(store.records) { record in
-                        NavigationLink {
-                            HRVDetailView(record: record, onShare: presentShare)
+        List {
+            if store.records.isEmpty {
+                Text("No HRV sessions yet.")
+                    .foregroundColor(.secondary)
+            } else {
+                ForEach(store.records) { record in
+                    NavigationLink {
+                        HRVDetailView(record: record, onShare: presentShare)
+                    } label: {
+                        HRVHistoryRow(record: record)
+                    }
+                    .swipeActions(edge: .trailing) {
+                        Button(role: .destructive) {
+                            store.deleteRecord(record)
                         } label: {
-                            HRVHistoryRow(record: record)
-                        }
-                        .swipeActions(edge: .trailing) {
-                            Button(role: .destructive) {
-                                store.deleteRecord(record)
-                            } label: {
-                                Text("Delete")
-                            }
+                            Text("Delete")
                         }
                     }
                 }
             }
-            .navigationTitle("HRV History")
-            .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button("AI Export") {
+        }
+        .navigationTitle("HRV History")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Menu {
+                    Button("Export Logs (for AI)") {
                         presentShare(items: [store.exportAllJSON()], subject: "HRV Logs (for AI)")
                     }
-                }
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Done") {
-                        dismiss()
-                    }
+                } label: {
+                    Image(systemName: "square.and.arrow.up")
                 }
             }
         }

@@ -2,49 +2,46 @@ import SwiftUI
 
 struct WorkoutHistoryView: View {
     @ObservedObject var store: WorkoutStore
-    @Environment(\.dismiss) private var dismiss
     @State private var sharePayload: SharePayload?
 
     var body: some View {
-        NavigationView {
-            List {
-                if store.workouts.isEmpty {
-                    Text("No saved workouts yet.")
-                        .foregroundColor(.secondary)
-                } else {
-                    ForEach(store.workouts) { workout in
-                        NavigationLink {
-                            WorkoutDetailView(
-                                record: workout,
-                                onShare: presentShare,
-                                onDelete: {
-                                    store.deleteWorkout(workout)
-                                }
-                            )
-                        } label: {
-                            WorkoutHistoryRow(record: workout)
-                        }
-                        .swipeActions(edge: .trailing) {
-                            Button(role: .destructive) {
+        List {
+            if store.workouts.isEmpty {
+                Text("No saved workouts yet.")
+                    .foregroundColor(.secondary)
+            } else {
+                ForEach(store.workouts) { workout in
+                    NavigationLink {
+                        WorkoutDetailView(
+                            record: workout,
+                            onShare: presentShare,
+                            onDelete: {
                                 store.deleteWorkout(workout)
-                            } label: {
-                                Text("Delete")
                             }
+                        )
+                    } label: {
+                        WorkoutHistoryRow(record: workout)
+                    }
+                    .swipeActions(edge: .trailing) {
+                        Button(role: .destructive) {
+                            store.deleteWorkout(workout)
+                        } label: {
+                            Text("Delete")
                         }
                     }
                 }
             }
-            .navigationTitle("History")
-            .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button("AI Export") {
+        }
+        .navigationTitle("Workout History")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Menu {
+                    Button("Export Logs (for AI)") {
                         presentShare(items: [store.exportAllJSON()], subject: "Workout History Logs (for AI)")
                     }
-                }
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Done") {
-                        dismiss()
-                    }
+                } label: {
+                    Image(systemName: "square.and.arrow.up")
                 }
             }
         }
