@@ -65,7 +65,7 @@ struct HRVMeasurementView: View {
                 
                 VStack(spacing: 0) {
                     // Top bar with close on left and controls on right
-                    HStack(spacing: 8) {
+                    HStack(spacing: TopBarLayout.buttonSpacing) {
                         Button {
                             if viewModel.isCompleted {
                                 if hasSavedRecord {
@@ -102,8 +102,8 @@ struct HRVMeasurementView: View {
                             topBarCircleIcon(systemName: "gearshape", accessibilityLabel: "Settings")
                         }
                     }
-                    .padding(.horizontal, 20)
-                    .padding(.top, 4)
+                    .padding(.horizontal, TopBarLayout.horizontalPadding)
+                    .padding(.top, TopBarLayout.topPadding)
                     .sheet(isPresented: $showDevicePicker) {
                         DevicePickerView()
                             .environmentObject(bluetoothManager)
@@ -356,10 +356,10 @@ struct HRVMeasurementView: View {
 
     private func topBarCircleIcon(systemName: String, color: Color = .white, accessibilityLabel: String? = nil) -> some View {
         Image(systemName: systemName)
-            .font(.system(size: 20))
+            .font(.system(size: TopBarLayout.iconFontSize))
             .foregroundColor(color)
-            .frame(width: 44, height: 44)
-            .background(Color.gray.opacity(0.3))
+            .frame(width: TopBarLayout.iconSize, height: TopBarLayout.iconSize)
+            .background(Color.gray.opacity(TopBarLayout.iconBackgroundOpacity))
             .clipShape(Circle())
             .accessibilityLabel(accessibilityLabel ?? systemName)
     }

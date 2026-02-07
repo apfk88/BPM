@@ -307,7 +307,7 @@ struct HeartRateDisplayView: View {
                             )
                         }
                     }
-                    .padding(.horizontal, 20)
+                    .padding(.horizontal, TopBarLayout.horizontalPadding)
 
                     VStack(spacing: 8) {
                         connectionPrompt
@@ -1145,7 +1145,7 @@ struct HeartRateDisplayView: View {
     private func timerModeLayout(geometry: GeometryProxy, isLandscape: Bool) -> some View {
         VStack(spacing: 0) {
             // Top bar with device picker, view settings, and clear button
-            HStack(spacing: 8) {
+            HStack(spacing: TopBarLayout.buttonSpacing) {
                 Button {
                     // Only show alert if there's workout data to lose
                     if hasSavedWorkout {
@@ -1191,8 +1191,8 @@ struct HeartRateDisplayView: View {
                     )
                 }
             }
-            .padding(.horizontal, 20)
-            .padding(.top, 4)
+            .padding(.horizontal, TopBarLayout.horizontalPadding)
+            .padding(.top, TopBarLayout.topPadding)
             .alert("Clear Workout", isPresented: $showClearAlert) {
                 Button("Cancel", role: .cancel) { }
                 Button("Clear", role: .destructive) {
@@ -2421,10 +2421,10 @@ struct HeartRateDisplayView: View {
 
     private func topBarCircleIcon(systemName: String, color: Color = .white, accessibilityLabel: String? = nil) -> some View {
         Image(systemName: systemName)
-            .font(.system(size: 20))
+            .font(.system(size: TopBarLayout.iconFontSize))
             .foregroundColor(color)
-            .frame(width: 44, height: 44)
-            .background(Color.gray.opacity(0.3))
+            .frame(width: TopBarLayout.iconSize, height: TopBarLayout.iconSize)
+            .background(Color.gray.opacity(TopBarLayout.iconBackgroundOpacity))
             .clipShape(Circle())
             .accessibilityLabel(accessibilityLabel ?? systemName)
     }
