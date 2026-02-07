@@ -299,16 +299,6 @@ struct HeartRateDisplayView: View {
                     HStack {
                         Spacer()
                         Button {
-                            showDevicePicker = true
-                        } label: {
-                            topBarCircleIcon(
-                                systemName: heartIconName,
-                                color: heartButtonColor,
-                                accessibilityLabel: "Device Picker"
-                            )
-                        }
-
-                        Button {
                             showSettings = true
                         } label: {
                             topBarCircleIcon(
@@ -2432,9 +2422,8 @@ struct HeartRateDisplayView: View {
     private func topBarCircleIcon(systemName: String, color: Color = .white, accessibilityLabel: String? = nil) -> some View {
         Image(systemName: systemName)
             .font(.system(size: 20))
-            .frame(width: 20, height: 20)
             .foregroundColor(color)
-            .padding(12)
+            .frame(width: 44, height: 44)
             .background(Color.gray.opacity(0.3))
             .clipShape(Circle())
             .accessibilityLabel(accessibilityLabel ?? systemName)
