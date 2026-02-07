@@ -480,16 +480,42 @@ struct HeartRateDisplayView: View {
     }
 
     private func runningExpandedPanel(totalTime: TimeInterval, setTime: TimeInterval, isLandscape: Bool, containerSize: CGSize) -> some View {
+        let isCompleted = timerViewModel.isCompleted
         let bpmValue = displayedHeartRate.map(String.init) ?? "---"
         let totalTimeValue = isTimerEmptyState ? "---" : formatTime(totalTime, showTenths: false)
+        let setNumberTitle = isCompleted ? "Work Sets" : "Set Number"
         let setNumberValue = expandedSetNumberValue
-        let setTimeValue = isTimerEmptyState ? "---" : formatTime(setTime, showTenths: false)
+        let setTimeTitle = isCompleted ? "Avg Work" : "Set Time"
+        let setTimeValue: String = {
+            if isTimerEmptyState {
+                return "---"
+            }
+            if isCompleted {
+                return timerViewModel.avgSetTime.map { formatTime($0, showTenths: false) } ?? "---"
+            }
+            return formatTime(setTime, showTenths: false)
+        }()
         let maxBPMValue = timerViewModel.maxHeartRate.map(String.init) ?? "---"
         let avgBPMValue = timerViewModel.avgHeartRate.map(String.init) ?? "---"
         let caloriesValue = caloriesDisplayValue
-        let zone = zoneStorage.currentZone(for: displayedHeartRate)
-        let zoneValue = zone?.displayName ?? "---"
-        let zoneColor = zone?.color ?? .gray
+        let zoneTitle = isCompleted ? "Top Zone" : "Zone"
+        let zoneAndColor: (value: String, color: Color) = {
+            if isCompleted {
+                let topZone = timerViewModel
+                    .timeInZones(config: zoneStorage.effectiveConfig)
+                    .filter { $0.duration > 0 }
+                    .max { lhs, rhs in
+                        if lhs.duration == rhs.duration {
+                            return lhs.zone.rawValue > rhs.zone.rawValue
+                        }
+                        return lhs.duration < rhs.duration
+                    }?.zone
+                return (topZone?.displayName ?? "---", topZone?.color ?? .gray)
+            } else {
+                let zone = zoneStorage.currentZone(for: displayedHeartRate)
+                return (zone?.displayName ?? "---", zone?.color ?? .gray)
+            }
+        }()
         let horizontalPadding: CGFloat = isLandscape ? 14 : 8
         let verticalPadding: CGFloat = isLandscape ? 12 : 10
         let columnSpacing: CGFloat = isLandscape ? 12 : 10
@@ -506,11 +532,11 @@ struct HeartRateDisplayView: View {
             LazyVGrid(columns: columns, alignment: .center, spacing: rowSpacing) {
                 expandedMetricCell(title: "BPM", value: bpmValue, tileWidth: tileWidth, tileHeight: tileHeight)
                 expandedMetricCell(title: "Total Time", value: totalTimeValue, tileWidth: tileWidth, tileHeight: tileHeight)
-                expandedMetricCell(title: "Set Number", value: setNumberValue, tileWidth: tileWidth, tileHeight: tileHeight)
-                expandedMetricCell(title: "Set Time", value: setTimeValue, tileWidth: tileWidth, tileHeight: tileHeight)
+                expandedMetricCell(title: setNumberTitle, value: setNumberValue, tileWidth: tileWidth, tileHeight: tileHeight)
+                expandedMetricCell(title: setTimeTitle, value: setTimeValue, tileWidth: tileWidth, tileHeight: tileHeight)
                 expandedMetricCell(title: "Avg BPM", value: avgBPMValue, tileWidth: tileWidth, tileHeight: tileHeight)
                 expandedMetricCell(title: "Max BPM", value: maxBPMValue, tileWidth: tileWidth, tileHeight: tileHeight)
-                expandedMetricCell(title: "Zone", value: zoneValue, valueColor: zoneColor, tileWidth: tileWidth, tileHeight: tileHeight)
+                expandedMetricCell(title: zoneTitle, value: zoneAndColor.value, valueColor: zoneAndColor.color, tileWidth: tileWidth, tileHeight: tileHeight)
                 expandedMetricCell(title: "Calories", value: caloriesValue, tileWidth: tileWidth, tileHeight: tileHeight)
             }
             .frame(maxWidth: .infinity, alignment: .center)
@@ -521,6 +547,11 @@ struct HeartRateDisplayView: View {
     }
 
     private var expandedSetNumberValue: String {
+        if timerViewModel.isCompleted {
+            let totalWorkSets = timerViewModel.sets.filter { !$0.isRestSet && !$0.isCooldownSet }.count
+            return String(totalWorkSets)
+        }
+
         if timerViewModel.state == .cooldown || timerViewModel.state == .cooldownPaused {
             let nextCooldownNumber = timerViewModel.sets.filter { $0.isCooldownSet }.count + 1
             return "C\(nextCooldownNumber)"
