@@ -81,3 +81,4 @@
 - Apple Health connect/status moved out of the top section into lower-priority Integrations.
 - Simulator default for validation: iOS 26.x on base `iPhone 17` profile (not iOS 18 devices).
 - After every commit/push, refresh the simulator and leave Simulator app open.
+- HealthKit workout save path migrated off deprecated APIs to `HKWorkoutBuilder` (iOS 17+ clean).

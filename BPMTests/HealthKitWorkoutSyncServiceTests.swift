@@ -63,7 +63,7 @@ struct HealthKitWorkoutSyncServiceTests {
 
         _ = try await service.syncWorkout(record: record, activityType: .functionalStrengthTraining)
 
-        let heartRateSamples = mockStore.addedSamples.compactMap { $0 as? HKQuantitySample }
+        let heartRateSamples = mockStore.savedSamples.compactMap { $0 as? HKQuantitySample }
             .filter { $0.quantityType.identifier == HKQuantityTypeIdentifier.heartRate.rawValue }
         #expect(heartRateSamples.count == 2)
     }
@@ -79,13 +79,8 @@ struct HealthKitWorkoutSyncServiceTests {
 
         _ = try await service.syncWorkout(record: record, activityType: .running)
 
-        guard let workout = mockStore.savedObject as? HKWorkout else {
-            #expect(Bool(false), "Expected HKWorkout to be saved")
-            return
-        }
-        #expect(workout.startDate == start)
-        #expect(workout.endDate == end)
-        #expect(Int(workout.duration) == Int(end.timeIntervalSince(start)))
+        #expect(mockStore.savedStart == start)
+        #expect(mockStore.savedEnd == end)
     }
 
     @Test func syncSetsTotalCaloriesOnWorkout() async throws {
@@ -99,11 +94,10 @@ struct HealthKitWorkoutSyncServiceTests {
 
         _ = try await service.syncWorkout(record: record, activityType: .cycling)
 
-        guard let workout = mockStore.savedObject as? HKWorkout else {
-            #expect(Bool(false), "Expected HKWorkout to be saved")
-            return
-        }
-        let totalEnergy = workout.totalEnergyBurned?.doubleValue(for: .kilocalorie())
+        let energySamples = mockStore.savedSamples.compactMap { $0 as? HKQuantitySample }
+            .filter { $0.quantityType.identifier == HKQuantityTypeIdentifier.activeEnergyBurned.rawValue }
+        #expect(energySamples.count == 1)
+        let totalEnergy = energySamples.first?.quantity.doubleValue(for: .kilocalorie())
         #expect(totalEnergy != nil)
         #expect(abs((totalEnergy ?? 0) - 123.4) < 0.01)
     }
@@ -118,7 +112,7 @@ struct HealthKitWorkoutSyncServiceTests {
         let record = makeRecord(start: start, end: end, caloriesTotal: nil, caloriesActive: nil, samples: [])
 
         let result = try await service.syncWorkout(record: record, activityType: .other)
-        #expect(result.workoutUUID == mockStore.savedObject?.uuid)
+        #expect(result.workoutUUID == mockStore.savedWorkoutUUID)
     }
 
     private func makeRecord(
@@ -161,10 +155,13 @@ private final class MockHealthStore: HealthStoreWriting {
     var authorizationStatusValue: HKAuthorizationStatus = .sharingAuthorized
     var requestAuthorizationCalled = false
     var requestAuthorizationError: Error?
-    var saveError: Error?
-    var addError: Error?
-    var savedObject: HKObject?
-    var addedSamples: [HKSample] = []
+    var saveWorkoutError: Error?
+    var savedWorkoutUUID = UUID()
+    var savedActivityType: HKWorkoutActivityType?
+    var savedStart: Date?
+    var savedEnd: Date?
+    var savedMetadata: [String: Any] = [:]
+    var savedSamples: [HKSample] = []
     var onRequestAuthorization: (() -> Void)?
 
     func authorizationStatus(for objectType: HKObjectType) -> HKAuthorizationStatus {
@@ -179,17 +176,21 @@ private final class MockHealthStore: HealthStoreWriting {
         }
     }
 
-    func save(_ object: HKObject) async throws {
-        if let saveError {
-            throw saveError
+    func saveWorkout(
+        activityType: HKWorkoutActivityType,
+        start: Date,
+        end: Date,
+        metadata: [String: Any],
+        samples: [HKSample]
+    ) async throws -> UUID {
+        if let saveWorkoutError {
+            throw saveWorkoutError
         }
-        savedObject = object
-    }
-
-    func add(_ samples: [HKSample], to workout: HKWorkout) async throws {
-        if let addError {
-            throw addError
-        }
-        addedSamples = samples
+        savedActivityType = activityType
+        savedStart = start
+        savedEnd = end
+        savedMetadata = metadata
+        savedSamples = samples
+        return savedWorkoutUUID
     }
 }

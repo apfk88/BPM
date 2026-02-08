@@ -46,8 +46,13 @@ protocol HealthStoreWriting {
     var isHealthDataAvailable: Bool { get }
     func authorizationStatus(for objectType: HKObjectType) -> HKAuthorizationStatus
     func requestAuthorization(toShare typesToShare: Set<HKSampleType>, read typesToRead: Set<HKObjectType>?) async throws
-    func save(_ object: HKObject) async throws
-    func add(_ samples: [HKSample], to workout: HKWorkout) async throws
+    func saveWorkout(
+        activityType: HKWorkoutActivityType,
+        start: Date,
+        end: Date,
+        metadata: [String: Any],
+        samples: [HKSample]
+    ) async throws -> UUID
 }
 
 final class HKHealthStoreAdapter: HealthStoreWriting {
@@ -81,9 +86,37 @@ final class HKHealthStoreAdapter: HealthStoreWriting {
         }
     }
 
-    func save(_ object: HKObject) async throws {
+    func saveWorkout(
+        activityType: HKWorkoutActivityType,
+        start: Date,
+        end: Date,
+        metadata: [String: Any],
+        samples: [HKSample]
+    ) async throws -> UUID {
+        let configuration = HKWorkoutConfiguration()
+        configuration.activityType = activityType
+        configuration.locationType = .unknown
+
+        let builder = HKWorkoutBuilder(
+            healthStore: healthStore,
+            configuration: configuration,
+            device: nil
+        )
+
+        try await beginCollection(for: builder, at: start)
+        if !metadata.isEmpty {
+            try await addMetadata(metadata, to: builder)
+        }
+        if !samples.isEmpty {
+            try await add(samples, to: builder)
+        }
+        try await endCollection(for: builder, at: end)
+        return try await finishWorkout(for: builder)
+    }
+
+    private func beginCollection(for builder: HKWorkoutBuilder, at start: Date) async throws {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            healthStore.save(object) { success, error in
+            builder.beginCollection(withStart: start) { success, error in
                 if let error {
                     continuation.resume(throwing: error)
                     return
@@ -97,15 +130,63 @@ final class HKHealthStoreAdapter: HealthStoreWriting {
         }
     }
 
-    func add(_ samples: [HKSample], to workout: HKWorkout) async throws {
+    private func addMetadata(_ metadata: [String: Any], to builder: HKWorkoutBuilder) async throws {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            healthStore.add(samples, to: workout) { success, error in
+            builder.addMetadata(metadata) { success, error in
                 if let error {
                     continuation.resume(throwing: error)
                     return
                 }
                 if success {
                     continuation.resume()
+                } else {
+                    continuation.resume(throwing: HealthKitSyncError.writeFailed(""))
+                }
+            }
+        }
+    }
+
+    private func add(_ samples: [HKSample], to builder: HKWorkoutBuilder) async throws {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            builder.add(samples) { success, error in
+                if let error {
+                    continuation.resume(throwing: error)
+                    return
+                }
+                if success {
+                    continuation.resume()
+                } else {
+                    continuation.resume(throwing: HealthKitSyncError.writeFailed(""))
+                }
+            }
+        }
+    }
+
+    private func endCollection(for builder: HKWorkoutBuilder, at end: Date) async throws {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            builder.endCollection(withEnd: end) { success, error in
+                if let error {
+                    continuation.resume(throwing: error)
+                    return
+                }
+                if success {
+                    continuation.resume()
+                } else {
+                    continuation.resume(throwing: HealthKitSyncError.writeFailed(""))
+                }
+            }
+        }
+    }
+
+    private func finishWorkout(for builder: HKWorkoutBuilder) async throws -> UUID {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<UUID, Error>) in
+            builder.finishWorkout { workout, error in
+                if let error {
+                    continuation.resume(throwing: error)
+                    return
+                }
+                if let workout {
+                    continuation.resume(returning: workout.uuid)
                 } else {
                     continuation.resume(throwing: HealthKitSyncError.writeFailed(""))
                 }
@@ -181,23 +262,28 @@ final class HealthKitWorkoutSyncService: ObservableObject {
             try await requestWriteAuthorization()
         }
 
-        let workout = makeWorkout(record: record, activityType: activityType)
+        let bounds = workoutBounds(for: record)
+        let metadata = makeWorkoutMetadata(record: record)
+        let associatedSamples = makeAssociatedSamples(
+            record: record,
+            start: bounds.start,
+            end: bounds.end
+        )
+
+        let workoutUUID: UUID
         do {
-            try await healthStore.save(workout)
+            workoutUUID = try await healthStore.saveWorkout(
+                activityType: activityType,
+                start: bounds.start,
+                end: bounds.end,
+                metadata: metadata,
+                samples: associatedSamples
+            )
         } catch {
             throw HealthKitSyncError.writeFailed(error.localizedDescription)
         }
 
-        let associatedSamples = makeAssociatedSamples(record: record)
-        if !associatedSamples.isEmpty {
-            do {
-                try await healthStore.add(associatedSamples, to: workout)
-            } catch {
-                throw HealthKitSyncError.writeFailed(error.localizedDescription)
-            }
-        }
-
-        return HealthKitSyncResult(workoutUUID: workout.uuid)
+        return HealthKitSyncResult(workoutUUID: workoutUUID)
     }
 
     private func writeTypes() -> Set<HKSampleType> {
@@ -211,13 +297,15 @@ final class HealthKitWorkoutSyncService: ObservableObject {
         return types
     }
 
-    private func makeWorkout(record: WorkoutRecord, activityType: HKWorkoutActivityType) -> HKWorkout {
+    private func workoutBounds(for record: WorkoutRecord) -> (start: Date, end: Date) {
         let start = record.startAt
         let computedEnd = record.endAt > start
             ? record.endAt
             : start.addingTimeInterval(max(record.durationSeconds, 1))
-        let totalEnergy = record.caloriesTotal.map { HKQuantity(unit: .kilocalorie(), doubleValue: $0) }
+        return (start, computedEnd)
+    }
 
+    private func makeWorkoutMetadata(record: WorkoutRecord) -> [String: Any] {
         var metadata: [String: Any] = [
             HKMetadataKeyExternalUUID: record.id.uuidString,
             "BPMWorkoutRecordID": record.id.uuidString,
@@ -227,24 +315,10 @@ final class HealthKitWorkoutSyncService: ObservableObject {
         if let title = record.title?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty {
             metadata["BPMWorkoutTitle"] = title
         }
-
-        return HKWorkout(
-            activityType: activityType,
-            start: start,
-            end: computedEnd,
-            duration: computedEnd.timeIntervalSince(start),
-            totalEnergyBurned: totalEnergy,
-            totalDistance: nil,
-            metadata: metadata
-        )
+        return metadata
     }
 
-    private func makeAssociatedSamples(record: WorkoutRecord) -> [HKSample] {
-        let start = record.startAt
-        let end = record.endAt > start
-            ? record.endAt
-            : start.addingTimeInterval(max(record.durationSeconds, 1))
-
+    private func makeAssociatedSamples(record: WorkoutRecord, start: Date, end: Date) -> [HKSample] {
         var samples: [HKSample] = []
 
         if let heartRateType {
@@ -264,16 +338,19 @@ final class HealthKitWorkoutSyncService: ObservableObject {
             }
         }
 
-        if let activeEnergyType, let activeCalories = record.caloriesActive, activeCalories > 0 {
-            let quantity = HKQuantity(unit: .kilocalorie(), doubleValue: activeCalories)
-            samples.append(
-                HKQuantitySample(
-                    type: activeEnergyType,
-                    quantity: quantity,
-                    start: start,
-                    end: end
+        if let activeEnergyType {
+            let caloriesValue = record.caloriesActive ?? record.caloriesTotal
+            if let caloriesValue, caloriesValue > 0 {
+                let quantity = HKQuantity(unit: .kilocalorie(), doubleValue: caloriesValue)
+                samples.append(
+                    HKQuantitySample(
+                        type: activeEnergyType,
+                        quantity: quantity,
+                        start: start,
+                        end: end
+                    )
                 )
-            )
+            }
         }
 
         return samples
