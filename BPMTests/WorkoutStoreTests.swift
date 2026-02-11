@@ -17,9 +17,8 @@ struct WorkoutStoreTests {
 
         let reloaded = WorkoutStore(storeURL: tempURL, userDefaults: defaults, iCloudStore: iCloudStore)
         try await Task.sleep(nanoseconds: 1_000_000_000)
-        #expect(reloaded.workouts.count == 1)
-        #expect(reloaded.workouts.first?.id == record.id)
-        #expect(reloaded.workouts.first?.hrr == record.hrr)
+        #expect(reloaded.workouts.contains(where: { $0.id == record.id }))
+        #expect(reloaded.workouts.first(where: { $0.id == record.id })?.hrr == record.hrr)
     }
 
     @Test func retentionPrunesOldWorkouts() async throws {
@@ -102,9 +101,88 @@ struct WorkoutStoreTests {
         #expect(store.workouts.first?.healthKitLastError == nil)
     }
 
-    private func sampleWorkout(startOffset: TimeInterval, duration: TimeInterval) -> WorkoutRecord {
+    @Test func iCloudSyncCompactsPayloadWhenWorkoutDataIsLarge() async throws {
+        let tempURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("workouts-\(UUID().uuidString).json")
+        let defaults = UserDefaults(suiteName: "workout-store-\(UUID().uuidString)")!
+        defaults.set(365, forKey: WorkoutDefaultsKey.retentionDays)
+        let iCloudStore = resetICloudStore()
+
+        let store = WorkoutStore(storeURL: tempURL, userDefaults: defaults, iCloudStore: iCloudStore)
+        let sampleCount = 8_000
+        let workoutCount = 6
+        var expectedIDs = Set<UUID>()
+
+        for index in 0..<workoutCount {
+            let record = sampleWorkout(
+                startOffset: TimeInterval(-(index + 1) * 1_200),
+                duration: 1_200,
+                hrSampleCount: sampleCount
+            )
+            expectedIDs.insert(record.id)
+            store.saveWorkout(record)
+        }
+
+        var waitCycles = 0
+        while waitCycles < 120 {
+            let savedIDs = Set(store.workouts.map(\.id))
+            if expectedIDs.isSubset(of: savedIDs) {
+                break
+            }
+            try await Task.sleep(nanoseconds: 200_000_000)
+            waitCycles += 1
+        }
+
+        let savedIDs = Set(store.workouts.map(\.id))
+        #expect(expectedIDs.isSubset(of: savedIDs))
+        #expect(store.workouts.contains(where: { expectedIDs.contains($0.id) && $0.hrSamples.count == sampleCount }))
+
+        var syncedData: Data?
+        waitCycles = 0
+        while syncedData == nil && waitCycles < 50 {
+            syncedData = iCloudStore.data(forKey: WorkoutICloudKey.data)
+            if syncedData != nil { break }
+            try await Task.sleep(nanoseconds: 200_000_000)
+            waitCycles += 1
+        }
+
+        guard let syncedData else {
+            Issue.record("Expected iCloud workout payload")
+            return
+        }
+
+        #expect(syncedData.count <= 1_048_576)
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let syncedRecords = try decoder.decode([WorkoutRecord].self, from: syncedData)
+        #expect(!syncedRecords.isEmpty)
+        #expect(syncedRecords.count <= workoutCount)
+        #expect(syncedRecords.allSatisfy { $0.hrSamples.count <= 1_200 })
+    }
+
+    private func sampleWorkout(
+        startOffset: TimeInterval,
+        duration: TimeInterval,
+        hrSampleCount: Int = 0
+    ) -> WorkoutRecord {
         let start = Date().addingTimeInterval(startOffset)
         let end = start.addingTimeInterval(duration)
+        let hrSamples: [WorkoutHeartRateSample]
+        if hrSampleCount > 0 {
+            let interval = max(duration / Double(hrSampleCount), 0.2)
+            hrSamples = (0..<hrSampleCount).map { index in
+                let elapsed = Double(index) * interval
+                return WorkoutHeartRateSample(
+                    timestamp: start.addingTimeInterval(elapsed),
+                    bpm: 120 + (index % 40),
+                    workoutTime: elapsed
+                )
+            }
+        } else {
+            hrSamples = []
+        }
+
         return WorkoutRecord(
             id: UUID(),
             schemaVersion: WorkoutRecord.schemaVersion,
@@ -119,7 +197,7 @@ struct WorkoutStoreTests {
             hrr: 18,
             caloriesTotal: 120,
             caloriesActive: 90,
-            hrSamples: [],
+            hrSamples: hrSamples,
             zones: [],
             sets: [],
             notes: nil,

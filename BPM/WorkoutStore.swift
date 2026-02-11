@@ -10,6 +10,16 @@ enum WorkoutICloudKey {
     static let updatedAt = "BPM_Workouts_UpdatedAt"
 }
 
+private enum WorkoutICloudSyncLimit {
+    // NSUbiquitousKeyValueStore per-key limit is 1 MB.
+    static let hardKeyLimitBytes = 1_048_576
+    // Keep headroom to avoid platform overhead edge cases.
+    static let targetPayloadBytes = 950_000
+    // Keep per-workout samples bounded for cross-device sync payload size.
+    static let maxSamplesPerWorkout = 1_200
+    static let fallbackSampleCaps = [600, 300, 120, 60, 30, 0]
+}
+
 final class WorkoutStore: ObservableObject {
     static let shared = WorkoutStore()
 
@@ -20,6 +30,7 @@ final class WorkoutStore: ObservableObject {
     private let userDefaults: UserDefaults
     private let iCloudStore: NSUbiquitousKeyValueStore
     private let queue = DispatchQueue(label: "bpm.workout-store", qos: .utility)
+    private var cachedRecords: [WorkoutRecord] = []
 
     init(
         storeURL: URL = WorkoutStore.defaultStoreURL(),
@@ -47,7 +58,7 @@ final class WorkoutStore: ObservableObject {
         queue.async {
             var updated = record
             let now = Date()
-            var records = self.workouts
+            var records = self.cachedRecords
 
             let titleValue = record.title?.trimmingCharacters(in: .whitespacesAndNewlines)
             let normalizedTitle = titleValue?.isEmpty == false ? titleValue : nil
@@ -121,7 +132,7 @@ final class WorkoutStore: ObservableObject {
 
     func deleteWorkout(_ record: WorkoutRecord) {
         queue.async {
-            var records = self.workouts
+            var records = self.cachedRecords
             records.removeAll { $0.id == record.id }
             self.persist(records: records)
             DispatchQueue.main.async {
@@ -133,7 +144,7 @@ final class WorkoutStore: ObservableObject {
 
     func pruneRetention() {
         queue.async {
-            let records = self.pruneRetentionInternal(records: self.workouts, now: Date())
+            let records = self.pruneRetentionInternal(records: self.cachedRecords, now: Date())
             self.persist(records: records)
             DispatchQueue.main.async {
                 self.workouts = self.sorted(records)
@@ -159,6 +170,7 @@ final class WorkoutStore: ObservableObject {
                 let selected = self.preferredRecords(local: local, remote: remote)
                 let records = self.pruneRetentionInternal(records: selected.records, now: Date())
                 self.persist(records: records, updatedAt: selected.updatedAt)
+                self.cachedRecords = records
                 DispatchQueue.main.async {
                     self.lastError = nil
                     self.workouts = self.sorted(records)
@@ -181,7 +193,8 @@ final class WorkoutStore: ObservableObject {
             encoder.dateEncodingStrategy = .iso8601
             let data = try encoder.encode(records)
             try data.write(to: storeURL, options: [.atomic])
-            persistToICloud(data: data, updatedAt: updatedAt)
+            persistToICloud(data: data, records: records, updatedAt: updatedAt)
+            cachedRecords = records
         } catch {
             DispatchQueue.main.async {
                 self.lastError = "Failed to save workouts"
@@ -224,7 +237,8 @@ final class WorkoutStore: ObservableObject {
                 guard let remoteUpdatedAt = remote.updatedAt else { return }
                 let localUpdatedAt = local.updatedAt
                 if localUpdatedAt == nil || remoteUpdatedAt > localUpdatedAt ?? .distantPast {
-                    let records = self.pruneRetentionInternal(records: remote.records, now: Date())
+                    let merged = self.mergeRecords(local: local.records, remote: remote.records)
+                    let records = self.pruneRetentionInternal(records: merged, now: Date())
                     self.persist(records: records, updatedAt: remoteUpdatedAt)
                     DispatchQueue.main.async {
                         self.lastError = nil
@@ -267,18 +281,128 @@ final class WorkoutStore: ObservableObject {
         local: (records: [WorkoutRecord], updatedAt: Date?),
         remote: (records: [WorkoutRecord], updatedAt: Date?)
     ) -> (records: [WorkoutRecord], updatedAt: Date) {
+        let mergedRecords = mergeRecords(local: local.records, remote: remote.records)
         let localUpdatedAt = local.updatedAt ?? .distantPast
         let remoteUpdatedAt = remote.updatedAt ?? .distantPast
-        if remoteUpdatedAt > localUpdatedAt {
-            return (remote.records, remoteUpdatedAt)
-        }
-        return (local.records, localUpdatedAt == .distantPast ? Date() : localUpdatedAt)
+        let chosenUpdatedAt = max(localUpdatedAt, remoteUpdatedAt)
+        return (mergedRecords, chosenUpdatedAt == .distantPast ? Date() : chosenUpdatedAt)
     }
 
-    private func persistToICloud(data: Data, updatedAt: Date) {
-        iCloudStore.set(data, forKey: WorkoutICloudKey.data)
+    private func mergeRecords(local: [WorkoutRecord], remote: [WorkoutRecord]) -> [WorkoutRecord] {
+        var byId = Dictionary(uniqueKeysWithValues: local.map { ($0.id, $0) })
+        for remoteRecord in remote {
+            if let existing = byId[remoteRecord.id] {
+                byId[remoteRecord.id] = remoteRecord.updatedAt > existing.updatedAt ? remoteRecord : existing
+            } else {
+                byId[remoteRecord.id] = remoteRecord
+            }
+        }
+        return Array(byId.values)
+    }
+
+    private func persistToICloud(data: Data, records: [WorkoutRecord], updatedAt: Date) {
+        let payloadData: Data
+        if data.count <= WorkoutICloudSyncLimit.targetPayloadBytes {
+            payloadData = data
+        } else if let compact = makeICloudPayload(from: records) {
+            payloadData = compact
+        } else {
+            return
+        }
+
+        guard payloadData.count <= WorkoutICloudSyncLimit.hardKeyLimitBytes else { return }
+
+        iCloudStore.set(payloadData, forKey: WorkoutICloudKey.data)
         iCloudStore.set(updatedAt.timeIntervalSince1970, forKey: WorkoutICloudKey.updatedAt)
         iCloudStore.synchronize()
+    }
+
+    private func makeICloudPayload(from records: [WorkoutRecord]) -> Data? {
+        let sortedRecords = sorted(records)
+        var syncedRecords: [WorkoutRecord] = []
+
+        for record in sortedRecords {
+            let compactRecord = compactRecordForICloud(record, maxSamples: WorkoutICloudSyncLimit.maxSamplesPerWorkout)
+            var candidate = syncedRecords
+            candidate.append(compactRecord)
+            if let encoded = encodeForICloud(candidate), encoded.count <= WorkoutICloudSyncLimit.targetPayloadBytes {
+                syncedRecords = candidate
+                continue
+            }
+
+            if syncedRecords.isEmpty {
+                for sampleCap in WorkoutICloudSyncLimit.fallbackSampleCaps {
+                    let fallback = compactRecordForICloud(record, maxSamples: sampleCap)
+                    if let encoded = encodeForICloud([fallback]), encoded.count <= WorkoutICloudSyncLimit.targetPayloadBytes {
+                        syncedRecords = [fallback]
+                        break
+                    }
+                }
+            }
+            break
+        }
+
+        return encodeForICloud(syncedRecords)
+    }
+
+    private func encodeForICloud(_ records: [WorkoutRecord]) -> Data? {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        encoder.dateEncodingStrategy = .iso8601
+        return try? encoder.encode(records)
+    }
+
+    private func compactRecordForICloud(_ record: WorkoutRecord, maxSamples: Int) -> WorkoutRecord {
+        WorkoutRecord(
+            id: record.id,
+            schemaVersion: record.schemaVersion,
+            title: record.title,
+            startAt: record.startAt,
+            endAt: record.endAt,
+            durationSeconds: record.durationSeconds,
+            avgHr: record.avgHr,
+            maxHr: record.maxHr,
+            minHr: record.minHr,
+            hrv: record.hrv,
+            hrr: record.hrr,
+            caloriesTotal: record.caloriesTotal,
+            caloriesActive: record.caloriesActive,
+            hrSamples: downsampledSamples(record.hrSamples, maxCount: maxSamples),
+            zones: record.zones,
+            sets: record.sets,
+            notes: record.notes,
+            source: record.source,
+            appVersion: record.appVersion,
+            healthKitWorkoutUUID: record.healthKitWorkoutUUID,
+            healthKitSyncedAt: record.healthKitSyncedAt,
+            healthKitLastError: record.healthKitLastError,
+            createdAt: record.createdAt,
+            updatedAt: record.updatedAt
+        )
+    }
+
+    private func downsampledSamples(_ samples: [WorkoutHeartRateSample], maxCount: Int) -> [WorkoutHeartRateSample] {
+        guard maxCount > 0 else { return [] }
+        guard samples.count > maxCount else { return samples }
+
+        let step = max(1, samples.count / maxCount)
+        var reduced: [WorkoutHeartRateSample] = []
+        reduced.reserveCapacity(maxCount + 1)
+
+        var index = 0
+        while index < samples.count {
+            reduced.append(samples[index])
+            index += step
+        }
+
+        if let last = samples.last, reduced.last?.timestamp != last.timestamp {
+            reduced.append(last)
+        }
+
+        if reduced.count > maxCount {
+            reduced = Array(reduced.prefix(maxCount))
+        }
+        return reduced
     }
 
     private func registerDefaults() {
