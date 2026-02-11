@@ -54,6 +54,8 @@ final class TimerViewModel: ObservableObject {
     @Published var presetPhase: PresetPhase = .work
     @Published var presetCurrentSet: Int = 0 // Current set number (1-indexed)
     @Published var presetPhaseTimeRemaining: TimeInterval = 0 // Countdown for current phase
+    @Published private(set) var isPresetPrestartCountdownActive = false
+    @Published private(set) var defaultWorkoutTitle: String?
 
     var isPresetMode: Bool {
         activePreset != nil
@@ -150,9 +152,11 @@ final class TimerViewModel: ObservableObject {
     }
 
     private let caloriesQueue = DispatchQueue(label: "bpm.calories-estimate", qos: .utility)
+    private let presetStartCountdownDuration: TimeInterval
     private var userDefaultsObserver: NSObjectProtocol?
 
-    init() {
+    init(presetStartCountdownDuration: TimeInterval = 5.0) {
+        self.presetStartCountdownDuration = max(0, presetStartCountdownDuration)
         caloriesStatus = CaloriesEstimator.estimate(samples: [], profile: UserEnergyProfileStore.currentProfile())
         userDefaultsObserver = NotificationCenter.default.addObserver(
             forName: UserDefaults.didChangeNotification,
@@ -184,6 +188,9 @@ final class TimerViewModel: ObservableObject {
     private var presetPhasePausedTime: TimeInterval = 0 // Time paused in current phase
     private var audioPlayer: AVAudioPlayer? // For playing sounds that bypass silent mode
     private var lastLiveActivityElapsedSeconds: Int?
+    private var presetStartCountdownTimer: Timer?
+    private var presetStartCountdownEndTime: Date?
+    private var presetStartCountdownRemainingOnPause: TimeInterval = 0
 
     var currentHeartRate: (() -> Int?)?
     
@@ -479,6 +486,7 @@ final class TimerViewModel: ObservableObject {
         guard state == .idle || state == .paused else { return }
         
         if state == .idle {
+            defaultWorkoutTitle = nil
             startTime = Date()
             pauseStartTime = nil
             setCounter = 0
@@ -715,6 +723,7 @@ final class TimerViewModel: ObservableObject {
     func reset() {
         stopTimer()
         stopCooldownTimer()
+        stopPresetStartCountdownTimer()
         stopHeartRateSampling()
         state = .idle
         elapsedTime = 0
@@ -741,8 +750,11 @@ final class TimerViewModel: ObservableObject {
         presetPhase = .work
         presetCurrentSet = 0
         presetPhaseTimeRemaining = 0
+        isPresetPrestartCountdownActive = false
         presetPhaseStartTime = nil
         presetPhasePausedTime = 0
+        presetStartCountdownRemainingOnPause = 0
+        defaultWorkoutTitle = nil
     }
 
     // MARK: - Preset Mode
@@ -756,19 +768,30 @@ final class TimerViewModel: ObservableObject {
     }
 
     func clearPreset() {
+        stopPresetStartCountdownTimer()
+        isPresetPrestartCountdownActive = false
         activePreset = nil
         presetPhase = .work
         presetCurrentSet = 0
         presetPhaseTimeRemaining = 0
         presetPhaseStartTime = nil
         presetPhasePausedTime = 0
+        presetStartCountdownRemainingOnPause = 0
+        if sets.isEmpty {
+            defaultWorkoutTitle = nil
+        }
     }
 
     func startPreset() {
         guard let preset = activePreset, state == .idle || state == .paused else { return }
 
         if state == .idle {
-            startTime = Date()
+            stopTimer()
+            stopPresetStartCountdownTimer()
+            defaultWorkoutTitle = resolvedPresetName(for: preset)
+            startTime = nil
+            elapsedTime = 0
+            currentSetTime = 0
             pauseStartTime = nil
             setCounter = 0
             restSetCounter = 0
@@ -779,11 +802,30 @@ final class TimerViewModel: ObservableObject {
             heartRateSamples.removeAll()
             presetPhase = .work
             presetCurrentSet = 1
-            presetPhaseTimeRemaining = preset.workDuration
-            presetPhaseStartTime = Date()
+            presetPhaseTimeRemaining = presetStartCountdownDuration
+            isPresetPrestartCountdownActive = true
+            presetPhaseStartTime = nil
             presetPhasePausedTime = 0
-            startHeartRateSampling()
+            presetStartCountdownRemainingOnPause = presetStartCountdownDuration
+            state = .running
+            if presetStartCountdownDuration > 0 {
+                startPresetStartCountdownTimer(remaining: presetStartCountdownDuration)
+            } else {
+                completePresetPrestartCountdownAndStartWork()
+            }
+            return
         } else if state == .paused {
+            if isPresetPrestartCountdownActive {
+                self.pauseStartTime = nil
+                state = .running
+                if presetStartCountdownRemainingOnPause > 0 {
+                    startPresetStartCountdownTimer(remaining: presetStartCountdownRemainingOnPause)
+                } else {
+                    completePresetPrestartCountdownAndStartWork()
+                }
+                return
+            }
+
             // Resume from paused state
             if let pauseStartTime = pauseStartTime {
                 let pauseDuration = Date().timeIntervalSince(pauseStartTime)
@@ -801,6 +843,18 @@ final class TimerViewModel: ObservableObject {
     func pausePreset() {
         guard state == .running, isPresetMode else { return }
         state = .paused
+
+        if isPresetPrestartCountdownActive {
+            if let countdownEndTime = presetStartCountdownEndTime {
+                presetStartCountdownRemainingOnPause = max(0, countdownEndTime.timeIntervalSinceNow)
+            } else {
+                presetStartCountdownRemainingOnPause = max(0, presetPhaseTimeRemaining)
+            }
+            stopPresetStartCountdownTimer()
+            pauseStartTime = Date()
+            return
+        }
+
         stopTimer()
         pauseStartTime = Date()
         // Save how much time has elapsed in current phase
@@ -812,6 +866,17 @@ final class TimerViewModel: ObservableObject {
 
     func endPreset() {
         guard isPresetMode, let preset = activePreset else { return }
+
+        if isPresetPrestartCountdownActive {
+            stopPresetStartCountdownTimer()
+            isPresetPrestartCountdownActive = false
+            activePreset = nil
+            state = .idle
+            presetPhaseTimeRemaining = 0
+            presetPhaseStartTime = nil
+            defaultWorkoutTitle = nil
+            return
+        }
 
         // Capture current set if running
         if state == .running || state == .paused {
@@ -864,6 +929,17 @@ final class TimerViewModel: ObservableObject {
     func stopPresetAndComplete() {
         guard isPresetMode else { return }
 
+        if isPresetPrestartCountdownActive {
+            stopPresetStartCountdownTimer()
+            isPresetPrestartCountdownActive = false
+            activePreset = nil
+            state = .idle
+            presetPhaseTimeRemaining = 0
+            presetPhaseStartTime = nil
+            defaultWorkoutTitle = nil
+            return
+        }
+
         // Capture current set if running
         if state == .running || state == .paused {
             if presetPhase == .work {
@@ -883,6 +959,71 @@ final class TimerViewModel: ObservableObject {
         finalizeCaloriesSession()
         state = .idle
         activePreset = nil
+    }
+
+    private func resolvedPresetName(for preset: TimerPreset) -> String {
+        let trimmed = preset.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? "Custom Preset" : trimmed
+    }
+
+    private func startPresetStartCountdownTimer(remaining: TimeInterval) {
+        stopPresetStartCountdownTimer()
+
+        let clampedRemaining = max(0, remaining)
+        presetStartCountdownRemainingOnPause = clampedRemaining
+        presetStartCountdownEndTime = Date().addingTimeInterval(clampedRemaining)
+        presetPhaseTimeRemaining = clampedRemaining
+
+        guard clampedRemaining > 0 else {
+            completePresetPrestartCountdownAndStartWork()
+            return
+        }
+
+        presetStartCountdownTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
+            guard let self = self else { return }
+            DispatchQueue.main.async {
+                guard self.isPresetPrestartCountdownActive else { return }
+                guard let endTime = self.presetStartCountdownEndTime else { return }
+
+                let remainingTime = max(0, endTime.timeIntervalSinceNow)
+                self.presetPhaseTimeRemaining = remainingTime
+                self.presetStartCountdownRemainingOnPause = remainingTime
+                self.elapsedTime = 0
+                self.currentSetTime = 0
+                self.updateLiveActivityElapsed()
+
+                if remainingTime <= 0 {
+                    self.stopPresetStartCountdownTimer()
+                    self.completePresetPrestartCountdownAndStartWork()
+                }
+            }
+        }
+        RunLoop.current.add(presetStartCountdownTimer!, forMode: .common)
+    }
+
+    private func stopPresetStartCountdownTimer() {
+        presetStartCountdownTimer?.invalidate()
+        presetStartCountdownTimer = nil
+        presetStartCountdownEndTime = nil
+    }
+
+    private func completePresetPrestartCountdownAndStartWork() {
+        guard let preset = activePreset, isPresetPrestartCountdownActive else { return }
+
+        stopPresetStartCountdownTimer()
+        isPresetPrestartCountdownActive = false
+        presetStartCountdownRemainingOnPause = 0
+        startTime = Date()
+        elapsedTime = 0
+        currentSetTime = 0
+        pauseStartTime = nil
+        presetPhase = .work
+        presetCurrentSet = 1
+        presetPhaseTimeRemaining = preset.workDuration
+        presetPhaseStartTime = Date()
+        presetPhasePausedTime = 0
+        startHeartRateSampling()
+        startPresetTimer()
     }
 
     private func startPresetTimer() {
@@ -1500,6 +1641,7 @@ final class TimerViewModel: ObservableObject {
             maxHr: maxHeartRate,
             minHr: minHeartRate,
             hrv: nil,
+            hrr: heartRateRecovery,
             caloriesTotal: caloriesTotal,
             caloriesActive: caloriesActive,
             hrSamples: sampleSummaries,

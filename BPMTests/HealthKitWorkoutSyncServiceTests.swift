@@ -133,6 +133,7 @@ struct HealthKitWorkoutSyncServiceTests {
             maxHr: 150,
             minHr: 115,
             hrv: nil,
+            hrr: nil,
             caloriesTotal: caloriesTotal,
             caloriesActive: caloriesActive,
             hrSamples: samples,

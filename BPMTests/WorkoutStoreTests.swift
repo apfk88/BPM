@@ -8,16 +8,18 @@ struct WorkoutStoreTests {
             .appendingPathComponent("workouts-\(UUID().uuidString).json")
         let defaults = UserDefaults(suiteName: "workout-store-\(UUID().uuidString)")!
         defaults.set(90, forKey: WorkoutDefaultsKey.retentionDays)
+        let iCloudStore = resetICloudStore()
 
-        let store = WorkoutStore(storeURL: tempURL, userDefaults: defaults)
+        let store = WorkoutStore(storeURL: tempURL, userDefaults: defaults, iCloudStore: iCloudStore)
         let record = sampleWorkout(startOffset: -120, duration: 60)
         store.saveWorkout(record)
         try await Task.sleep(nanoseconds: 1_000_000_000)
 
-        let reloaded = WorkoutStore(storeURL: tempURL, userDefaults: defaults)
+        let reloaded = WorkoutStore(storeURL: tempURL, userDefaults: defaults, iCloudStore: iCloudStore)
         try await Task.sleep(nanoseconds: 1_000_000_000)
         #expect(reloaded.workouts.count == 1)
         #expect(reloaded.workouts.first?.id == record.id)
+        #expect(reloaded.workouts.first?.hrr == record.hrr)
     }
 
     @Test func retentionPrunesOldWorkouts() async throws {
@@ -25,8 +27,9 @@ struct WorkoutStoreTests {
             .appendingPathComponent("workouts-\(UUID().uuidString).json")
         let defaults = UserDefaults(suiteName: "workout-store-\(UUID().uuidString)")!
         defaults.set(1, forKey: WorkoutDefaultsKey.retentionDays)
+        let iCloudStore = resetICloudStore()
 
-        let store = WorkoutStore(storeURL: tempURL, userDefaults: defaults)
+        let store = WorkoutStore(storeURL: tempURL, userDefaults: defaults, iCloudStore: iCloudStore)
         let oldRecord = sampleWorkout(startOffset: -172800, duration: 60)
         store.saveWorkout(oldRecord)
         try await Task.sleep(nanoseconds: 1_000_000_000)
@@ -70,6 +73,7 @@ struct WorkoutStoreTests {
         #expect(decoded.healthKitWorkoutUUID == nil)
         #expect(decoded.healthKitSyncedAt == nil)
         #expect(decoded.healthKitLastError == nil)
+        #expect(decoded.hrr == nil)
     }
 
     @Test func saveWorkoutUpdatesHealthKitFieldsOnExistingRecord() async {
@@ -77,8 +81,9 @@ struct WorkoutStoreTests {
             .appendingPathComponent("workouts-\(UUID().uuidString).json")
         let defaults = UserDefaults(suiteName: "workout-store-\(UUID().uuidString)")!
         defaults.set(90, forKey: WorkoutDefaultsKey.retentionDays)
+        let iCloudStore = resetICloudStore()
 
-        let store = WorkoutStore(storeURL: tempURL, userDefaults: defaults)
+        let store = WorkoutStore(storeURL: tempURL, userDefaults: defaults, iCloudStore: iCloudStore)
         let baseRecord = sampleWorkout(startOffset: -120, duration: 60)
         store.saveWorkout(baseRecord)
         try? await Task.sleep(nanoseconds: 1_000_000_000)
@@ -111,6 +116,7 @@ struct WorkoutStoreTests {
             maxHr: 170,
             minHr: 110,
             hrv: nil,
+            hrr: 18,
             caloriesTotal: 120,
             caloriesActive: 90,
             hrSamples: [],
@@ -125,5 +131,13 @@ struct WorkoutStoreTests {
             createdAt: Date(),
             updatedAt: Date()
         )
+    }
+
+    private func resetICloudStore() -> NSUbiquitousKeyValueStore {
+        let store = NSUbiquitousKeyValueStore.default
+        store.removeObject(forKey: WorkoutICloudKey.data)
+        store.removeObject(forKey: WorkoutICloudKey.updatedAt)
+        store.synchronize()
+        return store
     }
 }

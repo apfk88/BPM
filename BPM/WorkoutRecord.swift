@@ -83,7 +83,7 @@ struct WorkoutSetSummary: Codable, Identifiable {
 }
 
 struct WorkoutRecord: Codable, Identifiable {
-    static let schemaVersion = 2
+    static let schemaVersion = 3
 
     let id: UUID
     let schemaVersion: Int
@@ -95,6 +95,7 @@ struct WorkoutRecord: Codable, Identifiable {
     let maxHr: Int?
     let minHr: Int?
     let hrv: Double?
+    let hrr: Int?
     let caloriesTotal: Double?
     let caloriesActive: Double?
     let hrSamples: [WorkoutHeartRateSample]
@@ -124,6 +125,9 @@ extension WorkoutRecord {
         }
         if let maxHr {
             lines.append("⬆️ Max BPM: \(maxHr)")
+        }
+        if let hrr {
+            lines.append("🧊 HRR (2 min): \(hrr)")
         }
         if let total = caloriesTotal {
             let activeText = caloriesActive.map { String(Int(round($0))) } ?? "n/a"
@@ -174,6 +178,7 @@ extension WorkoutRecord {
             maxHr: maxHr,
             minHr: minHr,
             hrv: hrv,
+            hrr: hrr,
             caloriesTotal: caloriesTotal,
             caloriesActive: caloriesActive,
             hrSamples: hrSamples,

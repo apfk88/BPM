@@ -283,10 +283,30 @@ struct PresetEditorView: View {
                                 .font(.system(size: 14, weight: .medium))
                                 .foregroundColor(.gray)
 
-                            Stepper(value: $preset.numberOfSets, in: 1...50) {
+                            HStack(spacing: 12) {
+                                Button {
+                                    decrementSets()
+                                } label: {
+                                    Image(systemName: "minus.circle.fill")
+                                        .font(.system(size: 28))
+                                        .foregroundColor(preset.numberOfSets > 1 ? .white : .gray.opacity(0.5))
+                                }
+                                .disabled(preset.numberOfSets <= 1)
+                                .buttonRepeatBehavior(.enabled)
+
                                 Text("\(preset.numberOfSets) sets")
                                     .font(.system(size: 18, weight: .semibold))
                                     .foregroundColor(.white)
+
+                                Button {
+                                    incrementSets()
+                                } label: {
+                                    Image(systemName: "plus.circle.fill")
+                                        .font(.system(size: 28))
+                                        .foregroundColor(preset.numberOfSets < 50 ? .white : .gray.opacity(0.5))
+                                }
+                                .disabled(preset.numberOfSets >= 50)
+                                .buttonRepeatBehavior(.enabled)
                             }
                             .padding(14)
                             .background(Color.gray.opacity(0.2))
@@ -425,6 +445,16 @@ struct PresetEditorView: View {
     private var isValid: Bool {
         !preset.name.isEmpty && (workMinutes > 0 || workSeconds > 0)
     }
+
+    private func decrementSets() {
+        guard preset.numberOfSets > 1 else { return }
+        preset.numberOfSets -= 1
+    }
+
+    private func incrementSets() {
+        guard preset.numberOfSets < 50 else { return }
+        preset.numberOfSets += 1
+    }
 }
 
 struct DurationPicker: View {
@@ -435,15 +465,14 @@ struct DurationPicker: View {
     var body: some View {
         HStack(spacing: 8) {
             Button {
-                if value > range.lowerBound {
-                    value -= 1
-                }
+                decrement()
             } label: {
                 Image(systemName: "minus.circle.fill")
                     .font(.system(size: 28))
                     .foregroundColor(value > range.lowerBound ? .white : .gray.opacity(0.5))
             }
             .disabled(value <= range.lowerBound)
+            .buttonRepeatBehavior(.enabled)
 
             VStack(spacing: 2) {
                 Text("\(value)")
@@ -457,19 +486,28 @@ struct DurationPicker: View {
             }
 
             Button {
-                if value < range.upperBound {
-                    value += 1
-                }
+                increment()
             } label: {
                 Image(systemName: "plus.circle.fill")
                     .font(.system(size: 28))
                     .foregroundColor(value < range.upperBound ? .white : .gray.opacity(0.5))
             }
             .disabled(value >= range.upperBound)
+            .buttonRepeatBehavior(.enabled)
         }
         .padding(14)
         .background(Color.gray.opacity(0.2))
         .cornerRadius(10)
+    }
+
+    private func decrement() {
+        guard value > range.lowerBound else { return }
+        value -= 1
+    }
+
+    private func increment() {
+        guard value < range.upperBound else { return }
+        value += 1
     }
 }
 

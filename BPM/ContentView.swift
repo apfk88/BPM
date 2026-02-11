@@ -76,6 +76,24 @@ private enum TimerViewMode: String {
     }
 }
 
+private enum SetTableBpmDisplay {
+    case avg
+    case max
+
+    var title: String {
+        switch self {
+        case .avg:
+            return "Avg BPM"
+        case .max:
+            return "Max BPM"
+        }
+    }
+
+    mutating func toggle() {
+        self = self == .avg ? .max : .avg
+    }
+}
+
 private struct HealthKitSyncBannerState {
     let message: String
     let workoutId: UUID
@@ -122,6 +140,7 @@ struct HeartRateDisplayView: View {
     @State private var pendingHealthKitActivityOption: HealthKitActivityOption = .functionalStrength
     @State private var healthKitSyncBannerState: HealthKitSyncBannerState?
     @State private var isHealthKitSyncInFlight = false
+    @State private var setTableBpmDisplay: SetTableBpmDisplay = .avg
 
     private var isPad: Bool {
         UIDevice.current.userInterfaceIdiom == .pad
@@ -1253,7 +1272,8 @@ struct HeartRateDisplayView: View {
                     .disableAutocorrection(true)
                 Button("Save") {
                     let trimmed = workoutTitleText.trimmingCharacters(in: .whitespacesAndNewlines)
-                    let title = trimmed.isEmpty ? pendingHealthKitActivityOption.title : trimmed
+                    let fallbackTitle = timerViewModel.defaultWorkoutTitle ?? pendingHealthKitActivityOption.title
+                    let title = trimmed.isEmpty ? fallbackTitle : trimmed
                     saveCurrentWorkout(title: title, activityOption: pendingHealthKitActivityOption)
                 }
                 Button("Cancel", role: .cancel) {
@@ -1499,6 +1519,7 @@ struct HeartRateDisplayView: View {
         let workSetCount = timerViewModel.sets.filter { !$0.isRestSet && !$0.isCooldownSet }.count
         let showDefaultEmptyRow = timerViewModel.state == .idle && timerViewModel.sets.isEmpty && !timerViewModel.isPresetMode
         let showTenths = shouldShowTenthsInTimer
+        let primaryBpmTitle = isLandscape ? "Avg BPM" : setTableBpmDisplay.title
         
         ScrollViewReader { proxy in
             ZStack(alignment: .top) {
@@ -1516,7 +1537,7 @@ struct HeartRateDisplayView: View {
                                 .foregroundColor(.clear)
                                 .frame(width: columnWidth, alignment: .center)
                             
-                            Text("Avg BPM")
+                            Text(primaryBpmTitle)
                                 .font(.system(size: headerFontSize, weight: .semibold))
                                 .foregroundColor(.clear)
                                 .frame(width: columnWidth, alignment: .center)
@@ -1548,6 +1569,7 @@ struct HeartRateDisplayView: View {
                             let avgBPM = timerViewModel.displayAvgBPM(for: set)
                             let maxBPM = timerViewModel.displayMaxBPM(for: set)
                             let minBPM = timerViewModel.displayMinBPM(for: set)
+                            let primaryBPM = (isLandscape || setTableBpmDisplay == .avg) ? avgBPM : maxBPM
                             let setTime = timerViewModel.displaySetTime(for: set)
                             let totalTime = timerViewModel.displayTotalTime(for: set)
                             let rowColor: Color = isActiveRestSet ? .white : .gray
@@ -1563,9 +1585,9 @@ struct HeartRateDisplayView: View {
                                     .foregroundColor(rowColor)
                                     .frame(width: columnWidth, alignment: .center)
 
-                                Text(avgBPM.map(String.init) ?? "---")
+                                Text(primaryBPM.map(String.init) ?? "---")
                                     .font(.system(size: fontSize, weight: .medium, design: .monospaced))
-                                    .foregroundColor(valueTextColor(avgBPM.map(String.init) ?? "---", preferred: rowColor))
+                                    .foregroundColor(valueTextColor(primaryBPM.map(String.init) ?? "---", preferred: rowColor))
                                     .frame(width: columnWidth, alignment: .center)
 
                                 if isLandscape {
@@ -1647,6 +1669,7 @@ struct HeartRateDisplayView: View {
                             let currentMaxBPM = timerViewModel.maxBPMForCurrentSet()
                             // Calculate min BPM for current set so far
                             let currentMinBPM = timerViewModel.minBPMForCurrentSet()
+                            let currentPrimaryBPM = (isLandscape || setTableBpmDisplay == .avg) ? currentAvgBPM : currentMaxBPM
                             
                             HStack(spacing: columnSpacing) {
                                 Text("\(nextSetNumber)")
@@ -1659,9 +1682,9 @@ struct HeartRateDisplayView: View {
                                     .foregroundColor(.white)
                                     .frame(width: columnWidth, alignment: .center)
                                 
-                                Text(currentAvgBPM.map(String.init) ?? "---")
+                                Text(currentPrimaryBPM.map(String.init) ?? "---")
                                     .font(.system(size: fontSize, weight: .medium, design: .monospaced))
-                                    .foregroundColor(valueTextColor(currentAvgBPM.map(String.init) ?? "---"))
+                                    .foregroundColor(valueTextColor(currentPrimaryBPM.map(String.init) ?? "---"))
                                     .frame(width: columnWidth, alignment: .center)
                                 
                                 if isLandscape {
@@ -1734,11 +1757,34 @@ struct HeartRateDisplayView: View {
                             .padding(.horizontal, 12)
                             .padding(.vertical, 8)
                             .id("activeRest")
+
+                            if nextCooldownNumber == 1 {
+                                let upcomingCooldownSet = SetRecord(
+                                    setNumber: 2,
+                                    setTime: 60,
+                                    heartRate: nil,
+                                    totalTime: timerViewModel.frozenElapsedTime + 120,
+                                    isRestSet: true,
+                                    isCooldownSet: true,
+                                    associatedWorkSetNumber: nil
+                                )
+                                presetPlaceholderRow(
+                                    set: upcomingCooldownSet,
+                                    fontSize: fontSize,
+                                    columnWidth: columnWidth,
+                                    columnSpacing: columnSpacing,
+                                    isLandscape: isLandscape,
+                                    showTenths: showTenths
+                                )
+                            }
                         }
 
                         // Remaining future placeholder rows for preset mode (grayed out, shown after active row)
                         if timerViewModel.isPresetMode && (timerViewModel.state == .running || timerViewModel.state == .paused || timerViewModel.state == .cooldown || timerViewModel.state == .cooldownPaused) {
-                            ForEach(timerViewModel.remainingPresetPlaceholderSets) { set in
+                            let remainingPlaceholderSets = (timerViewModel.state == .cooldown || timerViewModel.state == .cooldownPaused)
+                                ? timerViewModel.remainingPresetPlaceholderSets.filter { !$0.isCooldownSet }
+                                : timerViewModel.remainingPresetPlaceholderSets
+                            ForEach(remainingPlaceholderSets) { set in
                                 presetPlaceholderRow(set: set, fontSize: fontSize, columnWidth: columnWidth, columnSpacing: columnSpacing, isLandscape: isLandscape, showTenths: showTenths)
                             }
                         }
@@ -1757,10 +1803,15 @@ struct HeartRateDisplayView: View {
                                 .foregroundColor(.gray)
                                 .frame(width: columnWidth, alignment: .center)
                             
-                            Text("Avg BPM")
+                            Text(primaryBpmTitle)
                                 .font(.system(size: headerFontSize, weight: .semibold))
                                 .foregroundColor(.gray)
                                 .frame(width: columnWidth, alignment: .center)
+                                .contentShape(Rectangle())
+                                .onTapGesture {
+                                    guard !isLandscape else { return }
+                                    setTableBpmDisplay.toggle()
+                                }
                             
                             if isLandscape {
                                 Text("Min BPM")
@@ -1868,7 +1919,7 @@ struct HeartRateDisplayView: View {
 
     private func selectHealthKitActivity(_ option: HealthKitActivityOption) {
         pendingHealthKitActivityOption = option
-        workoutTitleText = option.title
+        workoutTitleText = timerViewModel.defaultWorkoutTitle ?? option.title
         showWorkoutTitlePrompt = true
     }
 

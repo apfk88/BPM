@@ -88,6 +88,9 @@ private struct WorkoutHistoryRow: View {
             HStack(spacing: 12) {
                 statChip(label: "Avg", value: record.avgHr)
                 statChip(label: "Max", value: record.maxHr)
+                if let hrr = record.hrr {
+                    statChip(label: "HRR", value: hrr)
+                }
             }
             if let caloriesSummaryText {
                 Text(caloriesSummaryText)
@@ -151,6 +154,7 @@ private struct WorkoutDetailView: View {
                 detailRow(label: "Avg BPM", value: record.avgHr.map(String.init))
                 detailRow(label: "Max BPM", value: record.maxHr.map(String.init))
                 detailRow(label: "Min BPM", value: record.minHr.map(String.init))
+                detailRow(label: "HRR (2 min)", value: record.hrr.map(String.init))
                 if let caloriesTotal = record.caloriesTotal {
                     detailRow(label: "Calories (Total)", value: String(Int(round(caloriesTotal))))
                 }
@@ -175,9 +179,17 @@ private struct WorkoutDetailView: View {
             if !record.sets.isEmpty {
                 Section(header: Text("Sets")) {
                     ForEach(record.sets) { set in
-                        HStack {
-                            Text(set.label)
-                                .font(.subheadline)
+                        let hrLabel = set.isRestSet ? "Min" : "Max"
+                        let hrValue = set.isRestSet ? set.minBpm : set.maxBpm
+
+                        HStack(alignment: .firstTextBaseline) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(set.label)
+                                    .font(.subheadline)
+                                Text("\(hrLabel) BPM \(hrValue.map(String.init) ?? "—")")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
                             Spacer()
                             Text(formatDuration(set.setTime))
                                 .font(.subheadline)
