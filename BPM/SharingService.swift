@@ -65,7 +65,7 @@ class SharingService: ObservableObject {
     private var lastHeartRateTimestamp: Date?
     private var viewingStartTime: Date?
     
-    private let shareExpirationInterval: TimeInterval = 2 * 60 * 60 // 2 hours
+    private let shareExpirationInterval: TimeInterval = 90 * 60 // 90 minutes
     private let viewingTimeoutInterval: TimeInterval = 10.0 // 10 seconds
     
     private let shareCodeKey = "BPM_ShareCode"
@@ -370,7 +370,7 @@ class SharingService: ObservableObject {
         expirationTimer = Timer.scheduledTimer(withTimeInterval: shareExpirationInterval, repeats: false) { [weak self] _ in
             Task { @MainActor in
                 self?.stopSharing()
-                self?.errorMessage = "Sharing session expired after 2 hours. To keep sharing, start a new session."
+                self?.errorMessage = "Sharing session expired after 90 minutes. To keep sharing, start a new session."
                 self?.errorContext = .sharing
             }
         }

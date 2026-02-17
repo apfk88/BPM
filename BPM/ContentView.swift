@@ -120,9 +120,7 @@ struct HeartRateDisplayView: View {
     @AppStorage(HealthKitWorkoutTypeDefaultsKey.quickSelection)
     private var healthKitQuickTypesRawValue = HealthKitWorkoutTypeSettings.defaultQuickSelectionRawValue()
     @State private var showPresetSheet = false
-    @State private var showPaywall = false
     @State private var showSettings = false
-    @ObservedObject private var subscriptionManager = SubscriptionManager.shared
     @StateObject private var zoneStorage = HeartRateZoneStorage.shared
     @State private var showShareDialog = false
     @State private var showShareSheet = false
@@ -222,9 +220,6 @@ struct HeartRateDisplayView: View {
                     timerViewModel.clearPreset()
                 }
             )
-        }
-        .sheet(isPresented: $showPaywall) {
-            SharePaywallView()
         }
         .sheet(isPresented: $showSettings) {
             SettingsView()
@@ -862,20 +857,15 @@ struct HeartRateDisplayView: View {
                             showDisconnectAlert = true
                         } else {
                             Task {
-                                let canShare = await subscriptionManager.canShare()
-                                if canShare {
-                                    if !bluetoothManager.hasActiveDataSource {
-                                        sharingService.errorMessage = "Please connect a heart rate device before sharing."
-                                        sharingService.errorContext = .sharing
-                                    } else {
-                                        do {
-                                            try await sharingService.startSharing()
-                                        } catch {
-                                            // Error handled by sharingService
-                                        }
-                                    }
+                                if !bluetoothManager.hasActiveDataSource {
+                                    sharingService.errorMessage = "Please connect a heart rate device before sharing."
+                                    sharingService.errorContext = .sharing
                                 } else {
-                                    showPaywall = true
+                                    do {
+                                        try await sharingService.startSharing()
+                                    } catch {
+                                        // Error handled by sharingService
+                                    }
                                 }
                             }
                         }
@@ -883,13 +873,7 @@ struct HeartRateDisplayView: View {
                         VStack(spacing: 4) {
                             Image(systemName: "antenna.radiowaves.left.and.right")
                                 .font(.system(size: scaledButtonSize))
-                            HStack(spacing: 2) {
-                                if !subscriptionManager.isSubscribed && !sharingService.isSharing {
-                                    Image(systemName: "lock.fill")
-                                        .font(.system(size: max(8, 10 * scaleFactor)))
-                                }
-                                Text("Share")
-                            }
+                            Text("Share")
                             .font(.system(size: max(10.0, 12.0 * scaleFactor), weight: .medium))
                         }
                         .foregroundColor(sharingService.isSharing ? .green : .white)
