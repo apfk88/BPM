@@ -32,8 +32,23 @@ Or connect your GitHub repo to Vercel for automatic deployments.
 - `POST /api/share/beat` - Update heart rate (requires `token` and `bpm` in body)
 - `GET /api/share/[code]` - Get latest heart rate for a share code, returns `{ bpm, timestamp }`
 
+## Error Contract
+
+All API errors now return a stable shape:
+
+```json
+{
+  "error": "Human-readable message",
+  "message": "Human-readable message",
+  "code": "MACHINE_READABLE_CODE"
+}
+```
+
+- `message` is the preferred field for clients to show to users.
+- `code` is stable for programmatic handling (for example future quota enforcement).
+- `error` is preserved for legacy compatibility.
+
 ## Environment Variables
 
 - `KV_REST_API_URL` - Required
 - `KV_REST_API_TOKEN` - Required
-

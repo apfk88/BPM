@@ -1,5 +1,6 @@
 import { NextApiRequest, NextApiResponse } from 'next';
 import { kv } from '@vercel/kv';
+import { sendApiError } from '../../lib/api-response';
 
 const SHARE_CODE_LENGTH = 6;
 const TOKEN_EXPIRY_SECONDS = 90 * 60; // 90 minutes
@@ -64,14 +65,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       res.status(200).json({ code, token });
     } catch (error) {
       console.error('Error creating share session:', error);
-      res.status(500).json({ error: 'Failed to create share session' });
+      sendApiError(res, 500, 'Failed to create share session', 'SHARE_CREATE_FAILED');
     }
   } else if (req.method === 'DELETE') {
     try {
       const { token } = req.body;
 
       if (!token || typeof token !== 'string') {
-        return res.status(400).json({ error: 'Missing token' });
+        return sendApiError(res, 400, 'Missing token', 'MISSING_TOKEN');
       }
 
       const code = await kv.get(`token:${token}`);
@@ -87,9 +88,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       res.status(200).json({ success: true });
     } catch (error) {
       console.error('Error deleting share session:', error);
-      res.status(500).json({ error: 'Failed to delete share session' });
+      sendApiError(res, 500, 'Failed to delete share session', 'SHARE_DELETE_FAILED');
     }
   } else {
-    res.status(405).json({ error: 'Method not allowed' });
+    sendApiError(res, 405, 'Method not allowed', 'METHOD_NOT_ALLOWED');
   }
 }

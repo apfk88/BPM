@@ -9,12 +9,12 @@ struct HealthKitWorkoutTypesSettingsView: View {
     var body: some View {
         List {
             Section(
-                header: Text("Top 4 Workout Types"),
-                footer: Text("Shown in this order when saving a workout to Apple Health.")
+                header: Text("Top 3 Quick Workout Types"),
+                footer: Text("Shown in this order in the quick picker when saving to Apple Health.")
             ) {
                 ForEach(0..<HealthKitWorkoutTypeSettings.quickSelectionCount, id: \.self) { index in
                     Picker("Type \(index + 1)", selection: binding(for: index)) {
-                        ForEach(HealthKitActivityOption.allCases) { option in
+                        ForEach(HealthKitWorkoutTypeSettings.quickSelectionOptions) { option in
                             Text(option.title).tag(option)
                         }
                     }
@@ -46,7 +46,7 @@ struct HealthKitWorkoutTypesSettingsView: View {
         for option in HealthKitWorkoutTypeSettings.defaultQuickSelection where !ordered.contains(option) {
             ordered.append(option)
         }
-        for option in HealthKitActivityOption.allCases where !ordered.contains(option) {
+        for option in HealthKitWorkoutTypeSettings.quickSelectionOptions where !ordered.contains(option) {
             ordered.append(option)
         }
 

@@ -17,6 +17,12 @@ struct HeartRateResponse: Codable {
     let timestamp: Int64
 }
 
+struct ServerErrorResponse: Codable {
+    let message: String?
+    let error: String?
+    let code: String?
+}
+
 enum SharingError: Error {
     case invalidURL
     case invalidResponse
@@ -134,14 +140,9 @@ class SharingService: ObservableObject {
             
             guard httpResponse.statusCode == 200 else {
                 let error = SharingError.serverError(httpResponse.statusCode)
+                let serverMessage = Self.extractServerMessage(from: data)
                 await MainActor.run {
-                    if httpResponse.statusCode == 401 {
-                        self.errorMessage = "Authentication required. Please ensure the sharing API is public."
-                    } else if httpResponse.statusCode == 500 {
-                        self.errorMessage = "Server error. Please try again later."
-                    } else {
-                        self.errorMessage = "Server error (code \(httpResponse.statusCode)). Please try again."
-                    }
+                    self.errorMessage = serverMessage ?? Self.defaultServerErrorMessage(statusCode: httpResponse.statusCode)
                     self.errorContext = .sharing
                 }
                 throw error
@@ -191,6 +192,8 @@ class SharingService: ObservableObject {
                 print("❌ Decoding error: \(decodingError)")
             }
             throw SharingError.invalidResponse
+        } catch let sharingError as SharingError {
+            throw sharingError
         } catch {
             await MainActor.run {
                 self.errorMessage = "Failed to start sharing: \(error.localizedDescription). Please try again."
@@ -342,13 +345,17 @@ class SharingService: ObservableObject {
             request.httpBody = try? JSONSerialization.data(withJSONObject: body)
 
             do {
-                let (_, response) = try await URLSession.shared.data(for: request)
+                let (data, response) = try await URLSession.shared.data(for: request)
 
                 if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode != 200 {
+                    let serverMessage = Self.extractServerMessage(from: data)
                     await MainActor.run {
-                        if httpResponse.statusCode == 401 {
+                        if (400...499).contains(httpResponse.statusCode) {
                             self.stopSharing()
-                            self.errorMessage = "Sharing session expired. To keep sharing, start a new session."
+                            self.errorMessage = serverMessage ?? Self.defaultSharingDeniedMessage(statusCode: httpResponse.statusCode)
+                            self.errorContext = .sharing
+                        } else if let serverMessage {
+                            self.errorMessage = serverMessage
                             self.errorContext = .sharing
                         }
                     }
@@ -465,9 +472,10 @@ class SharingService: ObservableObject {
                 }
                 
                 if httpResponse.statusCode == 404 {
+                    let serverMessage = Self.extractServerMessage(from: data)
                     await MainActor.run {
                         print("⚠️ Viewer received 404 - sharing session expired")
-                        self.errorMessage = "Sharing session expired or ended. Ask the sharer to start a new session."
+                        self.errorMessage = serverMessage ?? "Sharing session expired or ended. Ask the sharer to start a new session."
                         self.errorContext = .viewing
                         
                         // Update activity with error state - keep last known BPM if available
@@ -494,8 +502,9 @@ class SharingService: ObservableObject {
                 }
                 
                 guard httpResponse.statusCode == 200 else {
+                    let serverMessage = Self.extractServerMessage(from: data)
                     await MainActor.run {
-                        self.errorMessage = "Unable to connect to sharing session. Please try again."
+                        self.errorMessage = serverMessage ?? "Unable to connect to sharing session. Please try again."
                         self.errorContext = .viewing
                     }
                     return
@@ -562,5 +571,38 @@ class SharingService: ObservableObject {
     private func sanitizeFriendCode(_ code: String) -> String {
         let digits = code.filter { $0.isNumber }
         return String(digits.prefix(6))
+    }
+
+    private static func extractServerMessage(from data: Data) -> String? {
+        guard !data.isEmpty else { return nil }
+        if let decoded = try? JSONDecoder().decode(ServerErrorResponse.self, from: data) {
+            if let message = decoded.message?.trimmingCharacters(in: .whitespacesAndNewlines), !message.isEmpty {
+                return message
+            }
+            if let legacyError = decoded.error?.trimmingCharacters(in: .whitespacesAndNewlines), !legacyError.isEmpty {
+                return legacyError
+            }
+        }
+        return nil
+    }
+
+    private static func defaultServerErrorMessage(statusCode: Int) -> String {
+        if statusCode == 401 {
+            return "Authentication required. Please ensure the sharing API is public."
+        }
+        if statusCode == 500 {
+            return "Server error. Please try again later."
+        }
+        return "Server error (code \(statusCode)). Please try again."
+    }
+
+    private static func defaultSharingDeniedMessage(statusCode: Int) -> String {
+        if statusCode == 401 || statusCode == 404 {
+            return "Sharing session expired. To keep sharing, start a new session."
+        }
+        if statusCode == 403 || statusCode == 429 {
+            return "Sharing is currently unavailable for this account. Please try again later."
+        }
+        return "Sharing was denied by the server (code \(statusCode))."
     }
 }

@@ -1,5 +1,6 @@
 import { NextApiRequest, NextApiResponse } from 'next';
 import { kv } from '@vercel/kv';
+import { sendApiError } from '../../../lib/api-response';
 
 interface ShareSession {
   code: string;
@@ -16,12 +17,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const { code } = req.query;
 
     if (!code || typeof code !== 'string') {
-      return res.status(400).json({ error: 'Missing code' });
+      return sendApiError(res, 400, 'Missing code', 'MISSING_CODE');
     }
 
     const sessionData = await kv.get(`share:${code}`);
     if (!sessionData) {
-      return res.status(404).json({ error: 'Session not found' });
+      return sendApiError(res, 404, 'Session not found', 'SESSION_NOT_FOUND');
     }
 
     // Handle both string and object responses from KV
@@ -37,6 +38,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       timestamp: session.timestamp,
     });
   } else {
-    res.status(405).json({ error: 'Method not allowed' });
+    sendApiError(res, 405, 'Method not allowed', 'METHOD_NOT_ALLOWED');
   }
 }

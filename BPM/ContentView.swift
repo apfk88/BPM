@@ -59,32 +59,10 @@ private enum CollapsedStatDisplay {
     }
 }
 
-private enum TimerViewMode: String {
+private enum TimerViewMode: String, CaseIterable, Hashable {
     case table
     case stats
     case chart
-
-    mutating func cycle() {
-        switch self {
-        case .table:
-            self = .stats
-        case .stats:
-            self = .chart
-        case .chart:
-            self = .table
-        }
-    }
-
-    mutating func cycleBackward() {
-        switch self {
-        case .table:
-            self = .chart
-        case .stats:
-            self = .table
-        case .chart:
-            self = .stats
-        }
-    }
 }
 
 private enum SetTableBpmDisplay {
@@ -146,7 +124,10 @@ struct HeartRateDisplayView: View {
     @StateObject private var workoutStore = WorkoutStore.shared
     @StateObject private var healthKitSyncService = HealthKitWorkoutSyncService.shared
     @State private var hasChangedTimerViewModeInSession = false
-    @State private var showHealthKitActivityPicker = false
+    @State private var showHealthKitQuickPicker = false
+    @State private var showHealthKitFullListPicker = false
+    @State private var pendingHealthKitSelectionFromSheet: HealthKitActivityOption?
+    @State private var openFullListAfterQuickPickerDismiss = false
     @State private var pendingHealthKitActivityOption: HealthKitActivityOption = .functionalStrength
     @State private var healthKitSyncBannerState: HealthKitSyncBannerState?
     @State private var isHealthKitSyncInFlight = false
@@ -168,6 +149,17 @@ struct HeartRateDisplayView: View {
         TimerViewMode(rawValue: timerViewModeRawValue) ?? .table
     }
 
+    private var timerViewModeSelection: Binding<TimerViewMode> {
+        Binding(
+            get: { timerViewMode },
+            set: { mode in
+                guard timerViewModeRawValue != mode.rawValue else { return }
+                timerViewModeRawValue = mode.rawValue
+                hasChangedTimerViewModeInSession = true
+            }
+        )
+    }
+
     private var isTimerEmptyState: Bool {
         timerViewModel.state == .idle && timerViewModel.sets.isEmpty
     }
@@ -178,36 +170,6 @@ struct HeartRateDisplayView: View {
 
     private var defaultHealthKitActivityOption: HealthKitActivityOption {
         configuredHealthKitQuickTypes.first ?? .functionalStrength
-    }
-
-    private func cycleTimerViewMode() {
-        var nextMode = timerViewMode
-        nextMode.cycle()
-        timerViewModeRawValue = nextMode.rawValue
-        hasChangedTimerViewModeInSession = true
-    }
-
-    private func cycleTimerViewModeBackward() {
-        var previousMode = timerViewMode
-        previousMode.cycleBackward()
-        timerViewModeRawValue = previousMode.rawValue
-        hasChangedTimerViewModeInSession = true
-    }
-
-    private var timerViewModeSwipeGesture: some Gesture {
-        DragGesture(minimumDistance: 24)
-            .onEnded { value in
-                let horizontalDistance = value.translation.width
-                let verticalDistance = value.translation.height
-                let isHorizontalSwipe = abs(horizontalDistance) >= 48 && abs(horizontalDistance) > abs(verticalDistance) * 1.4
-                guard isHorizontalSwipe else { return }
-
-                if horizontalDistance < 0 {
-                    cycleTimerViewMode()
-                } else {
-                    cycleTimerViewModeBackward()
-                }
-            }
     }
 
     var body: some View {
@@ -262,15 +224,17 @@ struct HeartRateDisplayView: View {
         .sheet(isPresented: $showShareSheet) {
             ShareSheet(items: [shareText], subject: shareSubject)
         }
-        .confirmationDialog("Workout Type", isPresented: $showHealthKitActivityPicker, titleVisibility: .visible) {
-            ForEach(configuredHealthKitQuickTypes) { option in
-                Button(option.title) {
-                    selectHealthKitActivity(option)
-                }
-            }
-            Button("Cancel", role: .cancel) { }
-        } message: {
-            Text("Choose an activity type for Apple Health.")
+        .sheet(isPresented: $showHealthKitQuickPicker, onDismiss: handleHealthKitQuickPickerDismiss) {
+            healthKitQuickPickerSheet()
+                .presentationDetents([.medium])
+                .presentationDragIndicator(.visible)
+                .presentationBackgroundInteraction(.disabled)
+        }
+        .sheet(isPresented: $showHealthKitFullListPicker, onDismiss: handleHealthKitFullListPickerDismiss) {
+            healthKitFullListSheet()
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+                .presentationBackgroundInteraction(.disabled)
         }
         .alert("Disconnect Sharing", isPresented: $showDisconnectAlert) {
             Button("Cancel", role: .cancel) { }
@@ -1238,15 +1202,6 @@ struct HeartRateDisplayView: View {
                 Spacer()
 
                 Button {
-                    cycleTimerViewMode()
-                } label: {
-                    topBarCircleIcon(
-                        systemName: "eye",
-                        accessibilityLabel: "Cycle View Mode"
-                    )
-                }
-
-                Button {
                     showDevicePicker = true
                 } label: {
                     topBarCircleIcon(
@@ -1284,92 +1239,74 @@ struct HeartRateDisplayView: View {
             } message: {
                 Text("Are you sure you want to reset? This will clear all workout data.")
             }
-            .alert("Save Workout", isPresented: $showWorkoutTitlePrompt) {
-                TextField("Title", text: $workoutTitleText)
-                    .focused($isWorkoutTitleFocused)
-                    .textInputAutocapitalization(.words)
-                    .disableAutocorrection(true)
-                TextField("Description", text: $workoutNotesText)
-                Button("Save") {
-                    let trimmed = workoutTitleText.trimmingCharacters(in: .whitespacesAndNewlines)
-                    let fallbackTitle = timerViewModel.defaultWorkoutTitle ?? pendingHealthKitActivityOption.title
-                    let title = trimmed.isEmpty ? fallbackTitle : trimmed
-                    saveCurrentWorkout(
-                        title: title,
-                        notes: workoutNotesText,
-                        activityOption: pendingHealthKitActivityOption
-                    )
-                    workoutNotesText = ""
-                }
-                Button("Cancel", role: .cancel) {
-                    pendingHealthKitActivityOption = defaultHealthKitActivityOption
-                    workoutNotesText = ""
-                }
-            } message: {
-                Text("Add a title and description for this workout (both optional).")
+            .sheet(isPresented: $showWorkoutTitlePrompt, onDismiss: dismissSaveWorkoutSheet) {
+                saveWorkoutSheet()
+                    .presentationDetents([.medium])
+                    .presentationDragIndicator(.visible)
             }
 
-            Group {
-                if timerViewMode == .stats {
-                    GeometryReader { proxy in
-                        let times = timerDisplayTimes()
-                        runningExpandedPanel(
-                            totalTime: times.total,
-                            setTime: times.set,
-                            isLandscape: isLandscape,
-                            containerSize: proxy.size
-                        )
-                        .padding(.top, 8)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    }
-                } else {
+            TabView(selection: timerViewModeSelection) {
+                VStack(spacing: 0) {
                     // Stopwatch display with BPM (or completion stats when done)
                     stopwatchDisplay()
                         .padding(.top, 18)
 
-                    if timerViewMode == .chart {
-                        GeometryReader { proxy in
-                            let horizontalPadding: CGFloat = isLandscape ? 40 : 20
-                            let chartSpacing: CGFloat = 12
-                            let availableHeight = max(0, proxy.size.height - chartSpacing)
-                            let panelHeight = availableHeight / 2
+                    Rectangle()
+                        .fill(Color.gray.opacity(0.3))
+                        .frame(height: 1)
+                        .padding(.horizontal, isLandscape ? 40 : 20)
+                        .padding(.top, 16)
 
-                            VStack(spacing: chartSpacing) {
-                                HeartRateChartView(timerViewModel: timerViewModel, isLandscape: isLandscape)
-                                    .frame(maxWidth: .infinity, maxHeight: panelHeight)
+                    setsTable(isLandscape: isLandscape, screenWidth: geometry.size.width)
+                        .padding(.horizontal, isLandscape ? 40 : 20)
+                        .padding(.top, 8)
 
-                                TimerTimeInZoneView(timerViewModel: timerViewModel, zoneStorage: zoneStorage, isLandscape: isLandscape)
-                                    .frame(maxWidth: .infinity, maxHeight: panelHeight, alignment: .top)
-                            }
-                            .padding(.horizontal, horizontalPadding)
-                            .padding(.top, 12)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                    Spacer(minLength: 0)
+                }
+                .tag(TimerViewMode.table)
+
+                GeometryReader { proxy in
+                    let times = timerDisplayTimes()
+                    runningExpandedPanel(
+                        totalTime: times.total,
+                        setTime: times.set,
+                        isLandscape: isLandscape,
+                        containerSize: proxy.size
+                    )
+                    .padding(.top, 8)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+                .tag(TimerViewMode.stats)
+
+                VStack(spacing: 0) {
+                    // Stopwatch display with BPM (or completion stats when done)
+                    stopwatchDisplay()
+                        .padding(.top, 18)
+
+                    GeometryReader { proxy in
+                        let horizontalPadding: CGFloat = isLandscape ? 40 : 20
+                        let chartSpacing: CGFloat = 12
+                        let availableHeight = max(0, proxy.size.height - chartSpacing)
+                        let panelHeight = availableHeight / 2
+
+                        VStack(spacing: chartSpacing) {
+                            HeartRateChartView(timerViewModel: timerViewModel, isLandscape: isLandscape)
+                                .frame(maxWidth: .infinity, maxHeight: panelHeight)
+
+                            TimerTimeInZoneView(timerViewModel: timerViewModel, zoneStorage: zoneStorage, isLandscape: isLandscape)
+                                .frame(maxWidth: .infinity, maxHeight: panelHeight, alignment: .top)
                         }
-                    } else {
-                        Rectangle()
-                            .fill(Color.gray.opacity(0.3))
-                            .frame(height: 1)
-                            .padding(.horizontal, isLandscape ? 40 : 20)
-                            .padding(.top, 16)
-
-                        setsTable(isLandscape: isLandscape, screenWidth: geometry.size.width)
-                            .padding(.horizontal, isLandscape ? 40 : 20)
-                            .padding(.top, 8)
-                    }
-                    if timerViewMode != .chart {
-                        Spacer(minLength: 0)
+                        .padding(.horizontal, horizontalPadding)
+                        .padding(.top, 12)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                     }
                 }
+                .tag(TimerViewMode.chart)
             }
-            .contentShape(Rectangle())
-            .simultaneousGesture(timerViewModeSwipeGesture)
+            .tabViewStyle(PageTabViewStyle(indexDisplayMode: .never))
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            Text("Swipe left/right or tap the eye icon to change view")
-                .font(.system(size: isLandscape ? 11 : 12, weight: .medium))
-                .foregroundColor(.gray.opacity(0.72))
-                .padding(.top, 8)
-                .padding(.bottom, 2)
-                .accessibilityLabel("Swipe or tap eye icon to change timer view")
+            timerViewPageDots(isLandscape: isLandscape)
             
             // Timer control buttons at bottom
             timerControlButtons(isLandscape: isLandscape, screenWidth: geometry.size.width)
@@ -1378,6 +1315,20 @@ struct HeartRateDisplayView: View {
         .transaction { transaction in
             transaction.animation = nil
         }
+    }
+
+    private func timerViewPageDots(isLandscape: Bool) -> some View {
+        HStack(spacing: isLandscape ? 8 : 9) {
+            ForEach(TimerViewMode.allCases, id: \.self) { mode in
+                Circle()
+                    .fill(mode == timerViewMode ? Color.white : Color.gray.opacity(0.45))
+                    .frame(width: isLandscape ? 6 : 7, height: isLandscape ? 6 : 7)
+            }
+        }
+        .padding(.top, 8)
+        .padding(.bottom, 6)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Timer view page: \(timerViewMode.rawValue)")
     }
     
     @ViewBuilder
@@ -1954,6 +1905,138 @@ struct HeartRateDisplayView: View {
         showShareSheet = true
     }
 
+    @ViewBuilder
+    private func saveWorkoutSheet() -> some View {
+        NavigationStack {
+            Form {
+                Section {
+                    TextField("Title", text: $workoutTitleText)
+                        .focused($isWorkoutTitleFocused)
+                        .textInputAutocapitalization(.words)
+                        .disableAutocorrection(true)
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Notes")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                        TextEditor(text: $workoutNotesText)
+                            .frame(minHeight: 76, maxHeight: 76)
+                    }
+                } footer: {
+                    Text("Both fields are optional.")
+                }
+            }
+            .navigationTitle("Save Workout")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        showWorkoutTitlePrompt = false
+                    }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        let trimmed = workoutTitleText.trimmingCharacters(in: .whitespacesAndNewlines)
+                        let fallbackTitle = timerViewModel.defaultWorkoutTitle ?? pendingHealthKitActivityOption.title
+                        let title = trimmed.isEmpty ? fallbackTitle : trimmed
+                        saveCurrentWorkout(
+                            title: title,
+                            notes: workoutNotesText,
+                            activityOption: pendingHealthKitActivityOption
+                        )
+                        showWorkoutTitlePrompt = false
+                    }
+                }
+            }
+        }
+    }
+
+    private func dismissSaveWorkoutSheet() {
+        pendingHealthKitActivityOption = defaultHealthKitActivityOption
+        workoutNotesText = ""
+    }
+
+    @ViewBuilder
+    private func healthKitQuickPickerSheet() -> some View {
+        NavigationStack {
+            List {
+                Section("Quick Workout Types") {
+                    ForEach(configuredHealthKitQuickTypes) { option in
+                        Button(option.title) {
+                            selectHealthKitActivityFromSheet(option)
+                        }
+                    }
+                }
+
+                Section {
+                    Button("Other…") {
+                        showHealthKitFullListFromQuickPicker()
+                    }
+                }
+            }
+            .navigationTitle("Workout Type")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        showHealthKitQuickPicker = false
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func healthKitFullListSheet() -> some View {
+        NavigationStack {
+            List(HealthKitActivityOption.allCases) { option in
+                Button(option.title) {
+                    selectHealthKitActivityFromSheet(option)
+                }
+            }
+            .navigationTitle("All Workout Types")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        showHealthKitFullListPicker = false
+                    }
+                }
+            }
+        }
+    }
+
+    private func showHealthKitFullListFromQuickPicker() {
+        openFullListAfterQuickPickerDismiss = true
+        showHealthKitQuickPicker = false
+    }
+
+    private func selectHealthKitActivityFromSheet(_ option: HealthKitActivityOption) {
+        pendingHealthKitSelectionFromSheet = option
+        openFullListAfterQuickPickerDismiss = false
+        showHealthKitQuickPicker = false
+        showHealthKitFullListPicker = false
+    }
+
+    private func handleHealthKitQuickPickerDismiss() {
+        if openFullListAfterQuickPickerDismiss {
+            openFullListAfterQuickPickerDismiss = false
+            showHealthKitFullListPicker = true
+            return
+        }
+        applyPendingHealthKitSelectionFromSheet()
+    }
+
+    private func handleHealthKitFullListPickerDismiss() {
+        applyPendingHealthKitSelectionFromSheet()
+    }
+
+    private func applyPendingHealthKitSelectionFromSheet() {
+        guard let option = pendingHealthKitSelectionFromSheet else { return }
+        pendingHealthKitSelectionFromSheet = nil
+        selectHealthKitActivity(option)
+    }
+
     private func selectHealthKitActivity(_ option: HealthKitActivityOption) {
         pendingHealthKitActivityOption = option
         workoutTitleText = timerViewModel.defaultWorkoutTitle ?? option.title
@@ -2098,7 +2181,9 @@ struct HeartRateDisplayView: View {
 
                 Button {
                     pendingHealthKitActivityOption = defaultHealthKitActivityOption
-                    showHealthKitActivityPicker = true
+                    pendingHealthKitSelectionFromSheet = nil
+                    openFullListAfterQuickPickerDismiss = false
+                    showHealthKitQuickPicker = true
                 } label: {
                     Text(hasSavedWorkout ? "Saved" : "Save Workout")
                         .font(.system(size: buttonFontSize, weight: .semibold))

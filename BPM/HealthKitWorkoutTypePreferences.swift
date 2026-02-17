@@ -111,12 +111,14 @@ enum HealthKitActivityOption: String, CaseIterable, Identifiable {
 }
 
 enum HealthKitWorkoutTypeSettings {
-    static let quickSelectionCount = 4
+    static let quickSelectionCount = 3
+    static let quickSelectionOptions: [HealthKitActivityOption] =
+        HealthKitActivityOption.allCases.filter { $0 != .other }
+
     static let defaultQuickSelection: [HealthKitActivityOption] = [
         .functionalStrength,
         .hiit,
-        .running,
-        .cycling
+        .running
     ]
 
     static func defaultQuickSelectionRawValue() -> String {
@@ -138,13 +140,13 @@ enum HealthKitWorkoutTypeSettings {
 
     private static func normalizedQuickSelection(_ options: [HealthKitActivityOption]) -> [HealthKitActivityOption] {
         var unique: [HealthKitActivityOption] = []
-        for option in options where !unique.contains(option) {
+        for option in options where quickSelectionOptions.contains(option) && !unique.contains(option) {
             unique.append(option)
         }
         for option in defaultQuickSelection where !unique.contains(option) {
             unique.append(option)
         }
-        for option in HealthKitActivityOption.allCases where !unique.contains(option) {
+        for option in quickSelectionOptions where !unique.contains(option) {
             unique.append(option)
         }
         return Array(unique.prefix(quickSelectionCount))

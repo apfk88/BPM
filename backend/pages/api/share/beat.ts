@@ -1,5 +1,6 @@
 import { NextApiRequest, NextApiResponse } from 'next';
 import { kv } from '@vercel/kv';
+import { sendApiError } from '../../../lib/api-response';
 
 interface ShareSession {
   code: string;
@@ -17,17 +18,17 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     // bpm can be a number or null (null means disconnected/no data)
     if (!token || (bpm !== null && typeof bpm !== 'number')) {
-      return res.status(400).json({ error: 'Missing token or invalid bpm' });
+      return sendApiError(res, 400, 'Missing token or invalid bpm', 'INVALID_BEAT_REQUEST');
     }
 
     const code = await kv.get(`token:${token}`);
     if (!code) {
-      return res.status(401).json({ error: 'Invalid token' });
+      return sendApiError(res, 401, 'Invalid token', 'INVALID_TOKEN');
     }
 
     const sessionData = await kv.get(`share:${code}`);
     if (!sessionData) {
-      return res.status(404).json({ error: 'Session not found' });
+      return sendApiError(res, 404, 'Session not found', 'SESSION_NOT_FOUND');
     }
 
     // Handle both string and object responses from KV
@@ -45,6 +46,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     res.status(200).json({ success: true });
   } else {
-    res.status(405).json({ error: 'Method not allowed' });
+    sendApiError(res, 405, 'Method not allowed', 'METHOD_NOT_ALLOWED');
   }
 }
