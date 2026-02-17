@@ -82,3 +82,9 @@
 - Simulator default for validation: iOS 26.x on base `iPhone 17` profile (not iOS 18 devices).
 - After every commit/push, refresh the simulator and leave Simulator app open.
 - HealthKit workout save path migrated off deprecated APIs to `HKWorkoutBuilder` (iOS 17+ clean).
+
+## Session Notes (2026-02-12)
+- Sharing is now free (paywall gating removed from the main app flow).
+- StoreKit/IAP manager code was replaced with a no-op free shim; legacy paywall screen now just states sharing is free.
+- Sharing session maximum duration reduced to 90 minutes on both app-side timeout and backend token/session TTL.
+- Marketing FAQ updated: removed payment FAQ and added detailed calorie-estimation methodology section.
