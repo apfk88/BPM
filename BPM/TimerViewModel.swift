@@ -1591,10 +1591,17 @@ final class TimerViewModel: ObservableObject {
         }
     }
 
-    func workoutRecord(zoneConfig: HeartRateZoneConfig, workoutId: UUID? = nil, title: String? = nil) -> WorkoutRecord? {
+    func workoutRecord(
+        zoneConfig: HeartRateZoneConfig,
+        workoutId: UUID? = nil,
+        title: String? = nil,
+        notes: String? = nil
+    ) -> WorkoutRecord? {
         guard let startTime = startTime else { return nil }
         let totalTime = resolvedTotalTime()
         let endTime = startTime.addingTimeInterval(totalTime)
+        let notesValue = notes?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedNotes = notesValue?.isEmpty == false ? notesValue : nil
 
         let zoneSummaries = timeInZones(config: zoneConfig)
             .filter { $0.duration > 0 }
@@ -1647,7 +1654,7 @@ final class TimerViewModel: ObservableObject {
             hrSamples: sampleSummaries,
             zones: zoneSummaries,
             sets: setSummaries,
-            notes: nil,
+            notes: normalizedNotes,
             source: "phone",
             appVersion: appVersionString(),
             healthKitWorkoutUUID: nil,

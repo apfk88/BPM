@@ -101,6 +101,84 @@ struct WorkoutStoreTests {
         #expect(store.workouts.first?.healthKitLastError == nil)
     }
 
+    @Test func saveWorkoutPersistsNotesAcrossReload() async throws {
+        let tempURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("workouts-\(UUID().uuidString).json")
+        let defaults = UserDefaults(suiteName: "workout-store-\(UUID().uuidString)")!
+        defaults.set(90, forKey: WorkoutDefaultsKey.retentionDays)
+        let iCloudStore = resetICloudStore()
+
+        let store = WorkoutStore(storeURL: tempURL, userDefaults: defaults, iCloudStore: iCloudStore)
+        let record = sampleWorkout(
+            startOffset: -120,
+            duration: 60,
+            notes: "Easy aerobic day. Felt smooth."
+        )
+
+        store.saveWorkout(record)
+        try await Task.sleep(nanoseconds: 1_000_000_000)
+        #expect(store.workouts.first(where: { $0.id == record.id })?.notes == "Easy aerobic day. Felt smooth.")
+
+        let reloaded = WorkoutStore(storeURL: tempURL, userDefaults: defaults, iCloudStore: iCloudStore)
+        try await Task.sleep(nanoseconds: 1_000_000_000)
+        #expect(reloaded.workouts.first(where: { $0.id == record.id })?.notes == "Easy aerobic day. Felt smooth.")
+    }
+
+    @Test func workoutRecordNormalizesNotesWhitespace() throws {
+        let viewModel = TimerViewModel()
+        viewModel.currentHeartRate = { 142 }
+        viewModel.start()
+        viewModel.stopAndComplete()
+        let zoneConfig = HeartRateZoneConfig(maxHeartRate: 190)
+
+        let trimmedRecord = try #require(
+            viewModel.workoutRecord(
+                zoneConfig: zoneConfig,
+                title: "Session",
+                notes: "  Focused threshold work.  "
+            )
+        )
+        #expect(trimmedRecord.notes == "Focused threshold work.")
+
+        let emptyRecord = try #require(
+            viewModel.workoutRecord(
+                zoneConfig: zoneConfig,
+                title: "Session",
+                notes: " \n\t "
+            )
+        )
+        #expect(emptyRecord.notes == nil)
+    }
+
+    @Test func saveWorkoutNormalizesTitleWhitespace() async throws {
+        let tempURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("workouts-\(UUID().uuidString).json")
+        let defaults = UserDefaults(suiteName: "workout-store-\(UUID().uuidString)")!
+        defaults.set(90, forKey: WorkoutDefaultsKey.retentionDays)
+        let iCloudStore = resetICloudStore()
+
+        let store = WorkoutStore(storeURL: tempURL, userDefaults: defaults, iCloudStore: iCloudStore)
+        let trimmedTitleRecord = sampleWorkout(
+            startOffset: -180,
+            duration: 60,
+            title: "  Lift Session  ",
+            notes: "Good tempo work."
+        )
+        store.saveWorkout(trimmedTitleRecord)
+
+        let emptyTitleRecord = sampleWorkout(
+            startOffset: -60,
+            duration: 60,
+            title: " \n\t ",
+            notes: "Leg day."
+        )
+        store.saveWorkout(emptyTitleRecord)
+        try await Task.sleep(nanoseconds: 1_000_000_000)
+
+        #expect(store.workouts.first(where: { $0.id == trimmedTitleRecord.id })?.title == "Lift Session")
+        #expect(store.workouts.first(where: { $0.id == emptyTitleRecord.id })?.title == nil)
+    }
+
     @Test func iCloudSyncCompactsPayloadWhenWorkoutDataIsLarge() async throws {
         let tempURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("workouts-\(UUID().uuidString).json")
@@ -164,7 +242,9 @@ struct WorkoutStoreTests {
     private func sampleWorkout(
         startOffset: TimeInterval,
         duration: TimeInterval,
-        hrSampleCount: Int = 0
+        hrSampleCount: Int = 0,
+        title: String? = "Test Session",
+        notes: String? = nil
     ) -> WorkoutRecord {
         let start = Date().addingTimeInterval(startOffset)
         let end = start.addingTimeInterval(duration)
@@ -186,7 +266,7 @@ struct WorkoutStoreTests {
         return WorkoutRecord(
             id: UUID(),
             schemaVersion: WorkoutRecord.schemaVersion,
-            title: "Test Session",
+            title: title,
             startAt: start,
             endAt: end,
             durationSeconds: duration,
@@ -200,7 +280,7 @@ struct WorkoutStoreTests {
             hrSamples: hrSamples,
             zones: [],
             sets: [],
-            notes: nil,
+            notes: notes,
             source: "phone",
             appVersion: "1.0 (1)",
             healthKitWorkoutUUID: nil,

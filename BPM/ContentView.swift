@@ -74,6 +74,17 @@ private enum TimerViewMode: String {
             self = .table
         }
     }
+
+    mutating func cycleBackward() {
+        switch self {
+        case .table:
+            self = .chart
+        case .stats:
+            self = .table
+        case .chart:
+            self = .stats
+        }
+    }
 }
 
 private enum SetTableBpmDisplay {
@@ -130,6 +141,7 @@ struct HeartRateDisplayView: View {
     @State private var savedWorkoutId: UUID?
     @State private var showWorkoutTitlePrompt = false
     @State private var workoutTitleText = ""
+    @State private var workoutNotesText = ""
     @FocusState private var isWorkoutTitleFocused: Bool
     @StateObject private var workoutStore = WorkoutStore.shared
     @StateObject private var healthKitSyncService = HealthKitWorkoutSyncService.shared
@@ -173,6 +185,29 @@ struct HeartRateDisplayView: View {
         nextMode.cycle()
         timerViewModeRawValue = nextMode.rawValue
         hasChangedTimerViewModeInSession = true
+    }
+
+    private func cycleTimerViewModeBackward() {
+        var previousMode = timerViewMode
+        previousMode.cycleBackward()
+        timerViewModeRawValue = previousMode.rawValue
+        hasChangedTimerViewModeInSession = true
+    }
+
+    private var timerViewModeSwipeGesture: some Gesture {
+        DragGesture(minimumDistance: 24)
+            .onEnded { value in
+                let horizontalDistance = value.translation.width
+                let verticalDistance = value.translation.height
+                let isHorizontalSwipe = abs(horizontalDistance) >= 48 && abs(horizontalDistance) > abs(verticalDistance) * 1.4
+                guard isHorizontalSwipe else { return }
+
+                if horizontalDistance < 0 {
+                    cycleTimerViewMode()
+                } else {
+                    cycleTimerViewModeBackward()
+                }
+            }
     }
 
     var body: some View {
@@ -1249,74 +1284,92 @@ struct HeartRateDisplayView: View {
             } message: {
                 Text("Are you sure you want to reset? This will clear all workout data.")
             }
-            .alert("Workout Title", isPresented: $showWorkoutTitlePrompt) {
+            .alert("Save Workout", isPresented: $showWorkoutTitlePrompt) {
                 TextField("Title", text: $workoutTitleText)
                     .focused($isWorkoutTitleFocused)
                     .textInputAutocapitalization(.words)
                     .disableAutocorrection(true)
+                TextField("Description", text: $workoutNotesText)
                 Button("Save") {
                     let trimmed = workoutTitleText.trimmingCharacters(in: .whitespacesAndNewlines)
                     let fallbackTitle = timerViewModel.defaultWorkoutTitle ?? pendingHealthKitActivityOption.title
                     let title = trimmed.isEmpty ? fallbackTitle : trimmed
-                    saveCurrentWorkout(title: title, activityOption: pendingHealthKitActivityOption)
+                    saveCurrentWorkout(
+                        title: title,
+                        notes: workoutNotesText,
+                        activityOption: pendingHealthKitActivityOption
+                    )
+                    workoutNotesText = ""
                 }
                 Button("Cancel", role: .cancel) {
                     pendingHealthKitActivityOption = defaultHealthKitActivityOption
+                    workoutNotesText = ""
                 }
             } message: {
-                Text("Add a title for this workout (optional).")
+                Text("Add a title and description for this workout (both optional).")
             }
 
-            if timerViewMode == .stats {
-                GeometryReader { proxy in
-                    let times = timerDisplayTimes()
-                    runningExpandedPanel(
-                        totalTime: times.total,
-                        setTime: times.set,
-                        isLandscape: isLandscape,
-                        containerSize: proxy.size
-                    )
-                    .padding(.top, 8)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                }
-            } else {
-                // Stopwatch display with BPM (or completion stats when done)
-                stopwatchDisplay()
-                    .padding(.top, 18)
-
-                if timerViewMode == .chart {
+            Group {
+                if timerViewMode == .stats {
                     GeometryReader { proxy in
-                        let horizontalPadding: CGFloat = isLandscape ? 40 : 20
-                        let chartSpacing: CGFloat = 12
-                        let availableHeight = max(0, proxy.size.height - chartSpacing)
-                        let panelHeight = availableHeight / 2
-
-                        VStack(spacing: chartSpacing) {
-                            HeartRateChartView(timerViewModel: timerViewModel, isLandscape: isLandscape)
-                                .frame(maxWidth: .infinity, maxHeight: panelHeight)
-
-                            TimerTimeInZoneView(timerViewModel: timerViewModel, zoneStorage: zoneStorage, isLandscape: isLandscape)
-                                .frame(maxWidth: .infinity, maxHeight: panelHeight, alignment: .top)
-                        }
-                        .padding(.horizontal, horizontalPadding)
-                        .padding(.top, 12)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                        let times = timerDisplayTimes()
+                        runningExpandedPanel(
+                            totalTime: times.total,
+                            setTime: times.set,
+                            isLandscape: isLandscape,
+                            containerSize: proxy.size
+                        )
+                        .padding(.top, 8)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
                 } else {
-                    Rectangle()
-                        .fill(Color.gray.opacity(0.3))
-                        .frame(height: 1)
-                        .padding(.horizontal, isLandscape ? 40 : 20)
-                        .padding(.top, 16)
+                    // Stopwatch display with BPM (or completion stats when done)
+                    stopwatchDisplay()
+                        .padding(.top, 18)
 
-                    setsTable(isLandscape: isLandscape, screenWidth: geometry.size.width)
-                        .padding(.horizontal, isLandscape ? 40 : 20)
-                        .padding(.top, 8)
-                }
-                if timerViewMode != .chart {
-                    Spacer(minLength: 0)
+                    if timerViewMode == .chart {
+                        GeometryReader { proxy in
+                            let horizontalPadding: CGFloat = isLandscape ? 40 : 20
+                            let chartSpacing: CGFloat = 12
+                            let availableHeight = max(0, proxy.size.height - chartSpacing)
+                            let panelHeight = availableHeight / 2
+
+                            VStack(spacing: chartSpacing) {
+                                HeartRateChartView(timerViewModel: timerViewModel, isLandscape: isLandscape)
+                                    .frame(maxWidth: .infinity, maxHeight: panelHeight)
+
+                                TimerTimeInZoneView(timerViewModel: timerViewModel, zoneStorage: zoneStorage, isLandscape: isLandscape)
+                                    .frame(maxWidth: .infinity, maxHeight: panelHeight, alignment: .top)
+                            }
+                            .padding(.horizontal, horizontalPadding)
+                            .padding(.top, 12)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                        }
+                    } else {
+                        Rectangle()
+                            .fill(Color.gray.opacity(0.3))
+                            .frame(height: 1)
+                            .padding(.horizontal, isLandscape ? 40 : 20)
+                            .padding(.top, 16)
+
+                        setsTable(isLandscape: isLandscape, screenWidth: geometry.size.width)
+                            .padding(.horizontal, isLandscape ? 40 : 20)
+                            .padding(.top, 8)
+                    }
+                    if timerViewMode != .chart {
+                        Spacer(minLength: 0)
+                    }
                 }
             }
+            .contentShape(Rectangle())
+            .simultaneousGesture(timerViewModeSwipeGesture)
+
+            Text("Swipe left/right or tap the eye icon to change view")
+                .font(.system(size: isLandscape ? 11 : 12, weight: .medium))
+                .foregroundColor(.gray.opacity(0.72))
+                .padding(.top, 8)
+                .padding(.bottom, 2)
+                .accessibilityLabel("Swipe or tap eye icon to change timer view")
             
             // Timer control buttons at bottom
             timerControlButtons(isLandscape: isLandscape, screenWidth: geometry.size.width)
@@ -1904,14 +1957,16 @@ struct HeartRateDisplayView: View {
     private func selectHealthKitActivity(_ option: HealthKitActivityOption) {
         pendingHealthKitActivityOption = option
         workoutTitleText = timerViewModel.defaultWorkoutTitle ?? option.title
+        workoutNotesText = ""
         showWorkoutTitlePrompt = true
     }
 
-    private func saveCurrentWorkout(title: String?, activityOption: HealthKitActivityOption) {
+    private func saveCurrentWorkout(title: String?, notes: String?, activityOption: HealthKitActivityOption) {
         guard let record = timerViewModel.workoutRecord(
             zoneConfig: zoneStorage.effectiveConfig,
             workoutId: savedWorkoutId,
-            title: title
+            title: title,
+            notes: notes
         ) else {
             return
         }

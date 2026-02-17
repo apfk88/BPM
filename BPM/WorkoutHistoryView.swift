@@ -84,6 +84,12 @@ private struct WorkoutHistoryRow: View {
                     .font(.subheadline)
                     .foregroundColor(.secondary)
             }
+            if let notes = normalizedNotes {
+                Text(notes)
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                    .lineLimit(2)
+            }
 
             HStack(spacing: 12) {
                 statChip(label: "Avg", value: record.avgHr)
@@ -114,6 +120,11 @@ private struct WorkoutHistoryRow: View {
             return "Calories: \(totalText) • Active \(Int(round(active)))"
         }
         return "Calories: \(totalText)"
+    }
+
+    private var normalizedNotes: String? {
+        let value = record.notes?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return value?.isEmpty == false ? value : nil
     }
 
     private func dateString(_ date: Date) -> String {
@@ -147,6 +158,9 @@ private struct WorkoutDetailView: View {
             Section(header: Text("Summary")) {
                 if let title = record.title, !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     detailRow(label: "Title", value: title)
+                }
+                if let notes = normalizedNotes {
+                    detailRow(label: "Notes", value: notes)
                 }
                 detailRow(label: "Start", value: dateString(record.startAt))
                 detailRow(label: "End", value: dateString(record.endAt))
@@ -251,6 +265,11 @@ private struct WorkoutDetailView: View {
             return String(format: "%d:%02d:%02d", hours, minutes, seconds)
         }
         return String(format: "%d:%02d", minutes, seconds)
+    }
+
+    private var normalizedNotes: String? {
+        let value = record.notes?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return value?.isEmpty == false ? value : nil
     }
 }
 
