@@ -251,6 +251,10 @@ struct HeartRateDisplayView: View {
             } else {
                 appMode = .myDevice
             }
+
+            if timerViewModel.hasRestorableSession {
+                isTimerMode = true
+            }
             
             if appMode == .myDevice {
                 bluetoothManager.startScanning()

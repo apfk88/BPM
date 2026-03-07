@@ -9,8 +9,9 @@ import Foundation
 import Combine
 import AudioToolbox
 import AVFoundation
+import UIKit
 
-enum TimerState {
+enum TimerState: String, Codable {
     case idle
     case running
     case paused
@@ -18,7 +19,7 @@ enum TimerState {
     case cooldownPaused
 }
 
-enum PresetPhase {
+enum PresetPhase: String, Codable {
     case work
     case rest
     case cooldown
@@ -153,10 +154,20 @@ final class TimerViewModel: ObservableObject {
 
     private let caloriesQueue = DispatchQueue(label: "bpm.calories-estimate", qos: .utility)
     private let presetStartCountdownDuration: TimeInterval
+    private let sessionStore: ActiveWorkoutSessionStore
+    private let nowProvider: () -> Date
     private var userDefaultsObserver: NSObjectProtocol?
+    private var didEnterBackgroundObserver: NSObjectProtocol?
+    private var willEnterForegroundObserver: NSObjectProtocol?
 
-    init(presetStartCountdownDuration: TimeInterval = 5.0) {
+    init(
+        presetStartCountdownDuration: TimeInterval = 5.0,
+        sessionStore: ActiveWorkoutSessionStore = .shared,
+        nowProvider: @escaping () -> Date = Date.init
+    ) {
         self.presetStartCountdownDuration = max(0, presetStartCountdownDuration)
+        self.sessionStore = sessionStore
+        self.nowProvider = nowProvider
         caloriesStatus = CaloriesEstimator.estimate(samples: [], profile: UserEnergyProfileStore.currentProfile())
         userDefaultsObserver = NotificationCenter.default.addObserver(
             forName: UserDefaults.didChangeNotification,
@@ -165,6 +176,21 @@ final class TimerViewModel: ObservableObject {
         ) { [weak self] _ in
             self?.updateCaloriesEstimate()
         }
+        didEnterBackgroundObserver = NotificationCenter.default.addObserver(
+            forName: UIApplication.didEnterBackgroundNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.handleAppDidEnterBackground()
+        }
+        willEnterForegroundObserver = NotificationCenter.default.addObserver(
+            forName: UIApplication.willEnterForegroundNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.handleAppWillEnterForeground()
+        }
+        restorePersistedSessionIfAvailable()
     }
 
     private var startTime: Date?
@@ -193,6 +219,266 @@ final class TimerViewModel: ObservableObject {
     private var presetStartCountdownRemainingOnPause: TimeInterval = 0
 
     var currentHeartRate: (() -> Int?)?
+
+    var hasRestorableSession: Bool {
+        startTime != nil || !sets.isEmpty || activePreset != nil || isPresetPrestartCountdownActive
+    }
+
+    private func handleAppDidEnterBackground() {
+        persistCurrentSession(referenceDate: nowProvider())
+    }
+
+    private func handleAppWillEnterForeground() {
+        syncDerivedState(referenceDate: nowProvider(), allowPresetCountdownCompletion: true)
+        resumeRuntimeStateIfNeeded()
+        persistCurrentSession(referenceDate: nowProvider())
+    }
+
+    private func restorePersistedSessionIfAvailable() {
+        guard let snapshot = sessionStore.load(), snapshot.hasSession else {
+            sessionStore.clear()
+            return
+        }
+
+        stopTimer()
+        stopCooldownTimer()
+        stopPresetStartCountdownTimer()
+        stopHeartRateSampling()
+
+        state = snapshot.state
+        elapsedTime = snapshot.elapsedTime
+        currentSetTime = snapshot.currentSetTime
+        sets = snapshot.sets.map {
+            SetRecord(
+                setNumber: $0.setNumber,
+                setTime: $0.setTime,
+                heartRate: $0.heartRate,
+                totalTime: $0.totalTime,
+                isRestSet: $0.isRestSet,
+                isCooldownSet: $0.isCooldownSet,
+                associatedWorkSetNumber: $0.associatedWorkSetNumber
+            )
+        }
+        cooldownTime = snapshot.cooldownTime
+        frozenElapsedTime = snapshot.frozenElapsedTime
+        isTimingRestSet = snapshot.isTimingRestSet
+        activePreset = snapshot.activePreset
+        presetPhase = snapshot.presetPhase
+        presetCurrentSet = snapshot.presetCurrentSet
+        presetPhaseTimeRemaining = snapshot.presetPhaseTimeRemaining
+        isPresetPrestartCountdownActive = snapshot.isPresetPrestartCountdownActive
+        defaultWorkoutTitle = snapshot.defaultWorkoutTitle
+        startTime = snapshot.startTime
+        pauseStartTime = snapshot.pauseStartTime
+        cooldownStartTime = snapshot.cooldownStartTime
+        cooldownPauseStartTime = snapshot.cooldownPauseStartTime
+        setCounter = snapshot.setCounter
+        restSetCounter = snapshot.restSetCounter
+        lastSetEndTime = snapshot.lastSetEndTime
+        currentRestAssociatedWorkSetNumber = snapshot.currentRestAssociatedWorkSetNumber
+        restStartTime = snapshot.restStartTime
+        heartRateSamples = snapshot.heartRateSamples.map {
+            HeartRateSample(value: $0.value, timestamp: $0.timestamp, workoutTime: $0.workoutTime)
+        }
+        cooldownStartHeartRate = snapshot.cooldownStartHeartRate
+        cooldownEndHeartRate = snapshot.cooldownEndHeartRate
+        presetPhaseStartTime = snapshot.presetPhaseStartTime
+        presetStartCountdownRemainingOnPause = snapshot.presetStartCountdownRemainingOnPause
+        presetStartCountdownEndTime = snapshot.presetStartCountdownEndTime
+
+        updateCaloriesEstimate()
+        syncDerivedState(referenceDate: nowProvider(), allowPresetCountdownCompletion: true)
+        resumeRuntimeStateIfNeeded()
+        updateLiveActivityElapsed(force: true)
+        persistCurrentSession(referenceDate: nowProvider())
+    }
+
+    private func syncDerivedState(referenceDate: Date, allowPresetCountdownCompletion: Bool) {
+        if isPresetPrestartCountdownActive {
+            let remaining = resolvedPresetCountdownRemaining(at: referenceDate)
+            presetPhaseTimeRemaining = remaining
+            presetStartCountdownRemainingOnPause = remaining
+            elapsedTime = 0
+            currentSetTime = 0
+
+            if remaining <= 0, allowPresetCountdownCompletion {
+                completePersistedPresetCountdown(at: referenceDate)
+            }
+            return
+        }
+
+        switch state {
+        case .running:
+            if let startTime {
+                elapsedTime = max(0, referenceDate.timeIntervalSince(startTime))
+                currentSetTime = max(0, elapsedTime - lastSetEndTime)
+            }
+        case .paused:
+            if let startTime, let pauseStartTime {
+                elapsedTime = max(0, pauseStartTime.timeIntervalSince(startTime))
+                currentSetTime = max(0, elapsedTime - lastSetEndTime)
+            }
+        case .cooldown:
+            if let cooldownStartTime {
+                cooldownTime = max(0, referenceDate.timeIntervalSince(cooldownStartTime))
+            }
+            if let restStartTime {
+                currentSetTime = max(0, referenceDate.timeIntervalSince(restStartTime))
+            }
+        case .cooldownPaused:
+            if let cooldownStartTime, let cooldownPauseStartTime {
+                cooldownTime = max(0, cooldownPauseStartTime.timeIntervalSince(cooldownStartTime))
+            }
+        case .idle:
+            break
+        }
+
+        guard let preset = activePreset else { return }
+
+        switch state {
+        case .running:
+            if let presetPhaseStartTime {
+                let phaseDuration = presetPhase == .work ? preset.workDuration : preset.restDuration
+                let phaseElapsed = max(0, referenceDate.timeIntervalSince(presetPhaseStartTime))
+                presetPhaseTimeRemaining = max(0, phaseDuration - phaseElapsed)
+            }
+        case .cooldown:
+            presetPhaseTimeRemaining = max(0, 120 - cooldownTime)
+        default:
+            break
+        }
+    }
+
+    private func resumeRuntimeStateIfNeeded() {
+        switch state {
+        case .running:
+            stopCooldownTimer()
+
+            if isPresetMode {
+                if isPresetPrestartCountdownActive {
+                    let remaining = resolvedPresetCountdownRemaining(at: nowProvider())
+                    if remaining > 0 {
+                        startPresetStartCountdownTimer(remaining: remaining)
+                    } else {
+                        completePersistedPresetCountdown(at: nowProvider())
+                        startHeartRateSampling()
+                        startPresetTimer()
+                    }
+                } else {
+                    startHeartRateSampling()
+                    startPresetTimer()
+                }
+            } else {
+                startHeartRateSampling()
+                startTimer()
+            }
+        case .paused:
+            stopTimer()
+            stopCooldownTimer()
+            stopPresetStartCountdownTimer()
+            stopHeartRateSampling()
+        case .cooldown:
+            stopTimer()
+            stopPresetStartCountdownTimer()
+            if isPresetMode {
+                startPresetCooldownTimer()
+            } else {
+                startHeartRateSampling()
+                startCooldownTimer()
+            }
+        case .cooldownPaused:
+            stopTimer()
+            stopCooldownTimer()
+            stopPresetStartCountdownTimer()
+            stopHeartRateSampling()
+        case .idle:
+            stopTimer()
+            stopCooldownTimer()
+            stopPresetStartCountdownTimer()
+            stopHeartRateSampling()
+        }
+    }
+
+    private func resolvedPresetCountdownRemaining(at referenceDate: Date) -> TimeInterval {
+        if let presetStartCountdownEndTime {
+            return max(0, presetStartCountdownEndTime.timeIntervalSince(referenceDate))
+        }
+        return max(0, presetStartCountdownRemainingOnPause)
+    }
+
+    private func completePersistedPresetCountdown(at referenceDate: Date) {
+        guard let preset = activePreset else { return }
+
+        stopPresetStartCountdownTimer()
+        isPresetPrestartCountdownActive = false
+        presetStartCountdownRemainingOnPause = 0
+        startTime = referenceDate
+        elapsedTime = 0
+        currentSetTime = 0
+        pauseStartTime = nil
+        presetPhase = .work
+        presetCurrentSet = max(1, presetCurrentSet)
+        presetPhaseTimeRemaining = preset.workDuration
+        presetPhaseStartTime = referenceDate
+        presetPhasePausedTime = 0
+        state = .running
+    }
+
+    private func persistCurrentSession(referenceDate: Date? = nil) {
+        let referenceDate = referenceDate ?? nowProvider()
+        syncDerivedState(referenceDate: referenceDate, allowPresetCountdownCompletion: false)
+
+        guard hasRestorableSession else {
+            sessionStore.clear()
+            return
+        }
+
+        let snapshot = ActiveWorkoutSessionSnapshot(
+            schemaVersion: ActiveWorkoutSessionSnapshot.currentSchemaVersion,
+            state: state,
+            elapsedTime: elapsedTime,
+            currentSetTime: currentSetTime,
+            sets: sets.map {
+                PersistedSetRecord(
+                    setNumber: $0.setNumber,
+                    setTime: $0.setTime,
+                    heartRate: $0.heartRate,
+                    totalTime: $0.totalTime,
+                    isRestSet: $0.isRestSet,
+                    isCooldownSet: $0.isCooldownSet,
+                    associatedWorkSetNumber: $0.associatedWorkSetNumber
+                )
+            },
+            cooldownTime: cooldownTime,
+            frozenElapsedTime: frozenElapsedTime,
+            isTimingRestSet: isTimingRestSet,
+            activePreset: activePreset,
+            presetPhase: presetPhase,
+            presetCurrentSet: presetCurrentSet,
+            presetPhaseTimeRemaining: presetPhaseTimeRemaining,
+            isPresetPrestartCountdownActive: isPresetPrestartCountdownActive,
+            defaultWorkoutTitle: defaultWorkoutTitle,
+            startTime: startTime,
+            pauseStartTime: pauseStartTime,
+            cooldownStartTime: cooldownStartTime,
+            cooldownPauseStartTime: cooldownPauseStartTime,
+            setCounter: setCounter,
+            restSetCounter: restSetCounter,
+            lastSetEndTime: lastSetEndTime,
+            currentRestAssociatedWorkSetNumber: currentRestAssociatedWorkSetNumber,
+            restStartTime: restStartTime,
+            heartRateSamples: heartRateSamples.map {
+                PersistedHeartRateSample(value: $0.value, timestamp: $0.timestamp, workoutTime: $0.workoutTime)
+            },
+            cooldownStartHeartRate: cooldownStartHeartRate,
+            cooldownEndHeartRate: cooldownEndHeartRate,
+            presetPhaseStartTime: presetPhaseStartTime,
+            presetStartCountdownRemainingOnPause: presetStartCountdownRemainingOnPause,
+            presetStartCountdownEndTime: presetStartCountdownEndTime
+        )
+
+        sessionStore.save(snapshot)
+    }
     
     var avgSetTime: TimeInterval? {
         let workoutSets = sets.filter { !$0.isRestSet && !$0.isCooldownSet }
@@ -512,6 +798,7 @@ final class TimerViewModel: ObservableObject {
         
         state = .running
         startTimer()
+        persistCurrentSession()
     }
     
     func stop() {
@@ -520,6 +807,7 @@ final class TimerViewModel: ObservableObject {
         stopTimer()
         pauseStartTime = Date()
         stopHeartRateSampling()
+        persistCurrentSession()
     }
     
     func captureSet() {
@@ -564,6 +852,7 @@ final class TimerViewModel: ObservableObject {
         
         lastSetEndTime = currentTotalTime
         currentSetTime = 0
+        persistCurrentSession()
     }
     
     func captureRestSet() {
@@ -617,6 +906,7 @@ final class TimerViewModel: ObservableObject {
         
         isTimingRestSet = true
         currentRestAssociatedWorkSetNumber = workSetNumber
+        persistCurrentSession()
     }
     
     func end() {
@@ -636,6 +926,7 @@ final class TimerViewModel: ObservableObject {
         cooldownTime = 0
         cooldownPauseStartTime = nil
         startCooldownTimer()
+        persistCurrentSession()
     }
     
     func toggleCooldown() {
@@ -663,6 +954,7 @@ final class TimerViewModel: ObservableObject {
             }
             startCooldownTimer()
         }
+        persistCurrentSession()
     }
     
     func stopAndComplete() {
@@ -675,6 +967,7 @@ final class TimerViewModel: ObservableObject {
         currentRestAssociatedWorkSetNumber = nil
         finalizeCaloriesSession()
         state = .idle
+        persistCurrentSession()
     }
     
     func stopCooldownAndComplete() {
@@ -718,6 +1011,7 @@ final class TimerViewModel: ObservableObject {
         isTimingRestSet = false
         finalizeCaloriesSession()
         state = .idle
+        persistCurrentSession()
     }
     
     func reset() {
@@ -755,6 +1049,7 @@ final class TimerViewModel: ObservableObject {
         presetPhasePausedTime = 0
         presetStartCountdownRemainingOnPause = 0
         defaultWorkoutTitle = nil
+        persistCurrentSession()
     }
 
     // MARK: - Preset Mode
@@ -765,6 +1060,7 @@ final class TimerViewModel: ObservableObject {
         presetPhase = .work
         presetCurrentSet = 1
         presetPhaseTimeRemaining = preset.workDuration
+        persistCurrentSession()
     }
 
     func clearPreset() {
@@ -780,6 +1076,7 @@ final class TimerViewModel: ObservableObject {
         if sets.isEmpty {
             defaultWorkoutTitle = nil
         }
+        persistCurrentSession()
     }
 
     func startPreset() {
@@ -813,6 +1110,7 @@ final class TimerViewModel: ObservableObject {
             } else {
                 completePresetPrestartCountdownAndStartWork()
             }
+            persistCurrentSession()
             return
         } else if state == .paused {
             if isPresetPrestartCountdownActive {
@@ -823,6 +1121,7 @@ final class TimerViewModel: ObservableObject {
                 } else {
                     completePresetPrestartCountdownAndStartWork()
                 }
+                persistCurrentSession()
                 return
             }
 
@@ -838,6 +1137,7 @@ final class TimerViewModel: ObservableObject {
 
         state = .running
         startPresetTimer()
+        persistCurrentSession()
     }
 
     func pausePreset() {
@@ -852,6 +1152,7 @@ final class TimerViewModel: ObservableObject {
             }
             stopPresetStartCountdownTimer()
             pauseStartTime = Date()
+            persistCurrentSession()
             return
         }
 
@@ -862,6 +1163,7 @@ final class TimerViewModel: ObservableObject {
             presetPhasePausedTime = Date().timeIntervalSince(phaseStart)
         }
         stopHeartRateSampling()
+        persistCurrentSession()
     }
 
     func endPreset() {
@@ -875,6 +1177,7 @@ final class TimerViewModel: ObservableObject {
             presetPhaseTimeRemaining = 0
             presetPhaseStartTime = nil
             defaultWorkoutTitle = nil
+            persistCurrentSession()
             return
         }
 
@@ -904,6 +1207,7 @@ final class TimerViewModel: ObservableObject {
             presetPhaseStartTime = Date()
             presetPhasePausedTime = 0
             startPresetCooldownTimer()
+            persistCurrentSession()
         } else {
             // No cooldown, just complete immediately
             stopTimer()
@@ -913,6 +1217,7 @@ final class TimerViewModel: ObservableObject {
             frozenElapsedTime = elapsedTime
             state = .idle
             activePreset = nil
+            persistCurrentSession()
         }
     }
 
@@ -937,6 +1242,7 @@ final class TimerViewModel: ObservableObject {
             presetPhaseTimeRemaining = 0
             presetPhaseStartTime = nil
             defaultWorkoutTitle = nil
+            persistCurrentSession()
             return
         }
 
@@ -959,6 +1265,7 @@ final class TimerViewModel: ObservableObject {
         finalizeCaloriesSession()
         state = .idle
         activePreset = nil
+        persistCurrentSession()
     }
 
     private func resolvedPresetName(for preset: TimerPreset) -> String {
@@ -1024,6 +1331,7 @@ final class TimerViewModel: ObservableObject {
         presetPhasePausedTime = 0
         startHeartRateSampling()
         startPresetTimer()
+        persistCurrentSession()
     }
 
     private func startPresetTimer() {
@@ -1150,6 +1458,7 @@ final class TimerViewModel: ObservableObject {
             isTimingRestSet = false
             currentRestAssociatedWorkSetNumber = nil
         }
+        persistCurrentSession()
     }
 
     private var presetPausedTime: TimeInterval = 0
@@ -1180,6 +1489,7 @@ final class TimerViewModel: ObservableObject {
         sets.append(workSetRecord)
         lastSetEndTime = currentTotalTime
         currentSetTime = 0
+        persistCurrentSession()
     }
 
     private func capturePresetRestSet() {
@@ -1209,6 +1519,7 @@ final class TimerViewModel: ObservableObject {
 
         lastSetEndTime = currentTotalTime
         currentSetTime = 0
+        persistCurrentSession()
     }
 
     private func startPresetCooldownTimer() {
@@ -1238,6 +1549,7 @@ final class TimerViewModel: ObservableObject {
                 DispatchQueue.main.async {
                     self.state = .idle
                     self.activePreset = nil
+                    self.persistCurrentSession()
                 }
             }
         }
@@ -1397,6 +1709,7 @@ final class TimerViewModel: ObservableObject {
                     self.stopCooldownTimer()
                     DispatchQueue.main.async {
                         self.state = .idle
+                        self.persistCurrentSession()
                     }
                 }
             }
@@ -1448,6 +1761,7 @@ final class TimerViewModel: ObservableObject {
         
         DispatchQueue.main.async {
             self.sets.append(setRecord)
+            self.persistCurrentSession()
         }
     }
     
@@ -1894,6 +2208,12 @@ final class TimerViewModel: ObservableObject {
     deinit {
         if let userDefaultsObserver {
             NotificationCenter.default.removeObserver(userDefaultsObserver)
+        }
+        if let didEnterBackgroundObserver {
+            NotificationCenter.default.removeObserver(didEnterBackgroundObserver)
+        }
+        if let willEnterForegroundObserver {
+            NotificationCenter.default.removeObserver(willEnterForegroundObserver)
         }
         timer?.invalidate()
         cooldownTimer?.invalidate()
