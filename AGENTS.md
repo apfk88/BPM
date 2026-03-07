@@ -87,3 +87,7 @@
 - StoreKit/IAP manager code was replaced with a no-op free shim; legacy paywall screen now just states sharing is free.
 - Sharing session maximum duration reduced to 90 minutes on both app-side timeout and backend token/session TTL.
 - Marketing FAQ updated: removed payment FAQ and added detailed calorie-estimation methodology section.
+
+## Session Notes (2026-03-07)
+- Active workout sessions are now persisted to disk and restored on launch/foreground, including elapsed time, sets, cooldown state, preset state, and HR samples.
+- `HeartRateDisplayView` auto-reopens workout mode when a persisted session exists, so background process kills no longer reset in-progress workouts to zero.
