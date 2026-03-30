@@ -179,6 +179,72 @@ struct WorkoutStoreTests {
         #expect(store.workouts.first(where: { $0.id == emptyTitleRecord.id })?.title == nil)
     }
 
+    @Test func workoutRecordBuildsChartDataPointsFromSavedSamples() {
+        let start = Date(timeIntervalSince1970: 1_234_567)
+        let record = makeWorkoutRecord(
+            start: start,
+            duration: 120,
+            hrSamples: [
+                WorkoutHeartRateSample(timestamp: start.addingTimeInterval(12), bpm: 128, workoutTime: nil),
+                WorkoutHeartRateSample(timestamp: start.addingTimeInterval(5), bpm: 122, workoutTime: 4),
+                WorkoutHeartRateSample(timestamp: start.addingTimeInterval(-2), bpm: 90, workoutTime: nil)
+            ]
+        )
+
+        #expect(record.chartDataPoints.map(\.time) == [4, 12])
+        #expect(record.chartDataPoints.map(\.bpm) == [122, 128])
+        #expect(record.chartMaxTime == 120)
+    }
+
+    @Test func workoutRecordBuildsChartSegmentsFromSavedSets() {
+        let record = makeWorkoutRecord(
+            duration: 120,
+            sets: [
+                WorkoutSetSummary(
+                    id: UUID(),
+                    label: "Work 1",
+                    setTime: 30,
+                    totalTime: 30,
+                    isRestSet: false,
+                    isCooldownSet: false,
+                    associatedWorkSetNumber: 1,
+                    avgBpm: 145,
+                    minBpm: 132,
+                    maxBpm: 156
+                ),
+                WorkoutSetSummary(
+                    id: UUID(),
+                    label: "Rest 1",
+                    setTime: 15,
+                    totalTime: 45,
+                    isRestSet: true,
+                    isCooldownSet: false,
+                    associatedWorkSetNumber: 1,
+                    avgBpm: 118,
+                    minBpm: 110,
+                    maxBpm: 126
+                ),
+                WorkoutSetSummary(
+                    id: UUID(),
+                    label: "Cooldown",
+                    setTime: 60,
+                    totalTime: 105,
+                    isRestSet: false,
+                    isCooldownSet: true,
+                    associatedWorkSetNumber: nil,
+                    avgBpm: 104,
+                    minBpm: 96,
+                    maxBpm: 112
+                )
+            ]
+        )
+
+        #expect(record.chartSegments.map(\.startTime) == [0, 30, 45])
+        #expect(record.chartSegments.map(\.endTime) == [30, 45, 105])
+        #expect(record.chartSegments.map(\.type) == [.work, .rest, .cooldown])
+        #expect(record.chartMaxTime == 120)
+    }
+
     @Test func iCloudSyncCompactsPayloadWhenWorkoutDataIsLarge() async throws {
         let tempURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("workouts-\(UUID().uuidString).json")
@@ -281,6 +347,40 @@ struct WorkoutStoreTests {
             zones: [],
             sets: [],
             notes: notes,
+            source: "phone",
+            appVersion: "1.0 (1)",
+            healthKitWorkoutUUID: nil,
+            healthKitSyncedAt: nil,
+            healthKitLastError: nil,
+            createdAt: Date(),
+            updatedAt: Date()
+        )
+    }
+
+    private func makeWorkoutRecord(
+        start: Date = Date(),
+        duration: TimeInterval,
+        hrSamples: [WorkoutHeartRateSample] = [],
+        sets: [WorkoutSetSummary] = []
+    ) -> WorkoutRecord {
+        WorkoutRecord(
+            id: UUID(),
+            schemaVersion: WorkoutRecord.schemaVersion,
+            title: "Chart Test",
+            startAt: start,
+            endAt: start.addingTimeInterval(duration),
+            durationSeconds: duration,
+            avgHr: 140,
+            maxHr: 170,
+            minHr: 110,
+            hrv: nil,
+            hrr: 18,
+            caloriesTotal: 120,
+            caloriesActive: 90,
+            hrSamples: hrSamples,
+            zones: [],
+            sets: sets,
+            notes: nil,
             source: "phone",
             appVersion: "1.0 (1)",
             healthKitWorkoutUUID: nil,

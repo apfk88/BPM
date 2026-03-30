@@ -144,6 +144,17 @@ private struct WorkoutDetailView: View {
 
     var body: some View {
         List {
+            Section(header: Text("Heart Rate")) {
+                if record.hrSamples.isEmpty {
+                    Text("No heart rate samples saved for this workout.")
+                        .foregroundColor(.secondary)
+                } else {
+                    WorkoutRecordHeartRateChartView(record: record)
+                        .frame(height: 220)
+                        .padding(.vertical, 8)
+                }
+            }
+
             Section(header: Text("Summary")) {
                 if let title = record.title, !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     detailRow(label: "Title", value: title)
