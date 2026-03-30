@@ -12,30 +12,11 @@ struct HeartRateLiveActivity: Widget {
                 .activitySystemActionForegroundColor(.white)
         } dynamicIsland: { context in
             DynamicIsland {
-                DynamicIslandExpandedRegion(.leading) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("BPM")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        Text(context.state.bpm.map { "\($0)" } ?? "--")
-                            .font(.system(size: 44, weight: .bold, design: .monospaced))
-                    }
-                }
-                DynamicIslandExpandedRegion(.trailing) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        if let elapsed = context.state.elapsedSeconds {
-                            LabeledTextValue(title: "TIME", value: formatDuration(elapsed))
-                        } else if let max = context.state.maximum {
-                            LabeledValue(title: "MAX", value: max)
-                        }
-                    }
-                }
                 DynamicIslandExpandedRegion(.bottom) {
-                    if let average = context.state.average {
-                        Text("Avg \(average) • \(context.state.trendDescription)")
-                            .font(.headline)
-                            .foregroundStyle(.secondary)
-                    }
+                    HeartRateLiveActivityView(content: context.state)
+                        .padding(.horizontal, 12)
+                        .padding(.top, 8)
+                        .padding(.bottom, 10)
                 }
             } compactLeading: {
                 let textColor: Color = {
@@ -98,7 +79,7 @@ private struct HeartRateLiveActivityView: View {
     let content: HeartRateActivityAttributes.ContentState
 
     var body: some View {
-        HStack(alignment: .center, spacing: 24) {
+        HStack(alignment: .center, spacing: 16) {
             // Big BPM on the left with icon and label
             HStack(alignment: .center, spacing: 12) {
                 // Icon - middle aligned to left of BPM number
@@ -120,13 +101,15 @@ private struct HeartRateLiveActivityView: View {
                 Text(content.bpm.map { "\($0)" } ?? "--")
                     .font(.system(size: 56, weight: .bold, design: .monospaced))
                     .lineLimit(1)
-                    .minimumScaleFactor(0.7)
+                    .minimumScaleFactor(0.55)
+                    .allowsTightening(true)
             }
+            .layoutPriority(0)
 
-            Spacer()
+            Spacer(minLength: 12)
 
             // Stats on the right, horizontal
-            HStack(spacing: 20) {
+            HStack(spacing: 16) {
                 if let elapsed = content.elapsedSeconds {
                     StatTextValue(label: "Time", value: formatDuration(elapsed))
                 } else {
@@ -141,42 +124,10 @@ private struct HeartRateLiveActivityView: View {
                     ZoneValue(zone: zone)
                 }
             }
+            .fixedSize(horizontal: true, vertical: false)
+            .layoutPriority(1)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-    }
-}
-
-@available(iOSApplicationExtension 16.1, *)
-private struct LabeledValue: View {
-    let title: String
-    let value: Int
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(title)
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-            Text("\(value)")
-                .font(.headline)
-        }
-    }
-}
-
-@available(iOSApplicationExtension 16.1, *)
-private struct LabeledTextValue: View {
-    let title: String
-    let value: String
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(title)
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-            Text(value)
-                .font(.headline)
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
-        }
     }
 }
 
@@ -188,9 +139,11 @@ private struct StatValue: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(label)
-                .font(.system(size: 14, weight: .semibold))
+                .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
+                .minimumScaleFactor(0.85)
+                .allowsTightening(true)
             Text("\(value)")
                 .font(.system(size: 22, weight: .bold, design: .monospaced))
                 .lineLimit(1)
@@ -208,9 +161,11 @@ private struct StatTextValue: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(label)
-                .font(.system(size: 14, weight: .semibold))
+                .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
+                .minimumScaleFactor(0.85)
+                .allowsTightening(true)
             Text(value)
                 .font(.system(size: 22, weight: .bold, design: .monospaced))
                 .lineLimit(1)
@@ -238,9 +193,11 @@ private struct ZoneValue: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text("Zone")
-                .font(.system(size: 14, weight: .semibold))
+                .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
+                .minimumScaleFactor(0.85)
+                .allowsTightening(true)
             Text(zone.name)
                 .font(.system(size: 22, weight: .bold, design: .monospaced))
                 .foregroundColor(zoneColor)
