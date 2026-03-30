@@ -33,20 +33,12 @@
 - Use XCTest (`BPMTests/`, `BPMUITests/`). Prefer `*Tests` naming and mirroring the source file structure when adding coverage.
 - Backend currently has no test harness; if you add complex logic, consider adding tests and document how to run them.
 
-## Commit & Pull Request Guidelines
-- Commit history favors short, imperative summaries (e.g., “Add reset confirmation alert…”, “bump version”).
-- PRs should describe changes and testing performed, and link an issue for non-trivial work (README recommends opening an issue first).
-- Include screenshots or short clips for UI changes; note any backend/env updates.
-
 ## Security & Configuration Tips
 - This is a public repo; do not commit secrets or sensitive data.
 - Backend requires `KV_REST_API_URL` and `KV_REST_API_TOKEN` in Vercel or `backend/.env.local`.
 - API URL selection: build script sets `https://bpmtracker.app` by default; runtime override via `BPM_API_BASE_URL` in UserDefaults.
 - Manual override: set `UserDefaults.standard.set(\"https://your-custom-url.com\", forKey: \"BPM_API_BASE_URL\")`.
 - Build phase: add `${SRCROOT}/scripts/set-api-url.sh` before “Compile Sources”.
-
-## Agent-Specific Instructions
-- Local agent allowlist (if enforced): `xcodebuild`, `git add`, `git push`, `ls`, `find`. Request additional permissions if needed.
 
 ## Note: App Store Connect CLI upload (BPM)
 - Archive: `xcodebuild -project BPM.xcodeproj -scheme BPM -configuration Release -destination 'generic/platform=iOS' -archivePath build/BPM.xcarchive archive -allowProvisioningUpdates`
@@ -91,3 +83,6 @@
 ## Session Notes (2026-03-07)
 - Active workout sessions are now persisted to disk and restored on launch/foreground, including elapsed time, sets, cooldown state, preset state, and HR samples.
 - `HeartRateDisplayView` auto-reopens workout mode when a persisted session exists, so background process kills no longer reset in-progress workouts to zero.
+
+## Session Notes (2026-03-30)
+- Workout timer and HRV measurement top bars now include direct history shortcut icons that open their matching history lists in-app.

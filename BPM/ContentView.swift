@@ -131,6 +131,8 @@ struct HeartRateDisplayView: View {
     @State private var pendingHealthKitActivityOption: HealthKitActivityOption = .functionalStrength
     @State private var healthKitSyncBannerState: HealthKitSyncBannerState?
     @State private var isHealthKitSyncInFlight = false
+    @State private var workoutSaveBannerMessage: String?
+    @State private var workoutSaveBannerDismissTask: Task<Void, Never>?
     @State private var setTableBpmDisplay: SetTableBpmDisplay = .avg
 
     private var isPad: Bool {
@@ -310,6 +312,7 @@ struct HeartRateDisplayView: View {
             }
         }
         .onDisappear {
+            workoutSaveBannerDismissTask?.cancel()
             if appMode == .myDevice {
                 bluetoothManager.stopScanning()
                 IdleTimer.enable()
@@ -1249,6 +1252,20 @@ struct HeartRateDisplayView: View {
                     .presentationDragIndicator(.visible)
             }
 
+            if let healthKitSyncBannerState {
+                StatusBannerView(
+                    style: .warning,
+                    message: healthKitSyncBannerState.message,
+                    actionTitle: isHealthKitSyncInFlight ? "Retrying..." : "Retry",
+                    isActionDisabled: isHealthKitSyncInFlight,
+                    action: retryFailedHealthKitSync
+                )
+                .padding(.horizontal, isLandscape ? 40 : 20)
+                .padding(.top, 12)
+                .padding(.bottom, 8)
+                .transition(.move(edge: .top).combined(with: .opacity))
+            }
+
             TabView(selection: timerViewModeSelection) {
                 VStack(spacing: 0) {
                     // Stopwatch display with BPM (or completion stats when done)
@@ -1853,6 +1870,14 @@ struct HeartRateDisplayView: View {
             }
         }
         .frame(maxHeight: isLandscape ? 600 : 700)
+        .overlay(alignment: .top) {
+            if let workoutSaveBannerMessage {
+                SuccessHUDView(message: workoutSaveBannerMessage)
+                    .padding(.top, TopBarLayout.iconSize + 16)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .allowsHitTesting(false)
+            }
+        }
     }
     
     private func scrollToActiveRow(proxy: ScrollViewProxy, isLandscape: Bool) {
@@ -2061,6 +2086,8 @@ struct HeartRateDisplayView: View {
         savedWorkoutId = record.id
         hasSavedWorkout = true
         pendingHealthKitActivityOption = defaultHealthKitActivityOption
+        showWorkoutSaveFeedback("Workout saved")
+        timerViewModel.reset()
 
         Task {
             await syncSavedWorkoutToHealthKit(record: record, activityOption: activityOption)
@@ -2129,6 +2156,25 @@ struct HeartRateDisplayView: View {
             await syncSavedWorkoutToHealthKit(record: record, activityOption: bannerState.activityOption)
         }
     }
+
+    @MainActor
+    private func showWorkoutSaveFeedback(_ message: String) {
+        let generator = UINotificationFeedbackGenerator()
+        generator.prepare()
+        generator.notificationOccurred(.success)
+        workoutSaveBannerDismissTask?.cancel()
+        withAnimation {
+            workoutSaveBannerMessage = message
+        }
+        workoutSaveBannerDismissTask = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(2))
+            guard !Task.isCancelled else { return }
+            withAnimation {
+                workoutSaveBannerMessage = nil
+            }
+            workoutSaveBannerDismissTask = nil
+        }
+    }
     
     @ViewBuilder
     private func timerControlButtons(isLandscape: Bool, screenWidth: CGFloat) -> some View {
@@ -2152,37 +2198,6 @@ struct HeartRateDisplayView: View {
         
         if isCompleted {
             VStack(spacing: buttonSpacing) {
-                if let bannerState = healthKitSyncBannerState {
-                    HStack(spacing: 10) {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundColor(.orange)
-
-                        Text(bannerState.message)
-                            .font(.system(size: max(12, buttonFontSize * 0.78), weight: .medium))
-                            .foregroundColor(.gray)
-                            .multilineTextAlignment(.leading)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-
-                        Button {
-                            retryFailedHealthKitSync()
-                        } label: {
-                            Text(isHealthKitSyncInFlight ? "Retrying..." : "Retry")
-                                .font(.system(size: max(12, buttonFontSize * 0.82), weight: .semibold))
-                                .foregroundColor(isHealthKitSyncInFlight ? .gray : .white)
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 6)
-                                .background(isHealthKitSyncInFlight ? Color.gray.opacity(0.2) : Color.gray.opacity(0.35))
-                                .cornerRadius(8)
-                        }
-                        .disabled(isHealthKitSyncInFlight)
-                    }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 10)
-                    .background(Color.gray.opacity(0.1))
-                    .cornerRadius(10)
-                }
-
                 Button {
                     pendingHealthKitActivityOption = defaultHealthKitActivityOption
                     pendingHealthKitSelectionFromSheet = nil

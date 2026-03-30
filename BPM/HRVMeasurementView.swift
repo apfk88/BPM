@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import UIKit
 
 struct HRVMeasurementView: View {
     @ObservedObject var viewModel: HRVMeasurementViewModel
@@ -21,6 +22,8 @@ struct HRVMeasurementView: View {
     @State private var pendingMeasurement = false
     @State private var hasSavedRecord = false
     @State private var savedRecordId: UUID?
+    @State private var saveFeedbackMessage: String?
+    @State private var saveFeedbackDismissTask: Task<Void, Never>?
     @StateObject private var hrvStore = HRVStore.shared
     
     private var displayedHeartRate: Int? {
@@ -281,6 +284,14 @@ struct HRVMeasurementView: View {
                     }
                 }
             }
+            .overlay(alignment: .top) {
+                if let saveFeedbackMessage {
+                    SuccessHUDView(message: saveFeedbackMessage)
+                        .padding(.top, geometry.safeAreaInsets.top + TopBarLayout.iconSize + 12)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                        .allowsHitTesting(false)
+                }
+            }
         }
         .onAppear {
             // Reset first time alert flag for new session
@@ -321,6 +332,7 @@ struct HRVMeasurementView: View {
         .onDisappear {
             // Stop live heart rate updates when view disappears
             viewModel.stopLiveHeartRateUpdates()
+            saveFeedbackDismissTask?.cancel()
         }
         .onChange(of: viewModel.state) { _, newValue in
             if case .countingDown = newValue {
@@ -367,7 +379,28 @@ struct HRVMeasurementView: View {
     private func saveCurrentRecord() {
         guard let record = viewModel.hrvRecord(recordId: savedRecordId) else { return }
         hrvStore.saveRecord(record)
-        savedRecordId = record.id
-        hasSavedRecord = true
+        showSaveFeedback("HRV saved")
+        viewModel.reset()
+        hasSavedRecord = false
+        savedRecordId = nil
+    }
+
+    @MainActor
+    private func showSaveFeedback(_ message: String) {
+        let generator = UINotificationFeedbackGenerator()
+        generator.prepare()
+        generator.notificationOccurred(.success)
+        saveFeedbackDismissTask?.cancel()
+        withAnimation {
+            saveFeedbackMessage = message
+        }
+        saveFeedbackDismissTask = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(2))
+            guard !Task.isCancelled else { return }
+            withAnimation {
+                saveFeedbackMessage = nil
+            }
+            saveFeedbackDismissTask = nil
+        }
     }
 }
