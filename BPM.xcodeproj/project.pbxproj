@@ -8,7 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		412019AB2EFA57960014B446 /* StoreKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 412019AA2EFA57960014B446 /* StoreKit.framework */; };
-		41EB7C092EB8547D003F2D59 /* BPMActivityExtension.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = 41EB7C002EB8547D003F2D59 /* BPMActivityExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		41EB7C092EB8547D003F2D59 /* BPMActivityExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 41EB7C002EB8547D003F2D59 /* BPMActivityExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -29,15 +29,15 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
-		41EB7C082EB8547D003F2D59 /* Embed App Extensions */ = {
+		41EB7C082EB8547D003F2D59 /* Embed Foundation Extensions */ = {
 			isa = PBXCopyFilesBuildPhase;
 			buildActionMask = 2147483647;
 			dstPath = "";
 			dstSubfolderSpec = 13;
 			files = (
-				41EB7C092EB8547D003F2D59 /* BPMActivityExtension.appex in Embed App Extensions */,
+				41EB7C092EB8547D003F2D59 /* BPMActivityExtension.appex in Embed Foundation Extensions */,
 			);
-			name = "Embed App Extensions";
+			name = "Embed Foundation Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXCopyFilesBuildPhase section */
@@ -176,7 +176,7 @@
 				41EB7BBC2EB8547B003F2D59 /* Sources */,
 				41EB7BBD2EB8547B003F2D59 /* Frameworks */,
 				41EB7BBE2EB8547B003F2D59 /* Resources */,
-				41EB7C082EB8547D003F2D59 /* Embed App Extensions */,
+				41EB7C082EB8547D003F2D59 /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
@@ -270,7 +270,7 @@
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
 				LastSwiftUpdateCheck = 1640;
-				LastUpgradeCheck = 2610;
+				LastUpgradeCheck = 2640;
 				TargetAttributes = {
 					41EB7BBF2EB8547B003F2D59 = {
 						CreatedOnToolsVersion = 16.4;
@@ -522,6 +522,7 @@
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
 				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 			};
@@ -578,6 +579,7 @@
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_COMPILATION_MODE = wholemodule;
 				VALIDATE_PRODUCT = YES;
 			};
