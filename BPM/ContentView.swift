@@ -110,6 +110,7 @@ struct HeartRateDisplayView: View {
     private var healthKitQuickTypesRawValue = HealthKitWorkoutTypeSettings.defaultQuickSelectionRawValue()
     @State private var showPresetSheet = false
     @State private var showSettings = false
+    @State private var showWorkoutHistory = false
     @StateObject private var zoneStorage = HeartRateZoneStorage.shared
     @State private var showShareDialog = false
     @State private var showShareSheet = false
@@ -222,6 +223,9 @@ struct HeartRateDisplayView: View {
         }
         .sheet(isPresented: $showSettings) {
             SettingsView()
+        }
+        .sheet(isPresented: $showWorkoutHistory) {
+            workoutHistorySheet()
         }
         .sheet(isPresented: $showShareSheet) {
             ShareSheet(items: [shareText], subject: shareSubject)
@@ -354,16 +358,20 @@ struct HeartRateDisplayView: View {
                 VStack(spacing: 8) {
                     HStack {
                         Spacer()
-                        Button {
-                            showSettings = true
-                        } label: {
-                            topBarCircleIcon(
-                                systemName: "gearshape",
-                                accessibilityLabel: "Settings"
-                            )
+                        HStack(spacing: TopBarLayout.buttonSpacing) {
+                            Button {
+                                showSettings = true
+                            } label: {
+                                topBarCircleIcon(
+                                    systemName: "gearshape",
+                                    accessibilityLabel: "Settings"
+                                )
+                            }
                         }
+                        .frame(width: TopBarLayout.trailingButtonGroupWidth, alignment: .trailing)
                     }
                     .padding(.horizontal, TopBarLayout.horizontalPadding)
+                    .padding(.top, TopBarLayout.topPadding)
 
                     VStack(spacing: 8) {
                         connectionPrompt
@@ -375,7 +383,6 @@ struct HeartRateDisplayView: View {
                     .padding(.horizontal, 24)
                     .padding(.top, 8)
                 }
-                .padding(.top, 4)
             }
         }
     }
@@ -1208,24 +1215,36 @@ struct HeartRateDisplayView: View {
 
                 Spacer()
 
-                Button {
-                    showDevicePicker = true
-                } label: {
-                    topBarCircleIcon(
-                        systemName: heartIconName,
-                        color: heartButtonColor,
-                        accessibilityLabel: "Device Picker"
-                    )
-                }
+                HStack(spacing: TopBarLayout.buttonSpacing) {
+                    Button {
+                        showDevicePicker = true
+                    } label: {
+                        topBarCircleIcon(
+                            systemName: heartIconName,
+                            color: heartButtonColor,
+                            accessibilityLabel: "Device Picker"
+                        )
+                    }
 
-                Button {
-                    showSettings = true
-                } label: {
-                    topBarCircleIcon(
-                        systemName: "gearshape",
-                        accessibilityLabel: "Settings"
-                    )
+                    Button {
+                        showWorkoutHistory = true
+                    } label: {
+                        topBarCircleIcon(
+                            systemName: "clock.arrow.circlepath",
+                            accessibilityLabel: "Workout History"
+                        )
+                    }
+
+                    Button {
+                        showSettings = true
+                    } label: {
+                        topBarCircleIcon(
+                            systemName: "gearshape",
+                            accessibilityLabel: "Settings"
+                        )
+                    }
                 }
+                .frame(width: TopBarLayout.trailingButtonGroupWidth, alignment: .trailing)
             }
             .padding(.horizontal, TopBarLayout.horizontalPadding)
             .padding(.top, TopBarLayout.topPadding)
@@ -1977,6 +1996,20 @@ struct HeartRateDisplayView: View {
                     }
                 }
             }
+        }
+    }
+
+    @ViewBuilder
+    private func workoutHistorySheet() -> some View {
+        NavigationStack {
+            WorkoutHistoryView(store: workoutStore)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Done") {
+                            showWorkoutHistory = false
+                        }
+                    }
+                }
         }
     }
 

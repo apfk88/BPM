@@ -17,6 +17,7 @@ struct HRVMeasurementView: View {
     @State private var showStopAlert = false
     @State private var showDevicePicker = false
     @State private var showSettings = false
+    @State private var showHistory = false
     @State private var showFirstTimeAlert = false
     @State private var hasShownFirstTimeAlert = false
     @State private var pendingMeasurement = false
@@ -89,21 +90,33 @@ struct HRVMeasurementView: View {
 
                         Spacer()
 
-                        Button {
-                            showDevicePicker = true
-                        } label: {
-                            topBarCircleIcon(
-                                systemName: heartIconName,
-                                color: heartButtonColor,
-                                accessibilityLabel: "Device Picker"
-                            )
-                        }
+                        HStack(spacing: TopBarLayout.buttonSpacing) {
+                            Button {
+                                showDevicePicker = true
+                            } label: {
+                                topBarCircleIcon(
+                                    systemName: heartIconName,
+                                    color: heartButtonColor,
+                                    accessibilityLabel: "Device Picker"
+                                )
+                            }
 
-                        Button {
-                            showSettings = true
-                        } label: {
-                            topBarCircleIcon(systemName: "gearshape", accessibilityLabel: "Settings")
+                            Button {
+                                showHistory = true
+                            } label: {
+                                topBarCircleIcon(
+                                    systemName: "clock.arrow.circlepath",
+                                    accessibilityLabel: "HRV History"
+                                )
+                            }
+
+                            Button {
+                                showSettings = true
+                            } label: {
+                                topBarCircleIcon(systemName: "gearshape", accessibilityLabel: "Settings")
+                            }
                         }
+                        .frame(width: TopBarLayout.trailingButtonGroupWidth, alignment: .trailing)
                     }
                     .padding(.horizontal, TopBarLayout.horizontalPadding)
                     .padding(.top, TopBarLayout.topPadding)
@@ -114,6 +127,9 @@ struct HRVMeasurementView: View {
                     }
                     .sheet(isPresented: $showSettings) {
                         SettingsView()
+                    }
+                    .sheet(isPresented: $showHistory) {
+                        historySheet()
                     }
                     .alert("Stop Measurement", isPresented: $showStopAlert) {
                         Button("Cancel", role: .cancel) { }
@@ -374,6 +390,20 @@ struct HRVMeasurementView: View {
             .background(Color.gray.opacity(TopBarLayout.iconBackgroundOpacity))
             .clipShape(Circle())
             .accessibilityLabel(accessibilityLabel ?? systemName)
+    }
+
+    @ViewBuilder
+    private func historySheet() -> some View {
+        NavigationStack {
+            HRVHistoryView(store: hrvStore)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Done") {
+                            showHistory = false
+                        }
+                    }
+                }
+        }
     }
 
     private func saveCurrentRecord() {
