@@ -127,9 +127,7 @@ enum CaloriesEstimateStatus {
 }
 
 struct UserEnergyProfileStore {
-    static func currentProfile() -> UserEnergyProfile {
-        let defaults = UserDefaults.standard
-
+    static func currentProfile(defaults: UserDefaults = .standard) -> UserEnergyProfile {
         let weightKg = parseDouble(defaults.string(forKey: CaloriesDefaultsKey.weightKg))
         let ageYears = parseInt(defaults.string(forKey: CaloriesDefaultsKey.ageYears))
         let heightCm = parseDouble(defaults.string(forKey: CaloriesDefaultsKey.heightCm))
@@ -139,7 +137,7 @@ struct UserEnergyProfileStore {
         let rmrKcalPerDay = parseDouble(defaults.string(forKey: CaloriesDefaultsKey.rmrKcalPerDay))
         let bodyFatPercent = parseDouble(defaults.string(forKey: CaloriesDefaultsKey.bodyFatPercent))
         let sexRaw = defaults.string(forKey: CaloriesDefaultsKey.sexAtBirth)
-        let sexAtBirth = sexRaw.flatMap(SexAtBirth.init(rawValue:))
+        let sexAtBirth = sexRaw.flatMap(SexAtBirth.init(rawValue:)) ?? .male
 
         return UserEnergyProfile(
             weightKg: weightKg,

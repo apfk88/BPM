@@ -169,7 +169,11 @@ final class WorkoutStore: ObservableObject {
 
                 let selected = self.preferredRecords(local: local, remote: remote)
                 let records = self.pruneRetentionInternal(records: selected.records, now: Date())
-                self.persist(records: records, updatedAt: selected.updatedAt)
+                if local.updatedAt != nil || remote.updatedAt != nil {
+                    self.persist(records: records, updatedAt: selected.updatedAt)
+                } else {
+                    self.cachedRecords = records
+                }
                 self.cachedRecords = records
                 DispatchQueue.main.async {
                     self.lastError = nil

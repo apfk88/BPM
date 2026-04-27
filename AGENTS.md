@@ -86,3 +86,9 @@
 
 ## Session Notes (2026-03-30)
 - Workout timer and HRV measurement top bars now include direct history shortcut icons that open their matching history lists in-app.
+
+## Session Notes (2026-04-27)
+- UserDefaults-backed BPM settings now sync through iCloud KVS via `ICloudPreferencesSync` (zones, alerts, calorie profile, quick HealthKit workout types, retention, presets, timer view mode).
+- Workout history already syncs through iCloud KVS; first launch on a device with no local/remote history must not publish an empty iCloud payload.
+- Calorie profile treats UI-default male sex as the estimator default; weight edits update stored kg immediately so active workouts can start tracking after settings are completed.
+- Tests touching `NSUbiquitousKeyValueStore` should stay serialized or use unique keys to avoid cross-test races.

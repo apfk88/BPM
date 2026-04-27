@@ -89,6 +89,10 @@ private struct HealthKitSyncBannerState {
     let activityOption: HealthKitActivityOption
 }
 
+enum ViewDefaultsKey {
+    static let timerMode = "BPM_View_TimerMode"
+}
+
 
 struct HeartRateDisplayView: View {
     @EnvironmentObject var bluetoothManager: HeartRateBluetoothManager
@@ -105,7 +109,7 @@ struct HeartRateDisplayView: View {
     @State private var portraitBottomContentHeight: CGFloat = 0
     @State private var heartRateExtremumDisplay: HeartRateExtremumDisplay = .max
     @State private var collapsedStatDisplay: CollapsedStatDisplay = .max
-    @AppStorage("BPM_View_TimerMode") private var timerViewModeRawValue = TimerViewMode.table.rawValue
+    @AppStorage(ViewDefaultsKey.timerMode) private var timerViewModeRawValue = TimerViewMode.table.rawValue
     @AppStorage(HealthKitWorkoutTypeDefaultsKey.quickSelection)
     private var healthKitQuickTypesRawValue = HealthKitWorkoutTypeSettings.defaultQuickSelectionRawValue()
     @State private var showPresetSheet = false

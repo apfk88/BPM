@@ -7,6 +7,11 @@
 
 import Foundation
 
+enum TimerPresetDefaultsKey {
+    static let presets = "timerPresets"
+    static let seeded = "timerPresetsSeeded"
+}
+
 struct TimerPreset: Identifiable, Codable, Equatable {
     let id: UUID
     var name: String
@@ -86,8 +91,8 @@ final class PresetStorage: ObservableObject {
 
     @Published var presets: [TimerPreset] = []
 
-    private let userDefaultsKey = "timerPresets"
-    private let seededKey = "timerPresetsSeeded"
+    private let userDefaultsKey = TimerPresetDefaultsKey.presets
+    private let seededKey = TimerPresetDefaultsKey.seeded
 
     private init() {
         loadPresets()

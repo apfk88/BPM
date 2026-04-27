@@ -103,6 +103,9 @@ struct CalorieSettingsView: View {
         .onChange(of: heightInchesText) { _, _ in
             updateHeightCmFromImperial()
         }
+        .onChange(of: weightLbText) { _, _ in
+            updateWeightKgFromImperial()
+        }
         .onChange(of: isWeightFocused) { _, isFocused in
             if !isFocused {
                 commitWeightToKg()
@@ -255,13 +258,20 @@ struct CalorieSettingsView: View {
     }
 
     private func commitWeightToKg() {
+        updateWeightKgFromImperial()
+        guard let lb = Double(weightLbText), lb > 0 else {
+            return
+        }
+        weightLbText = formatDecimal(lb)
+    }
+
+    private func updateWeightKgFromImperial() {
         guard let lb = Double(weightLbText), lb > 0 else {
             weightKgText = ""
             return
         }
         let kg = lb / 2.2046226218
         weightKgText = formatDecimal(kg, maximumFractionDigits: 2)
-        weightLbText = formatDecimal(lb)
     }
 
     private func formatDecimal(_ value: Double, maximumFractionDigits: Int = 1, minimumFractionDigits: Int = 0) -> String {

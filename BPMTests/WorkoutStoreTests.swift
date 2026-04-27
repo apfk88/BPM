@@ -2,6 +2,7 @@ import Foundation
 import Testing
 @testable import BPM
 
+@Suite(.serialized)
 struct WorkoutStoreTests {
     @Test func savesAndLoadsWorkouts() async throws {
         let tempURL = FileManager.default.temporaryDirectory
@@ -34,6 +35,20 @@ struct WorkoutStoreTests {
         try await Task.sleep(nanoseconds: 1_000_000_000)
 
         #expect(store.workouts.isEmpty)
+    }
+
+    @Test func firstLaunchWithoutLocalOrRemoteDoesNotPublishEmptyICloudHistory() async throws {
+        let tempURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("workouts-\(UUID().uuidString).json")
+        let defaults = UserDefaults(suiteName: "workout-store-\(UUID().uuidString)")!
+        defaults.set(90, forKey: WorkoutDefaultsKey.retentionDays)
+        let iCloudStore = resetICloudStore()
+
+        _ = WorkoutStore(storeURL: tempURL, userDefaults: defaults, iCloudStore: iCloudStore)
+        try await Task.sleep(nanoseconds: 1_000_000_000)
+
+        #expect(iCloudStore.data(forKey: WorkoutICloudKey.data) == nil)
+        #expect(iCloudStore.object(forKey: WorkoutICloudKey.updatedAt) == nil)
     }
 
     @Test func decodesLegacyWorkoutWithoutHealthKitFields() throws {

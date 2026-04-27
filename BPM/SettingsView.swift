@@ -8,10 +8,10 @@ import Foundation
 import SwiftUI
 struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
-    @AppStorage("BPM_Alert_HeartRateEnabled") private var isHeartRateAlertEnabled = false
-    @AppStorage("BPM_Alert_HeartRateThreshold") private var heartRateAlertThreshold = 160
-    @AppStorage("BPM_Alert_ZoneEnabled") private var isZoneAlertEnabled = false
-    @AppStorage("BPM_Alert_Zones") private var zoneAlertSelections = "3,4,5"
+    @AppStorage(HeartRateAlertDefaultsKey.heartRateEnabled) private var isHeartRateAlertEnabled = false
+    @AppStorage(HeartRateAlertDefaultsKey.heartRateThreshold) private var heartRateAlertThreshold = 160
+    @AppStorage(HeartRateAlertDefaultsKey.zoneEnabled) private var isZoneAlertEnabled = false
+    @AppStorage(HeartRateAlertDefaultsKey.zoneSelections) private var zoneAlertSelections = "3,4,5"
     @AppStorage(HealthKitWorkoutTypeDefaultsKey.quickSelection)
     private var healthKitQuickTypesRawValue = HealthKitWorkoutTypeSettings.defaultQuickSelectionRawValue()
     @State private var heartRateAlertThresholdText = ""
@@ -449,7 +449,7 @@ private struct ZoneSettingsView: View {
 }
 
 private struct ZoneAlertSelectionView: View {
-    @AppStorage("BPM_Alert_Zones") private var zoneAlertSelections = "3,4,5"
+    @AppStorage(HeartRateAlertDefaultsKey.zoneSelections) private var zoneAlertSelections = "3,4,5"
 
     private var selectedZoneIds: Set<Int> {
         let values = zoneAlertSelections

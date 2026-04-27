@@ -60,6 +60,35 @@ struct CaloriesEstimatorTests {
         #expect(abs(estimate.totalKcal - expectedPerMin * 5) < 0.2)
     }
 
+    @Test func currentProfileUsesMaleDefaultWhenSexWasNeverPersisted() {
+        let defaults = UserDefaults(suiteName: "calories-\(UUID().uuidString)")!
+        defaults.set("80", forKey: CaloriesDefaultsKey.weightKg)
+        defaults.set("40", forKey: CaloriesDefaultsKey.ageYears)
+        defaults.set("180", forKey: CaloriesDefaultsKey.heightCm)
+
+        let profile = UserEnergyProfileStore.currentProfile(defaults: defaults)
+
+        #expect(profile.sexAtBirth == .male)
+        #expect(profile.missingRequiredFields.isEmpty)
+    }
+
+    @Test func requiredProfileWithoutRMRStillProducesEstimate() {
+        let defaults = UserDefaults(suiteName: "calories-\(UUID().uuidString)")!
+        defaults.set("80", forKey: CaloriesDefaultsKey.weightKg)
+        defaults.set("40", forKey: CaloriesDefaultsKey.ageYears)
+        defaults.set("180", forKey: CaloriesDefaultsKey.heightCm)
+
+        let profile = UserEnergyProfileStore.currentProfile(defaults: defaults)
+        let samples = makeSamples(bpm: 150, count: 300)
+        let status = CaloriesEstimator.estimate(samples: samples, profile: profile)
+
+        guard case let .available(estimate) = status else {
+            #expect(Bool(false), "Expected calories without RMR")
+            return
+        }
+        #expect(estimate.method == .hrRegression)
+    }
+
     @Test func missingRequiredFieldsDisablesCalories() {
         let profile = UserEnergyProfile(
             weightKg: nil,

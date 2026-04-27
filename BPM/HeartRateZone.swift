@@ -6,6 +6,10 @@
 import Foundation
 import SwiftUI
 
+enum HeartRateZoneDefaultsKey {
+    static let config = "heartRateZoneConfig"
+}
+
 struct HeartRateZoneConfig: Codable {
     var maxHeartRate: Int
     var zone1Min: Int
@@ -123,8 +127,10 @@ enum HeartRateZone: Int, CaseIterable {
 class HeartRateZoneStorage: ObservableObject {
     static let shared = HeartRateZoneStorage()
 
-    private let storageKey = "heartRateZoneConfig"
+    private let storageKey = HeartRateZoneDefaultsKey.config
     private let defaultMaxHeartRate = 190
+    private var lastLoadedData: Data?
+    private var defaultsObserver: NSObjectProtocol?
 
     @Published var config: HeartRateZoneConfig? {
         didSet {
@@ -142,10 +148,25 @@ class HeartRateZoneStorage: ObservableObject {
 
     private init() {
         load()
+        defaultsObserver = NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.reloadIfChanged()
+        }
+    }
+
+    deinit {
+        if let defaultsObserver {
+            NotificationCenter.default.removeObserver(defaultsObserver)
+        }
     }
 
     private func load() {
-        guard let data = UserDefaults.standard.data(forKey: storageKey),
+        let data = UserDefaults.standard.data(forKey: storageKey)
+        lastLoadedData = data
+        guard let data,
               let loaded = try? JSONDecoder().decode(HeartRateZoneConfig.self, from: data) else {
             config = nil
             return
@@ -153,12 +174,20 @@ class HeartRateZoneStorage: ObservableObject {
         config = loaded
     }
 
+    private func reloadIfChanged() {
+        let data = UserDefaults.standard.data(forKey: storageKey)
+        guard data != lastLoadedData else { return }
+        load()
+    }
+
     private func save() {
         if let config = config,
            let data = try? JSONEncoder().encode(config) {
             UserDefaults.standard.set(data, forKey: storageKey)
+            lastLoadedData = data
         } else if config == nil {
             UserDefaults.standard.removeObject(forKey: storageKey)
+            lastLoadedData = nil
         }
     }
 

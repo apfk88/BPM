@@ -5,6 +5,13 @@
 
 import Foundation
 
+enum HeartRateAlertDefaultsKey {
+    static let heartRateEnabled = "BPM_Alert_HeartRateEnabled"
+    static let heartRateThreshold = "BPM_Alert_HeartRateThreshold"
+    static let zoneEnabled = "BPM_Alert_ZoneEnabled"
+    static let zoneSelections = "BPM_Alert_Zones"
+}
+
 struct HeartRateAlertSettings {
     let isHeartRateAlertEnabled: Bool
     let heartRateThreshold: Int
@@ -12,10 +19,10 @@ struct HeartRateAlertSettings {
     let selectedZones: Set<HeartRateZone>
 
     static func fromDefaults(_ defaults: UserDefaults = .standard) -> HeartRateAlertSettings {
-        let heartRateEnabled = defaults.bool(forKey: "BPM_Alert_HeartRateEnabled")
-        let heartRateThreshold = defaults.object(forKey: "BPM_Alert_HeartRateThreshold") as? Int ?? 160
-        let zoneEnabled = defaults.bool(forKey: "BPM_Alert_ZoneEnabled")
-        let zoneSelections = defaults.string(forKey: "BPM_Alert_Zones") ?? "3,4,5"
+        let heartRateEnabled = defaults.bool(forKey: HeartRateAlertDefaultsKey.heartRateEnabled)
+        let heartRateThreshold = defaults.object(forKey: HeartRateAlertDefaultsKey.heartRateThreshold) as? Int ?? 160
+        let zoneEnabled = defaults.bool(forKey: HeartRateAlertDefaultsKey.zoneEnabled)
+        let zoneSelections = defaults.string(forKey: HeartRateAlertDefaultsKey.zoneSelections) ?? "3,4,5"
         return HeartRateAlertSettings(
             isHeartRateAlertEnabled: heartRateEnabled,
             heartRateThreshold: heartRateThreshold,
