@@ -166,7 +166,11 @@ private struct HeartRateTimelineChart: View {
                     AxisMarks(position: .bottom, values: .automatic) {
                         AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5))
                             .foregroundStyle(.gray.opacity(0.3))
-                        AxisValueLabel()
+                        AxisValueLabel {
+                            if let time = $0.as(Double.self) {
+                                Text(formatXAxisMinutes(time))
+                            }
+                        }
                             .foregroundStyle(.gray)
                     }
                 }
@@ -228,7 +232,11 @@ private struct HeartRateTimelineChart: View {
                     AxisMarks(position: .bottom, values: .automatic) {
                         AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5))
                             .foregroundStyle(.gray.opacity(0.3))
-                        AxisValueLabel()
+                        AxisValueLabel {
+                            if let time = $0.as(Double.self) {
+                                Text(formatXAxisMinutes(time))
+                            }
+                        }
                             .foregroundStyle(.gray)
                     }
                 }
@@ -327,6 +335,11 @@ private struct HeartRateTimelineChart: View {
 
     private func dataPointAtTime(_ time: TimeInterval, in dataPoints: [HeartRateChartDataPoint]) -> HeartRateChartDataPoint? {
         return dataPoints.min(by: { abs($0.time - time) < abs($1.time - time) })
+    }
+
+    private func formatXAxisMinutes(_ time: TimeInterval) -> String {
+        let minutes = Int((time / 60).rounded())
+        return "\(minutes)m"
     }
 
     private func formatTime(_ time: TimeInterval) -> String {
