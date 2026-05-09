@@ -59,7 +59,9 @@ struct BPMApp: App {
                 bluetoothManager.startScanning()
                 IdleTimer.disable()
             case .inactive:
-                IdleTimer.enable()
+                // Do not re-enable during transient inactive states (e.g. Control Center),
+                // otherwise auto-lock can re-engage mid-session before we return to active.
+                break
             case .background:
                 bluetoothManager.enterBackground()
                 IdleTimer.enable()
