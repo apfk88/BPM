@@ -163,11 +163,11 @@ private struct HeartRateTimelineChart: View {
                 .chartXScale(domain: 0...60)
                 .chartYScale(domain: 60...180)
                 .chartXAxis {
-                    AxisMarks(position: .bottom, values: .automatic) {
+                    AxisMarks(position: .bottom, values: .automatic) { value in
                         AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5))
                             .foregroundStyle(.gray.opacity(0.3))
                         AxisValueLabel {
-                            if let time = $0.as(Double.self) {
+                            if let time = value.as(Double.self) {
                                 Text(formatXAxisMinutes(time))
                             }
                         }
@@ -229,11 +229,11 @@ private struct HeartRateTimelineChart: View {
                 .chartXScale(domain: 0...maxTime)
                 .chartYScale(domain: yDomain)
                 .chartXAxis {
-                    AxisMarks(position: .bottom, values: .automatic) {
+                    AxisMarks(position: .bottom, values: .automatic) { value in
                         AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5))
                             .foregroundStyle(.gray.opacity(0.3))
                         AxisValueLabel {
-                            if let time = $0.as(Double.self) {
+                            if let time = value.as(Double.self) {
                                 Text(formatXAxisMinutes(time))
                             }
                         }
