@@ -163,10 +163,14 @@ private struct HeartRateTimelineChart: View {
                 .chartXScale(domain: 0...60)
                 .chartYScale(domain: 60...180)
                 .chartXAxis {
-                    AxisMarks(position: .bottom, values: .automatic) {
+                    AxisMarks(position: .bottom, values: .automatic) { value in
                         AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5))
                             .foregroundStyle(.gray.opacity(0.3))
-                        AxisValueLabel()
+                        AxisValueLabel {
+                            if let time = value.as(Double.self) {
+                                Text(formatXAxisMinutes(time))
+                            }
+                        }
                             .foregroundStyle(.gray)
                     }
                 }
@@ -225,10 +229,14 @@ private struct HeartRateTimelineChart: View {
                 .chartXScale(domain: 0...maxTime)
                 .chartYScale(domain: yDomain)
                 .chartXAxis {
-                    AxisMarks(position: .bottom, values: .automatic) {
+                    AxisMarks(position: .bottom, values: .automatic) { value in
                         AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5))
                             .foregroundStyle(.gray.opacity(0.3))
-                        AxisValueLabel()
+                        AxisValueLabel {
+                            if let time = value.as(Double.self) {
+                                Text(formatXAxisMinutes(time))
+                            }
+                        }
                             .foregroundStyle(.gray)
                     }
                 }
@@ -327,6 +335,11 @@ private struct HeartRateTimelineChart: View {
 
     private func dataPointAtTime(_ time: TimeInterval, in dataPoints: [HeartRateChartDataPoint]) -> HeartRateChartDataPoint? {
         return dataPoints.min(by: { abs($0.time - time) < abs($1.time - time) })
+    }
+
+    private func formatXAxisMinutes(_ time: TimeInterval) -> String {
+        let minutes = Int((time / 60).rounded())
+        return "\(minutes)m"
     }
 
     private func formatTime(_ time: TimeInterval) -> String {
