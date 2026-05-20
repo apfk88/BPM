@@ -16,6 +16,12 @@ struct TimerViewModelTests {
         #expect(TimerViewModel.bellCount(for: .cooldown) == 1)
     }
 
+    @Test func intervalSoundDeactivationDelayCoversFullSound() {
+        #expect(TimerViewModel.audioSessionDeactivationDelay(soundDuration: 0.2) == 0.5)
+        #expect(TimerViewModel.audioSessionDeactivationDelay(soundDuration: 1.0) == 1.2)
+        #expect(TimerViewModel.audioSessionDeactivationDelay(soundDuration: nil) == 1.0)
+    }
+
     @Test @MainActor
     func presetStartUsesFiveSecondCountdownBeforeWorkBegins() {
         let viewModel = TimerViewModel(presetStartCountdownDuration: 0.25)

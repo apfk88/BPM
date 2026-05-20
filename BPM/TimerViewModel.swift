@@ -213,6 +213,7 @@ final class TimerViewModel: ObservableObject {
     private var presetPhaseStartTime: Date? // When current preset phase started
     private var presetPhasePausedTime: TimeInterval = 0 // Time paused in current phase
     private var audioPlayer: AVAudioPlayer? // For playing sounds that bypass silent mode
+    private var audioSessionDeactivationToken = UUID()
     private var lastLiveActivityElapsedSeconds: Int?
     private var presetStartCountdownTimer: Timer?
     private var presetStartCountdownEndTime: Date?
@@ -1363,6 +1364,8 @@ final class TimerViewModel: ObservableObject {
 
     private func playPhaseEndSound() {
         guard let preset = activePreset, preset.playSound else { return }
+        let deactivationToken = UUID()
+        audioSessionDeactivationToken = deactivationToken
 
         // Configure audio session to play sound even when device is silenced
         do {
@@ -1376,7 +1379,7 @@ final class TimerViewModel: ObservableObject {
 
         // Single bell at each phase transition
         let bellCount = Self.bellCount(for: presetPhase)
-        playBells(count: bellCount)
+        playBells(count: bellCount, deactivationToken: deactivationToken)
     }
 
     static func bellCount(for phase: PresetPhase) -> Int {
@@ -1386,23 +1389,50 @@ final class TimerViewModel: ObservableObject {
         }
     }
 
-    private func playBells(count: Int, current: Int = 0) {
+    private func playBells(count: Int, current: Int = 0, deactivationToken: UUID) {
         guard current < count else { return }
 
         let soundURL = URL(fileURLWithPath: "/System/Library/Audio/UISounds/sms-received1.caf")
         do {
             audioPlayer = try AVAudioPlayer(contentsOf: soundURL)
             audioPlayer?.prepareToPlay()
-            audioPlayer?.play()
+            let didStartPlayback = audioPlayer?.play() ?? false
 
             if current + 1 < count {
                 // Schedule next bell after a short delay
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
-                    self?.playBells(count: count, current: current + 1)
+                    self?.playBells(count: count, current: current + 1, deactivationToken: deactivationToken)
                 }
+            } else if didStartPlayback {
+                scheduleAudioSessionDeactivation(
+                    after: Self.audioSessionDeactivationDelay(soundDuration: audioPlayer?.duration),
+                    token: deactivationToken
+                )
+            } else {
+                deactivateAudioSession(token: deactivationToken)
             }
         } catch {
             AudioServicesPlaySystemSound(1013)
+            scheduleAudioSessionDeactivation(after: Self.audioSessionDeactivationDelay(soundDuration: nil), token: deactivationToken)
+        }
+    }
+
+    static func audioSessionDeactivationDelay(soundDuration: TimeInterval?) -> TimeInterval {
+        max((soundDuration ?? 0.8) + 0.2, 0.5)
+    }
+
+    private func scheduleAudioSessionDeactivation(after delay: TimeInterval, token: UUID) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+            self?.deactivateAudioSession(token: token)
+        }
+    }
+
+    private func deactivateAudioSession(token: UUID) {
+        guard audioSessionDeactivationToken == token else { return }
+        do {
+            try AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        } catch {
+            print("Failed to deactivate interval audio session: \(error.localizedDescription)")
         }
     }
 

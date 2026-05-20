@@ -55,8 +55,29 @@ struct HeartRateBluetoothManagerTests {
 
     @Test func noDataReconnectHelperUsesInterval() {
         let now = Date()
-        #expect(HeartRateBluetoothManager.shouldAttemptNoDataReconnect(lastSample: nil, now: now, interval: 10) == true)
-        #expect(HeartRateBluetoothManager.shouldAttemptNoDataReconnect(lastSample: now.addingTimeInterval(-9), now: now, interval: 10) == false)
-        #expect(HeartRateBluetoothManager.shouldAttemptNoDataReconnect(lastSample: now.addingTimeInterval(-10), now: now, interval: 10) == true)
+        #expect(HeartRateBluetoothManager.shouldAttemptNoDataReconnect(
+            hasReceivedDataSinceConnect: false,
+            lastSample: nil,
+            now: now,
+            interval: 10
+        ) == false)
+        #expect(HeartRateBluetoothManager.shouldAttemptNoDataReconnect(
+            hasReceivedDataSinceConnect: false,
+            lastSample: now.addingTimeInterval(-10),
+            now: now,
+            interval: 10
+        ) == false)
+        #expect(HeartRateBluetoothManager.shouldAttemptNoDataReconnect(
+            hasReceivedDataSinceConnect: true,
+            lastSample: now.addingTimeInterval(-9),
+            now: now,
+            interval: 10
+        ) == false)
+        #expect(HeartRateBluetoothManager.shouldAttemptNoDataReconnect(
+            hasReceivedDataSinceConnect: true,
+            lastSample: now.addingTimeInterval(-10),
+            now: now,
+            interval: 10
+        ) == true)
     }
 }

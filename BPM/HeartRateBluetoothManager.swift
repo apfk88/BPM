@@ -314,27 +314,39 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
         stopScanning()
         cancelReconnectTimer()
 
-        // Check device state - if already connected to another device, we can't connect
         if device.state == .connected {
-            let msg = "Device is already connected to another device (e.g., your treadmill). Please disconnect it first."
-            print(msg)
-            addDebugMessage(msg)
-            connectionStatus = "Device busy - disconnect from other device"
-            connectionMessage = "Device busy. Disconnect it from the treadmill and try again."
+            prepareForConnection(to: device)
+            handleConnectedPeripheral(device)
             return
         }
 
+        if device.state == .connecting {
+            prepareForConnection(to: device)
+            addDebugMessage("Connection already in progress for \(device.name ?? device.identifier.uuidString)")
+            return
+        }
+
+        if device.state == .disconnecting {
+            connectionStatus = "Disconnecting..."
+            connectionMessage = "Device is disconnecting. Try again in a moment."
+            return
+        }
+
+        addDebugMessage("Connecting to \(device.name ?? device.identifier.uuidString)... (current state: \(deviceStateDescription(device.state)))")
+        prepareForConnection(to: device)
+        centralManager.connect(device, options: nil)
+    }
+
+    private func prepareForConnection(to device: CBPeripheral) {
         connectionStatus = "Connecting..."
         connectionMessage = nil
         preserveConnectionMessageOnDisconnect = false
         hasReceivedDataSinceConnect = false
-        addDebugMessage("Connecting to \(device.name ?? device.identifier.uuidString)... (current state: \(deviceStateDescription(device.state)))")
+        lastHeartRateSampleTime = nil
         connectedDevice = device
-        lastConnectedPeripheralIdentifier = device.identifier
         isUserInitiatedDisconnect = false
         reconnectAttempts = 0
 
-        // Ensure connected device is in the available devices list
         if !availableDevices.contains(where: { $0.id == device.identifier }) {
             let discoveredPeripheral = DiscoveredPeripheral(
                 peripheral: device,
@@ -344,8 +356,27 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
             )
             availableDevices.append(discoveredPeripheral)
         }
+    }
 
-        centralManager.connect(device, options: nil)
+    private func handleConnectedPeripheral(_ peripheral: CBPeripheral) {
+        reconnectAttempts = 0
+        cancelReconnectTimer()
+        isUserInitiatedDisconnect = false
+        hasReceivedDataSinceConnect = false
+        preserveConnectionMessageOnDisconnect = false
+        lastConnectedPeripheralIdentifier = peripheral.identifier
+
+        let msg = "Connected to \(peripheral.name ?? peripheral.identifier.uuidString)"
+        print(msg)
+        addDebugMessage(msg)
+        connectionStatus = "Connected - Discovering services..."
+        connectionMessage = nil
+        lastHeartRateSampleTime = nil
+        scheduleNoDataWarning()
+        scheduleNoDataShareTimeout()
+        scheduleNoDataReconnect()
+        peripheral.delegate = self
+        peripheral.discoverServices(nil)
     }
     
     private func deviceStateDescription(_ state: CBPeripheralState) -> String {
@@ -450,9 +481,18 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
         return now.timeIntervalSince(lastSample) >= interval
     }
 
-    static func shouldAttemptNoDataReconnect(lastSample: Date?, now: Date, interval: TimeInterval) -> Bool {
-        guard let lastSample = lastSample else { return true }
-        return now.timeIntervalSince(lastSample) >= interval
+    static func shouldAttemptNoDataReconnect(
+        hasReceivedDataSinceConnect: Bool,
+        lastSample: Date?,
+        now: Date,
+        interval: TimeInterval
+    ) -> Bool {
+        HeartRateConnectionState.shouldAttemptNoDataReconnect(
+            hasReceivedDataSinceConnect: hasReceivedDataSinceConnect,
+            lastSample: lastSample,
+            now: now,
+            interval: interval
+        )
     }
 
     private func isStaleSample(now: Date = Date()) -> Bool {
@@ -655,6 +695,7 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
         guard !isUserInitiatedDisconnect else { return }
         let now = Date()
         let shouldReconnect = Self.shouldAttemptNoDataReconnect(
+            hasReceivedDataSinceConnect: hasReceivedDataSinceConnect,
             lastSample: lastHeartRateSampleTime,
             now: now,
             interval: noDataReconnectInterval
@@ -850,31 +891,16 @@ extension HeartRateBluetoothManager: CBCentralManagerDelegate {
     }
 
     func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
-        // Reset reconnect state on successful connection
-        reconnectAttempts = 0
-        cancelReconnectTimer()
-        isUserInitiatedDisconnect = false
-        hasReceivedDataSinceConnect = false
-        preserveConnectionMessageOnDisconnect = false
-
-        let msg = "Connected to \(peripheral.name ?? peripheral.identifier.uuidString)"
-        print(msg)
-        addDebugMessage(msg)
-        connectionStatus = "Connected - Discovering services..."
-        lastHeartRateSampleTime = Date()
-        scheduleNoDataTimeout()
-        scheduleNoDataWarning()
-        scheduleNoDataShareTimeout()
-        scheduleNoDataReconnect()
-        peripheral.delegate = self
-        // Discover all services first, then we'll check for heart rate service
-        // Some devices don't advertise the service but expose it after connection
-        peripheral.discoverServices(nil)
+        handleConnectedPeripheral(peripheral)
     }
 
     func centralManager(_ central: CBCentralManager, didDisconnectPeripheral peripheral: CBPeripheral, error: Error?) {
         let wasConnectedDevice = connectedDevice?.identifier == peripheral.identifier
-        let willAttemptReconnect = !isUserInitiatedDisconnect && lastConnectedPeripheralIdentifier == peripheral.identifier
+        let willAttemptReconnect = HeartRateConnectionState.shouldAutoReconnectAfterDisconnect(
+            isUserInitiatedDisconnect: isUserInitiatedDisconnect,
+            lastConnectedDeviceID: lastConnectedPeripheralIdentifier,
+            disconnectedDeviceID: peripheral.identifier
+        )
 
         if wasConnectedDevice {
             invalidateNoDataTimer()
@@ -938,18 +964,7 @@ extension HeartRateBluetoothManager: CBCentralManagerDelegate {
     }
 
     func centralManager(_ central: CBCentralManager, didFailToConnect peripheral: CBPeripheral, error: Error?) {
-        var msg: String
-        if let error = error {
-            let errorDesc = error.localizedDescription
-            // Check for common connection errors
-            if errorDesc.contains("busy") || errorDesc.contains("already") || errorDesc.contains("in use") {
-                msg = "Device is connected to another device (like your treadmill). Please disconnect it from the other device first."
-            } else {
-                msg = "Failed to connect: \(errorDesc)"
-            }
-        } else {
-            msg = "Failed to connect: Unknown error. Device may be connected to another device."
-        }
+        let msg = HeartRateConnectionState.connectionFailureMessage(errorDescription: error?.localizedDescription)
 
         print(msg)
         addDebugMessage(msg)
@@ -960,7 +975,11 @@ extension HeartRateBluetoothManager: CBCentralManagerDelegate {
         }
 
         // If we were trying to auto-reconnect, schedule another attempt
-        if !isUserInitiatedDisconnect && lastConnectedPeripheralIdentifier == peripheral.identifier {
+        if HeartRateConnectionState.shouldAutoReconnectAfterDisconnect(
+            isUserInitiatedDisconnect: isUserInitiatedDisconnect,
+            lastConnectedDeviceID: lastConnectedPeripheralIdentifier,
+            disconnectedDeviceID: peripheral.identifier
+        ) {
             connectionStatus = "Connection failed - Retrying..."
             scheduleReconnect(to: peripheral)
             return
@@ -1108,8 +1127,7 @@ extension HeartRateBluetoothManager: CBPeripheralDelegate {
             if characteristic.isNotifying {
                 connectionStatus = "Connected - Waiting for data"
                 connectionMessage = nil
-                lastHeartRateSampleTime = Date()
-                scheduleNoDataTimeout()
+                lastHeartRateSampleTime = nil
                 scheduleNoDataWarning()
                 scheduleNoDataShareTimeout()
                 scheduleNoDataReconnect()
