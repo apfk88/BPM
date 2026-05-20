@@ -28,14 +28,14 @@ final class WorkoutStore: ObservableObject {
 
     private let storeURL: URL
     private let userDefaults: UserDefaults
-    private let iCloudStore: NSUbiquitousKeyValueStore
+    private let iCloudStore: ICloudKeyValueStore
     private let queue = DispatchQueue(label: "bpm.workout-store", qos: .utility)
     private var cachedRecords: [WorkoutRecord] = []
 
     init(
         storeURL: URL = WorkoutStore.defaultStoreURL(),
         userDefaults: UserDefaults = .standard,
-        iCloudStore: NSUbiquitousKeyValueStore = .default
+        iCloudStore: ICloudKeyValueStore = NSUbiquitousKeyValueStore.default
     ) {
         self.storeURL = storeURL
         self.userDefaults = userDefaults

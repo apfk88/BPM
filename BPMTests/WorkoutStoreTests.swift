@@ -406,8 +406,8 @@ struct WorkoutStoreTests {
         )
     }
 
-    private func resetICloudStore() -> NSUbiquitousKeyValueStore {
-        let store = NSUbiquitousKeyValueStore.default
+    private func resetICloudStore() -> InMemoryICloudKeyValueStore {
+        let store = InMemoryICloudKeyValueStore()
         store.removeObject(forKey: WorkoutICloudKey.data)
         store.removeObject(forKey: WorkoutICloudKey.updatedAt)
         store.synchronize()

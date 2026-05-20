@@ -6,7 +6,7 @@ struct ICloudPreferencesSyncTests {
     @Test func firstLaunchWithoutLocalOrRemoteDoesNotPublishDeletion() {
         let key = "BPM_Test_Prefs_\(UUID().uuidString)"
         let defaults = makeDefaults()
-        let iCloudStore = NSUbiquitousKeyValueStore.default
+        let iCloudStore = InMemoryICloudKeyValueStore()
         resetCloudValue(key, store: iCloudStore)
 
         let sync = ICloudPreferencesSync(keys: [key], userDefaults: defaults, iCloudStore: iCloudStore)
@@ -19,7 +19,7 @@ struct ICloudPreferencesSyncTests {
     @Test func remoteValueHydratesEmptyDefaults() {
         let key = "BPM_Test_Prefs_\(UUID().uuidString)"
         let defaults = makeDefaults()
-        let iCloudStore = NSUbiquitousKeyValueStore.default
+        let iCloudStore = InMemoryICloudKeyValueStore()
         resetCloudValue(key, store: iCloudStore)
 
         iCloudStore.set("remote", forKey: ICloudPreferencesSync.cloudValueKey(for: key))
@@ -36,7 +36,7 @@ struct ICloudPreferencesSyncTests {
     @Test func localValueSeedsRemoteWhenRemoteIsMissing() {
         let key = "BPM_Test_Prefs_\(UUID().uuidString)"
         let defaults = makeDefaults()
-        let iCloudStore = NSUbiquitousKeyValueStore.default
+        let iCloudStore = InMemoryICloudKeyValueStore()
         resetCloudValue(key, store: iCloudStore)
         defaults.set("local", forKey: key)
 
@@ -50,7 +50,7 @@ struct ICloudPreferencesSyncTests {
     @Test func localDeletionWritesRemoteTombstoneAfterInitialSnapshot() {
         let key = "BPM_Test_Prefs_\(UUID().uuidString)"
         let defaults = makeDefaults()
-        let iCloudStore = NSUbiquitousKeyValueStore.default
+        let iCloudStore = InMemoryICloudKeyValueStore()
         resetCloudValue(key, store: iCloudStore)
         defaults.set("local", forKey: key)
 
@@ -68,7 +68,7 @@ struct ICloudPreferencesSyncTests {
         UserDefaults(suiteName: "icloud-preferences-\(UUID().uuidString)")!
     }
 
-    private func resetCloudValue(_ key: String, store: NSUbiquitousKeyValueStore) {
+    private func resetCloudValue(_ key: String, store: ICloudKeyValueStore) {
         store.removeObject(forKey: ICloudPreferencesSync.cloudValueKey(for: key))
         store.removeObject(forKey: ICloudPreferencesSync.cloudUpdatedAtKey(for: key))
         store.removeObject(forKey: ICloudPreferencesSync.cloudDeletedKey(for: key))

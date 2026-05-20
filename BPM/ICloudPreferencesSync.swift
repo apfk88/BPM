@@ -36,7 +36,7 @@ final class ICloudPreferencesSync {
 
     private let keys: [String]
     private let userDefaults: UserDefaults
-    private let iCloudStore: NSUbiquitousKeyValueStore
+    private let iCloudStore: ICloudKeyValueStore
     private var snapshots: [String: SyncedPreferenceValue?] = [:]
     private var defaultsObserver: NSObjectProtocol?
     private var iCloudObserver: NSObjectProtocol?
@@ -47,7 +47,7 @@ final class ICloudPreferencesSync {
     init(
         keys: [String] = ICloudSyncedPreferences.keys,
         userDefaults: UserDefaults = .standard,
-        iCloudStore: NSUbiquitousKeyValueStore = .default
+        iCloudStore: ICloudKeyValueStore = NSUbiquitousKeyValueStore.default
     ) {
         self.keys = keys
         self.userDefaults = userDefaults
