@@ -304,6 +304,11 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
             return
         }
 
+        if resumeReconnectAfterForegroundIfNeeded() {
+            shouldResumeScanningAfterBackground = false
+            return
+        }
+
         if shouldResumeScanningAfterBackground {
             startScanning()
             shouldResumeScanningAfterBackground = false
@@ -495,8 +500,53 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
         )
     }
 
+    static func shouldAttemptForegroundNoDataReconnect(
+        isUserInitiatedDisconnect: Bool,
+        hasReceivedDataSinceConnect: Bool,
+        lastSample: Date?,
+        now: Date,
+        interval: TimeInterval
+    ) -> Bool {
+        guard !isUserInitiatedDisconnect else { return false }
+        return shouldAttemptNoDataReconnect(
+            hasReceivedDataSinceConnect: hasReceivedDataSinceConnect,
+            lastSample: lastSample,
+            now: now,
+            interval: interval
+        )
+    }
+
     private func isStaleSample(now: Date = Date()) -> Bool {
         Self.isStaleSample(lastSample: lastHeartRateSampleTime, now: now, timeout: noDataTimeoutInterval)
+    }
+
+    @discardableResult
+    private func resumeReconnectAfterForegroundIfNeeded(now: Date = Date()) -> Bool {
+        guard !isSimulator else { return false }
+        guard reconnectTimer == nil else { return false }
+        guard let device = connectedDevice else { return false }
+        let shouldReconnect = Self.shouldAttemptForegroundNoDataReconnect(
+            isUserInitiatedDisconnect: isUserInitiatedDisconnect,
+            hasReceivedDataSinceConnect: hasReceivedDataSinceConnect,
+            lastSample: lastHeartRateSampleTime,
+            now: now,
+            interval: noDataReconnectInterval
+        )
+        guard shouldReconnect else { return false }
+
+        switch device.state {
+        case .connected:
+            connectionMessage = "Trying to reconnect..."
+            centralManager.cancelPeripheralConnection(device)
+        case .connecting:
+            return false
+        default:
+            connectionMessage = "Trying to reconnect..."
+            connectionStatus = "Disconnected - Reconnecting..."
+            scheduleReconnect(to: device)
+        }
+
+        return true
     }
 
     private func addHeartRateSample(_ value: Int) {
@@ -813,6 +863,8 @@ extension HeartRateBluetoothManager: CBCentralManagerDelegate {
 
                 if connectedDevice == nil || connectedDevice?.identifier == peripheral.identifier {
                     connectedDevice = peripheral
+                    lastConnectedPeripheralIdentifier = peripheral.identifier
+                    isUserInitiatedDisconnect = false
 
                     if !availableDevices.contains(where: { $0.id == peripheral.identifier }) {
                         let discoveredPeripheral = DiscoveredPeripheral(
@@ -1224,6 +1276,7 @@ extension HeartRateBluetoothManager: CBPeripheralDelegate {
             return
         }
 
+        cancelReconnectTimer()
         reconnectAttempts += 1
         let msg = "Scheduling reconnect attempt \(reconnectAttempts)/\(maxReconnectAttempts) in \(reconnectDelay)s..."
         print(msg)

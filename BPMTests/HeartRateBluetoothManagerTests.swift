@@ -80,4 +80,36 @@ struct HeartRateBluetoothManagerTests {
             interval: 10
         ) == true)
     }
+
+    @Test func foregroundNoDataReconnectHonorsIntentAndStaleSamples() {
+        let now = Date()
+        #expect(HeartRateBluetoothManager.shouldAttemptForegroundNoDataReconnect(
+            isUserInitiatedDisconnect: true,
+            hasReceivedDataSinceConnect: true,
+            lastSample: now.addingTimeInterval(-10),
+            now: now,
+            interval: 10
+        ) == false)
+        #expect(HeartRateBluetoothManager.shouldAttemptForegroundNoDataReconnect(
+            isUserInitiatedDisconnect: false,
+            hasReceivedDataSinceConnect: false,
+            lastSample: now.addingTimeInterval(-10),
+            now: now,
+            interval: 10
+        ) == false)
+        #expect(HeartRateBluetoothManager.shouldAttemptForegroundNoDataReconnect(
+            isUserInitiatedDisconnect: false,
+            hasReceivedDataSinceConnect: true,
+            lastSample: now.addingTimeInterval(-9),
+            now: now,
+            interval: 10
+        ) == false)
+        #expect(HeartRateBluetoothManager.shouldAttemptForegroundNoDataReconnect(
+            isUserInitiatedDisconnect: false,
+            hasReceivedDataSinceConnect: true,
+            lastSample: now.addingTimeInterval(-10),
+            now: now,
+            interval: 10
+        ) == true)
+    }
 }
