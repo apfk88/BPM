@@ -112,4 +112,56 @@ struct HeartRateBluetoothManagerTests {
             interval: 10
         ) == true)
     }
+
+    @Test func parsesSensorContactFlagsFromHeartRateMeasurement() {
+        let unsupported = HeartRateBluetoothManager.parseHeartRateData(from: Data([0x00, 180]))
+        #expect(unsupported.heartRate == 180)
+        #expect(unsupported.sensorContactStatus == .unsupported)
+
+        let notDetected = HeartRateBluetoothManager.parseHeartRateData(from: Data([0x04, 162]))
+        #expect(notDetected.heartRate == 162)
+        #expect(notDetected.sensorContactStatus == .notDetected)
+
+        let detected = HeartRateBluetoothManager.parseHeartRateData(from: Data([0x06, 181]))
+        #expect(detected.heartRate == 181)
+        #expect(detected.sensorContactStatus == .detected)
+    }
+
+    @Test func parserSkipsEnergyExpendedBeforeRRIntervals() {
+        let parsed = HeartRateBluetoothManager.parseHeartRateData(
+            from: Data([
+                0x1e, // contact detected, energy expended, RR intervals, 8-bit HR
+                150,
+                0x34, 0x12, // energy expended
+                0x00, 0x04 // 1024 / 1024s = 1000ms RR interval
+            ])
+        )
+
+        #expect(parsed.heartRate == 150)
+        #expect(parsed.sensorContactStatus == .detected)
+        #expect(parsed.hasRRIntervals)
+        #expect(parsed.rrIntervals == [1000])
+    }
+
+    @Test func freshnessRejectsStaleAndPoorContactReadings() {
+        let now = Date()
+        #expect(HeartRateBluetoothManager.isFreshHeartRate(
+            lastSample: now.addingTimeInterval(-2),
+            sensorContactStatus: .unsupported,
+            now: now,
+            maxAge: 3
+        ))
+        #expect(HeartRateBluetoothManager.isFreshHeartRate(
+            lastSample: now.addingTimeInterval(-4),
+            sensorContactStatus: .detected,
+            now: now,
+            maxAge: 3
+        ) == false)
+        #expect(HeartRateBluetoothManager.isFreshHeartRate(
+            lastSample: now,
+            sensorContactStatus: .notDetected,
+            now: now,
+            maxAge: 3
+        ) == false)
+    }
 }

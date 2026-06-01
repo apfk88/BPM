@@ -92,3 +92,7 @@
 - Workout history already syncs through iCloud KVS; first launch on a device with no local/remote history must not publish an empty iCloud payload.
 - Calorie profile treats UI-default male sex as the estimator default; weight edits update stored kg immediately so active workouts can start tracking after settings are completed.
 - Tests touching `NSUbiquitousKeyValueStore` should stay serialized or use unique keys to avoid cross-test races.
+
+## Session Notes (2026-06-01)
+- BLE heart-rate packets with sensor contact supported but not detected are treated as poor-contact data: they keep the connection alive but do not update current BPM, workout samples, sharing BPM, or Live Activity BPM.
+- Local displayed BPM uses `HeartRateBluetoothManager.freshHeartRate`; timer and HRV callbacks should use that instead of raw `currentHeartRate` so stale values are not sampled into workouts.

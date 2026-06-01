@@ -281,7 +281,7 @@ struct HeartRateDisplayView: View {
                 if sharingService?.isViewing == true {
                     return sharingService?.friendHeartRate
                 } else {
-                    return bluetoothManager?.currentHeartRate
+                    return bluetoothManager?.freshHeartRate
                 }
             }
         }
@@ -301,7 +301,7 @@ struct HeartRateDisplayView: View {
                 if sharingService?.isViewing == true {
                     return sharingService?.friendHeartRate
                 } else {
-                    return bluetoothManager?.currentHeartRate
+                    return bluetoothManager?.freshHeartRate
                 }
             }
         }
@@ -315,7 +315,7 @@ struct HeartRateDisplayView: View {
                 if sharingService?.isViewing == true {
                     return sharingService?.friendHeartRate
                 } else {
-                    return bluetoothManager?.currentHeartRate
+                    return bluetoothManager?.freshHeartRate
                 }
             }
         }
@@ -440,7 +440,7 @@ struct HeartRateDisplayView: View {
     
     private var displayedHeartRate: Int? {
         if appMode == .myDevice {
-            return bluetoothManager.currentHeartRate
+            return bluetoothManager.freshHeartRate
         } else {
             return sharingService.friendHeartRate
         }

@@ -31,7 +31,7 @@ struct HRVMeasurementView: View {
         if sharingService.isViewing {
             return sharingService.friendHeartRate
         } else {
-            return bluetoothManager.currentHeartRate
+            return bluetoothManager.freshHeartRate
         }
     }
     
@@ -318,7 +318,7 @@ struct HRVMeasurementView: View {
                 if sharingService?.isViewing == true {
                     return sharingService?.friendHeartRate
                 } else {
-                    return bluetoothManager?.currentHeartRate
+                    return bluetoothManager?.freshHeartRate
                 }
             }
             

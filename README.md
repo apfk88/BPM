@@ -105,6 +105,9 @@ You can change permission later in iOS Settings → Privacy & Security → Bluet
   - Move closer; BLE range is limited.
   - Toggle Bluetooth off/on, then rescan via the button.
   - Make sure the strap isn’t connected to another app/device.
+- **BPM disappears during hard efforts**:
+  - BPM honors BLE sensor-contact flags when a strap reports them. If the strap reports poor/no skin contact, the app shows dashes and does not save those packets as workout heart-rate samples.
+  - Reposition or wet the strap and wait for fresh data.
 - **Permission denied**: Go to iOS Settings → Privacy & Security → Bluetooth and allow access.
 - **Build fails due to iOS version**: Lower the iOS Deployment Target in the target settings to match your device.
 
