@@ -61,6 +61,7 @@ private enum CollapsedStatDisplay {
 
 private enum TimerViewMode: String, CaseIterable, Hashable {
     case table
+    case bpm
     case stats
     case chart
 }
@@ -1308,6 +1309,11 @@ struct HeartRateDisplayView: View {
                     Spacer(minLength: 0)
                 }
                 .tag(TimerViewMode.table)
+
+                GeometryReader { proxy in
+                    heartRateDisplay(size: proxy.size)
+                }
+                .tag(TimerViewMode.bpm)
 
                 GeometryReader { proxy in
                     let times = timerDisplayTimes()
