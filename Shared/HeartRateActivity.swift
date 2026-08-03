@@ -15,6 +15,12 @@ struct ZoneInfo: Codable, Hashable {
     static let zone5 = ZoneInfo(name: "Z5", colorName: "red")
 }
 
+enum HeartRateActivityLifecycle {
+    static func shouldRemainActive(bpm: Int?, hasError: Bool) -> Bool {
+        (bpm ?? 0) > 0 || hasError
+    }
+}
+
 @available(iOS 16.1, iOSApplicationExtension 16.1, *)
 struct HeartRateActivityAttributes: ActivityAttributes {
     public struct ContentState: Codable, Hashable {
@@ -101,6 +107,7 @@ final class HeartRateActivityController {
     private var lastIsViewing: Bool = false
     private var lastHasError: Bool = false
     private var lastElapsedSeconds: Int?
+    private var isEndingActivity = false
     
 
     private init() {
@@ -148,6 +155,13 @@ final class HeartRateActivityController {
 
     private func applyUpdate() {
         guard ActivityAuthorizationInfo().areActivitiesEnabled else { return }
+
+        guard HeartRateActivityLifecycle.shouldRemainActive(bpm: lastBpm, hasError: lastHasError) else {
+            endActivityIfNeeded()
+            return
+        }
+
+        guard !isEndingActivity else { return }
 
         // Restore activity if we don't have one stored (e.g., after app restart)
         if activity == nil {
@@ -200,10 +214,41 @@ final class HeartRateActivityController {
         }
     }
 
+    private func endActivityIfNeeded() {
+        guard !isEndingActivity else { return }
+        guard activity != nil || !Activity<HeartRateActivityAttributes>.activities.isEmpty else { return }
+
+        isEndingActivity = true
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            await endAllActivities()
+            isEndingActivity = false
+
+            if HeartRateActivityLifecycle.shouldRemainActive(bpm: lastBpm, hasError: lastHasError) {
+                applyUpdate()
+            }
+        }
+    }
+
+    private func resetCachedState() {
+        lastBpm = nil
+        lastAverage = nil
+        lastMaximum = nil
+        lastMinimum = nil
+        lastZone = nil
+        lastIsSharing = false
+        lastIsViewing = false
+        lastHasError = false
+        lastElapsedSeconds = nil
+    }
+
     func endActivity() async {
         // End all activities, not just the one stored in self.activity
         // This ensures cleanup even after force-close scenarios
+        resetCachedState()
+        isEndingActivity = true
         await endAllActivities()
+        isEndingActivity = false
     }
 }
 #endif

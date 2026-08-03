@@ -164,4 +164,11 @@ struct HeartRateBluetoothManagerTests {
             maxAge: 3
         ) == false)
     }
+
+    @Test func liveActivityEndsWithoutAValidHeartRate() {
+        #expect(HeartRateActivityLifecycle.shouldRemainActive(bpm: 120, hasError: false))
+        #expect(HeartRateActivityLifecycle.shouldRemainActive(bpm: nil, hasError: false) == false)
+        #expect(HeartRateActivityLifecycle.shouldRemainActive(bpm: 0, hasError: false) == false)
+        #expect(HeartRateActivityLifecycle.shouldRemainActive(bpm: nil, hasError: true))
+    }
 }
