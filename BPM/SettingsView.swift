@@ -130,6 +130,17 @@ struct SettingsView: View {
                         }
                     }
                 }
+                Section {
+                    VStack(spacing: 3) {
+                        Text("Version \(appVersion) • Build \(buildNumber)")
+                        Text("© 2026 Alex Kvamme")
+                    }
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                    .frame(maxWidth: .infinity)
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
+                }
             }
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
@@ -170,6 +181,15 @@ struct SettingsView: View {
             }
         }
     }
+
+    private var appVersion: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "—"
+    }
+
+    private var buildNumber: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "—"
+    }
+
     private var healthKitStatusText: String {
         if let healthKitStatusMessage {
             return healthKitStatusMessage
