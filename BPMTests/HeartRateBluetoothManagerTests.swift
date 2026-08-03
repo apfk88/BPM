@@ -165,10 +165,33 @@ struct HeartRateBluetoothManagerTests {
         ) == false)
     }
 
-    @Test func liveActivityEndsWithoutAValidHeartRate() {
-        #expect(HeartRateActivityLifecycle.shouldRemainActive(bpm: 120, hasError: false))
-        #expect(HeartRateActivityLifecycle.shouldRemainActive(bpm: nil, hasError: false) == false)
-        #expect(HeartRateActivityLifecycle.shouldRemainActive(bpm: 0, hasError: false) == false)
-        #expect(HeartRateActivityLifecycle.shouldRemainActive(bpm: nil, hasError: true))
+    @Test func liveActivityWaitsTenMinutesForHeartRateToReturn() {
+        let disconnectedAt = Date()
+        let missingHeartRateSince = HeartRateActivityLifecycle.missingHeartRateStart(
+            current: nil,
+            bpm: nil,
+            hasError: false,
+            now: disconnectedAt
+        )
+
+        #expect(HeartRateActivityLifecycle.missingHeartRateDismissalInterval == 600)
+        #expect(HeartRateActivityLifecycle.canStartActivity(bpm: 120, hasError: false))
+        #expect(HeartRateActivityLifecycle.canStartActivity(bpm: nil, hasError: false) == false)
+        #expect(missingHeartRateSince == disconnectedAt)
+        #expect(HeartRateActivityLifecycle.shouldDismiss(
+            missingHeartRateSince: missingHeartRateSince,
+            now: disconnectedAt.addingTimeInterval(599)
+        ) == false)
+        #expect(HeartRateActivityLifecycle.shouldDismiss(
+            missingHeartRateSince: missingHeartRateSince,
+            now: disconnectedAt.addingTimeInterval(600)
+        ))
+        #expect(HeartRateActivityLifecycle.missingHeartRateStart(
+            current: missingHeartRateSince,
+            bpm: 120,
+            hasError: false,
+            now: disconnectedAt.addingTimeInterval(30)
+        ) == nil)
+        #expect(HeartRateActivityLifecycle.canStartActivity(bpm: nil, hasError: true))
     }
 }

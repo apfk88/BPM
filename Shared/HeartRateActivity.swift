@@ -16,8 +16,28 @@ struct ZoneInfo: Codable, Hashable {
 }
 
 enum HeartRateActivityLifecycle {
-    static func shouldRemainActive(bpm: Int?, hasError: Bool) -> Bool {
+    static let missingHeartRateDismissalInterval: TimeInterval = 10 * 60
+
+    static func canStartActivity(bpm: Int?, hasError: Bool) -> Bool {
         (bpm ?? 0) > 0 || hasError
+    }
+
+    static func missingHeartRateStart(
+        current: Date?,
+        bpm: Int?,
+        hasError: Bool,
+        now: Date
+    ) -> Date? {
+        canStartActivity(bpm: bpm, hasError: hasError) ? nil : current ?? now
+    }
+
+    static func shouldDismiss(
+        missingHeartRateSince: Date?,
+        now: Date,
+        interval: TimeInterval = missingHeartRateDismissalInterval
+    ) -> Bool {
+        guard let missingHeartRateSince else { return false }
+        return now.timeIntervalSince(missingHeartRateSince) >= interval
     }
 }
 
@@ -108,6 +128,8 @@ final class HeartRateActivityController {
     private var lastHasError: Bool = false
     private var lastElapsedSeconds: Int?
     private var isEndingActivity = false
+    private var missingHeartRateSince: Date?
+    private var missingHeartRateTimer: Timer?
     
 
     private init() {
@@ -155,17 +177,40 @@ final class HeartRateActivityController {
 
     private func applyUpdate() {
         guard ActivityAuthorizationInfo().areActivitiesEnabled else { return }
-
-        guard HeartRateActivityLifecycle.shouldRemainActive(bpm: lastBpm, hasError: lastHasError) else {
-            endActivityIfNeeded()
-            return
-        }
-
         guard !isEndingActivity else { return }
+
+        let canStartActivity = HeartRateActivityLifecycle.canStartActivity(
+            bpm: lastBpm,
+            hasError: lastHasError
+        )
+        missingHeartRateSince = HeartRateActivityLifecycle.missingHeartRateStart(
+            current: missingHeartRateSince,
+            bpm: lastBpm,
+            hasError: lastHasError,
+            now: Date()
+        )
+
+        if canStartActivity {
+            invalidateMissingHeartRateTimer()
+        }
 
         // Restore activity if we don't have one stored (e.g., after app restart)
         if activity == nil {
             restoreActivity()
+        }
+
+        if !canStartActivity {
+            guard activity != nil else { return }
+
+            if HeartRateActivityLifecycle.shouldDismiss(
+                missingHeartRateSince: missingHeartRateSince,
+                now: Date()
+            ) {
+                endActivityIfNeeded()
+                return
+            }
+
+            scheduleMissingHeartRateDismissal()
         }
 
         let state = HeartRateActivityAttributes.ContentState(
@@ -183,7 +228,10 @@ final class HeartRateActivityController {
         Task { @MainActor [weak self] in
             guard let self else { return }
 
-            let content = ActivityContent(state: state, staleDate: nil)
+            let staleDate = missingHeartRateSince?.addingTimeInterval(
+                HeartRateActivityLifecycle.missingHeartRateDismissalInterval
+            )
+            let content = ActivityContent(state: state, staleDate: staleDate)
 
             if let currentActivity = activity {
                 await currentActivity.update(content)
@@ -195,6 +243,8 @@ final class HeartRateActivityController {
                 await existingActivity.update(content)
                 return
             }
+
+            guard canStartActivity else { return }
 
             guard !isRequestingActivity else {
                 logger.debug("Activity request already in progress; skipping new request")
@@ -214,17 +264,57 @@ final class HeartRateActivityController {
         }
     }
 
+    private func scheduleMissingHeartRateDismissal() {
+        guard missingHeartRateTimer == nil, let missingHeartRateSince else { return }
+
+        let dismissalDate = missingHeartRateSince.addingTimeInterval(
+            HeartRateActivityLifecycle.missingHeartRateDismissalInterval
+        )
+        let interval = max(0, dismissalDate.timeIntervalSinceNow)
+        guard interval > 0 else {
+            endActivityIfNeeded()
+            return
+        }
+
+        let timer = Timer(timeInterval: interval, repeats: false) { [weak self] _ in
+            Task { @MainActor in
+                self?.handleMissingHeartRateDismissalTimer()
+            }
+        }
+        missingHeartRateTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
+    }
+
+    private func handleMissingHeartRateDismissalTimer() {
+        missingHeartRateTimer = nil
+
+        if HeartRateActivityLifecycle.shouldDismiss(
+            missingHeartRateSince: missingHeartRateSince,
+            now: Date()
+        ) {
+            endActivityIfNeeded()
+        } else {
+            scheduleMissingHeartRateDismissal()
+        }
+    }
+
+    private func invalidateMissingHeartRateTimer() {
+        missingHeartRateTimer?.invalidate()
+        missingHeartRateTimer = nil
+    }
+
     private func endActivityIfNeeded() {
         guard !isEndingActivity else { return }
         guard activity != nil || !Activity<HeartRateActivityAttributes>.activities.isEmpty else { return }
 
+        invalidateMissingHeartRateTimer()
         isEndingActivity = true
         Task { @MainActor [weak self] in
             guard let self else { return }
             await endAllActivities()
             isEndingActivity = false
 
-            if HeartRateActivityLifecycle.shouldRemainActive(bpm: lastBpm, hasError: lastHasError) {
+            if HeartRateActivityLifecycle.canStartActivity(bpm: lastBpm, hasError: lastHasError) {
                 applyUpdate()
             }
         }
@@ -240,6 +330,8 @@ final class HeartRateActivityController {
         lastIsViewing = false
         lastHasError = false
         lastElapsedSeconds = nil
+        missingHeartRateSince = nil
+        invalidateMissingHeartRateTimer()
     }
 
     func endActivity() async {

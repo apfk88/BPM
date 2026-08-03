@@ -116,7 +116,7 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
     private var noDataShareTimer: Timer?
     private var noDataReconnectTimer: Timer?
     private var heartRateFreshnessTimer: Timer?
-    private let noDataTimeoutInterval: TimeInterval = 300.0
+    private let noDataTimeoutInterval = HeartRateActivityLifecycle.missingHeartRateDismissalInterval
     private let noDataWarningInterval: TimeInterval = 5.0
     private let noDataShareInterval: TimeInterval = 20.0
     private let noDataReconnectInterval: TimeInterval = 10.0
