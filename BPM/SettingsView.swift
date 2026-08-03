@@ -132,7 +132,7 @@ struct SettingsView: View {
                 }
                 Section {
                     VStack(spacing: 3) {
-                        Text("Version \(appVersion) • Build \(buildNumber)")
+                        Text("Version \(appVersion)")
                         Text("© 2026 Alex Kvamme")
                     }
                     .font(.caption2)
@@ -184,10 +184,6 @@ struct SettingsView: View {
 
     private var appVersion: String {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "—"
-    }
-
-    private var buildNumber: String {
-        Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "—"
     }
 
     private var healthKitStatusText: String {
