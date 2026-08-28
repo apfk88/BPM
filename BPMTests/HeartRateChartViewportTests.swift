@@ -25,10 +25,10 @@ struct HeartRateChartViewportTests {
         #expect(viewport.clampedScrollPosition(590, visibleDuration: 120) == 480)
     }
 
-    @Test func detailedAxisUsesThirtySecondLabelsAtMaximumZoom() {
-        #expect(HeartRateChartXAxis.usesDetailedMarks(visibleDuration: 60, allowsHorizontalScrolling: true))
-        #expect(!HeartRateChartXAxis.usesDetailedMarks(visibleDuration: 61, allowsHorizontalScrolling: true))
-        #expect(!HeartRateChartXAxis.usesDetailedMarks(visibleDuration: 60, allowsHorizontalScrolling: false))
+    @Test func xAxisAlwaysUsesThirtySecondLabels() {
+        #expect(HeartRateChartXAxis.tickValues(through: 20) == [0])
+        #expect(HeartRateChartXAxis.tickValues(through: 175) == [0, 30, 60, 90, 120, 150])
+        #expect(HeartRateChartXAxis.tickValues(through: 180) == [0, 30, 60, 90, 120, 150, 180])
         #expect(HeartRateChartXAxis.label(for: 30) == "30s")
         #expect(HeartRateChartXAxis.label(for: 60) == "1m")
         #expect(HeartRateChartXAxis.label(for: 90) == "1m30s")

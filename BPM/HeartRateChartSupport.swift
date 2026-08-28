@@ -1,14 +1,10 @@
 import Foundation
 
 enum HeartRateChartXAxis {
-    static let detailedTickInterval: TimeInterval = 30
-    static let detailedVisibleDuration: TimeInterval = 60
+    static let tickInterval: TimeInterval = 30
 
-    static func usesDetailedMarks(
-        visibleDuration: TimeInterval,
-        allowsHorizontalScrolling: Bool
-    ) -> Bool {
-        allowsHorizontalScrolling && visibleDuration <= detailedVisibleDuration
+    static func tickValues(through maxTime: TimeInterval) -> [TimeInterval] {
+        Array(stride(from: 0, through: max(0, maxTime), by: tickInterval))
     }
 
     static func label(for time: TimeInterval) -> String {

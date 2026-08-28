@@ -175,7 +175,10 @@ struct HeartRateTimelineChart: View {
                 .chartXScale(domain: 0...60)
                 .chartYScale(domain: 60...180)
                 .chartXAxis {
-                    AxisMarks(position: .bottom, values: .automatic) { value in
+                    AxisMarks(
+                        position: .bottom,
+                        values: HeartRateChartXAxis.tickValues(through: 60)
+                    ) { value in
                         AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5))
                             .foregroundStyle(.gray.opacity(0.3))
                         AxisValueLabel {
@@ -268,34 +271,18 @@ struct HeartRateTimelineChart: View {
                 .chartScrollPosition(x: $scrollPosition)
                 .chartYScale(domain: yDomain)
                 .chartXAxis {
-                    if HeartRateChartXAxis.usesDetailedMarks(
-                        visibleDuration: visibleDuration,
-                        allowsHorizontalScrolling: allowsHorizontalScrolling
-                    ) {
-                        AxisMarks(
-                            position: .bottom,
-                            values: .stride(by: HeartRateChartXAxis.detailedTickInterval)
-                        ) { value in
-                            AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5))
-                                .foregroundStyle(.gray.opacity(0.3))
-                            AxisValueLabel {
-                                if let time = value.as(Double.self) {
-                                    Text(HeartRateChartXAxis.label(for: time))
-                                }
+                    AxisMarks(
+                        position: .bottom,
+                        values: HeartRateChartXAxis.tickValues(through: maxTime)
+                    ) { value in
+                        AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5))
+                            .foregroundStyle(.gray.opacity(0.3))
+                        AxisValueLabel {
+                            if let time = value.as(Double.self) {
+                                Text(HeartRateChartXAxis.label(for: time))
                             }
-                                .foregroundStyle(.gray)
                         }
-                    } else {
-                        AxisMarks(position: .bottom, values: .automatic) { value in
-                            AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5))
-                                .foregroundStyle(.gray.opacity(0.3))
-                            AxisValueLabel {
-                                if let time = value.as(Double.self) {
-                                    Text(HeartRateChartXAxis.label(for: time))
-                                }
-                            }
-                                .foregroundStyle(.gray)
-                        }
+                            .foregroundStyle(.gray)
                     }
                 }
                 .chartPlotStyle { plotArea in
