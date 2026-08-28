@@ -132,25 +132,34 @@ struct WorkoutRecordHeartRateChartView: View {
     }
 }
 
-private struct HeartRateTimelineChart: View {
+struct HeartRateTimelineChart: View {
     let dataPoints: [HeartRateChartDataPoint]
     let segments: [HeartRateChartSegment]
     let maxTime: TimeInterval
+    let allowsHorizontalScrolling: Bool
     @Binding var selectedTime: TimeInterval?
     @Binding var isDragging: Bool
+    @Binding var visibleDuration: TimeInterval
+    @Binding var scrollPosition: TimeInterval
 
     init(
         dataPoints: [HeartRateChartDataPoint],
         segments: [HeartRateChartSegment],
         maxTime: TimeInterval,
+        allowsHorizontalScrolling: Bool = false,
         selectedTime: Binding<TimeInterval?> = .constant(nil),
-        isDragging: Binding<Bool> = .constant(false)
+        isDragging: Binding<Bool> = .constant(false),
+        visibleDuration: Binding<TimeInterval> = .constant(1),
+        scrollPosition: Binding<TimeInterval> = .constant(0)
     ) {
         self.dataPoints = dataPoints
         self.segments = segments
         self.maxTime = max(maxTime, 1.0)
+        self.allowsHorizontalScrolling = allowsHorizontalScrolling
         self._selectedTime = selectedTime
         self._isDragging = isDragging
+        self._visibleDuration = visibleDuration
+        self._scrollPosition = scrollPosition
     }
 
     private var yDomain: ClosedRange<Int> {
@@ -227,6 +236,9 @@ private struct HeartRateTimelineChart: View {
                     }
                 }
                 .chartXScale(domain: 0...maxTime)
+                .chartScrollableAxes(allowsHorizontalScrolling ? .horizontal : [])
+                .chartXVisibleDomain(length: allowsHorizontalScrolling ? visibleDuration : maxTime)
+                .chartScrollPosition(x: $scrollPosition)
                 .chartYScale(domain: yDomain)
                 .chartXAxis {
                     AxisMarks(position: .bottom, values: .automatic) { value in
@@ -257,28 +269,44 @@ private struct HeartRateTimelineChart: View {
                     GeometryReader { chartGeometry in
                         if let plotFrameAnchor = chartProxy.plotFrame {
                             let plotFrame = chartGeometry[plotFrameAnchor]
-                            Rectangle()
-                                .fill(Color.clear)
-                                .contentShape(Rectangle())
-                                .gesture(
-                                    DragGesture(minimumDistance: 0)
-                                        .onChanged { value in
-                                            isDragging = true
-                                            let relativeX = value.location.x - plotFrame.minX
-                                            let normalizedX = relativeX / plotFrame.width
-                                            let timeValue = normalizedX * maxTime
-
-                                            selectedTime = max(0, min(timeValue, maxTime))
-                                        }
-                                        .onEnded { _ in
-                                            isDragging = false
-                                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                                                if !isDragging {
-                                                    selectedTime = nil
+                            if allowsHorizontalScrolling {
+                                Rectangle()
+                                    .fill(Color.clear)
+                                    .contentShape(Rectangle())
+                                    .simultaneousGesture(
+                                        SpatialTapGesture()
+                                            .onEnded { value in
+                                                selectedTime = chartTime(
+                                                    at: value.location.x,
+                                                    plotFrame: plotFrame,
+                                                    chartProxy: chartProxy
+                                                )
+                                            }
+                                    )
+                            } else {
+                                Rectangle()
+                                    .fill(Color.clear)
+                                    .contentShape(Rectangle())
+                                    .gesture(
+                                        DragGesture(minimumDistance: 0)
+                                            .onChanged { value in
+                                                isDragging = true
+                                                selectedTime = chartTime(
+                                                    at: value.location.x,
+                                                    plotFrame: plotFrame,
+                                                    chartProxy: chartProxy
+                                                )
+                                            }
+                                            .onEnded { _ in
+                                                isDragging = false
+                                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                                                    if !isDragging {
+                                                        selectedTime = nil
+                                                    }
                                                 }
                                             }
-                                        }
-                                )
+                                    )
+                            }
                         } else {
                             Rectangle()
                                 .fill(Color.clear)
@@ -335,6 +363,20 @@ private struct HeartRateTimelineChart: View {
 
     private func dataPointAtTime(_ time: TimeInterval, in dataPoints: [HeartRateChartDataPoint]) -> HeartRateChartDataPoint? {
         return dataPoints.min(by: { abs($0.time - time) < abs($1.time - time) })
+    }
+
+    private func chartTime(
+        at locationX: CGFloat,
+        plotFrame: CGRect,
+        chartProxy: ChartProxy
+    ) -> TimeInterval? {
+        let plotX = locationX - plotFrame.minX
+        guard plotX >= 0,
+              plotX <= plotFrame.width,
+              let time = chartProxy.value(atX: plotX, as: TimeInterval.self) else {
+            return nil
+        }
+        return max(0, min(time, maxTime))
     }
 
     private func formatXAxisMinutes(_ time: TimeInterval) -> String {

@@ -141,6 +141,7 @@ private struct WorkoutDetailView: View {
     let onDelete: () -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var showDeleteAlert = false
+    @State private var showExpandedHeartRateChart = false
 
     var body: some View {
         List {
@@ -149,9 +150,27 @@ private struct WorkoutDetailView: View {
                     Text("No heart rate samples saved for this workout.")
                         .foregroundColor(.secondary)
                 } else {
-                    WorkoutRecordHeartRateChartView(record: record)
-                        .frame(height: 220)
-                        .padding(.vertical, 8)
+                    Button {
+                        showExpandedHeartRateChart = true
+                    } label: {
+                        ZStack(alignment: .topTrailing) {
+                            WorkoutRecordHeartRateChartView(record: record)
+                                .allowsHitTesting(false)
+
+                            Image(systemName: "arrow.up.left.and.arrow.down.right")
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundColor(.white)
+                                .padding(8)
+                                .background(.black.opacity(0.7), in: Circle())
+                                .padding(4)
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .frame(height: 220)
+                    .padding(.vertical, 8)
+                    .accessibilityLabel("Expand heart rate chart")
+                    .accessibilityHint("Opens a full-screen chart with zoom and pan controls")
                 }
             }
 
@@ -235,6 +254,9 @@ private struct WorkoutDetailView: View {
             }
         }
         .navigationTitle("Workout")
+        .fullScreenCover(isPresented: $showExpandedHeartRateChart) {
+            ExpandedHeartRateChartView(record: record)
+        }
         .alert("Delete Workout?", isPresented: $showDeleteAlert) {
             Button("Cancel", role: .cancel) { }
             Button("Delete", role: .destructive) {
