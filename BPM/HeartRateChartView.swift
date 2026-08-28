@@ -137,6 +137,7 @@ struct HeartRateTimelineChart: View {
     let segments: [HeartRateChartSegment]
     let maxTime: TimeInterval
     let allowsHorizontalScrolling: Bool
+    let showsPeakLabels: Bool
     @Binding var selectedTime: TimeInterval?
     @Binding var isDragging: Bool
     @Binding var visibleDuration: TimeInterval
@@ -147,6 +148,7 @@ struct HeartRateTimelineChart: View {
         segments: [HeartRateChartSegment],
         maxTime: TimeInterval,
         allowsHorizontalScrolling: Bool = false,
+        showsPeakLabels: Bool = false,
         selectedTime: Binding<TimeInterval?> = .constant(nil),
         isDragging: Binding<Bool> = .constant(false),
         visibleDuration: Binding<TimeInterval> = .constant(1),
@@ -156,6 +158,7 @@ struct HeartRateTimelineChart: View {
         self.segments = segments
         self.maxTime = max(maxTime, 1.0)
         self.allowsHorizontalScrolling = allowsHorizontalScrolling
+        self.showsPeakLabels = showsPeakLabels
         self._selectedTime = selectedTime
         self._isDragging = isDragging
         self._visibleDuration = visibleDuration
@@ -177,7 +180,7 @@ struct HeartRateTimelineChart: View {
                             .foregroundStyle(.gray.opacity(0.3))
                         AxisValueLabel {
                             if let time = value.as(Double.self) {
-                                Text(formatXAxisMinutes(time))
+                                Text(HeartRateChartXAxis.label(for: time))
                             }
                         }
                             .foregroundStyle(.gray)
@@ -225,6 +228,30 @@ struct HeartRateTimelineChart: View {
                         .lineStyle(StrokeStyle(lineWidth: 2))
                     }
 
+                    if showsPeakLabels {
+                        ForEach(
+                            HeartRateChartPeaks.majorPeaks(
+                                in: dataPoints,
+                                visibleDuration: allowsHorizontalScrolling ? visibleDuration : maxTime
+                            )
+                        ) { point in
+                            PointMark(
+                                x: .value("Peak Time", point.time),
+                                y: .value("Peak BPM", point.bpm)
+                            )
+                            .foregroundStyle(.white)
+                            .symbolSize(18)
+                            .annotation(position: .top, spacing: 3) {
+                                Text("\(point.bpm)")
+                                    .font(.caption2.bold().monospacedDigit())
+                                    .foregroundStyle(.white)
+                                    .padding(.horizontal, 5)
+                                    .padding(.vertical, 2)
+                                    .background(.black.opacity(0.8), in: Capsule())
+                            }
+                        }
+                    }
+
                     if let selectedTime,
                        let selectedPoint = dataPointAtTime(selectedTime, in: dataPoints) {
                         PointMark(
@@ -241,15 +268,34 @@ struct HeartRateTimelineChart: View {
                 .chartScrollPosition(x: $scrollPosition)
                 .chartYScale(domain: yDomain)
                 .chartXAxis {
-                    AxisMarks(position: .bottom, values: .automatic) { value in
-                        AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5))
-                            .foregroundStyle(.gray.opacity(0.3))
-                        AxisValueLabel {
-                            if let time = value.as(Double.self) {
-                                Text(formatXAxisMinutes(time))
+                    if HeartRateChartXAxis.usesDetailedMarks(
+                        visibleDuration: visibleDuration,
+                        allowsHorizontalScrolling: allowsHorizontalScrolling
+                    ) {
+                        AxisMarks(
+                            position: .bottom,
+                            values: .stride(by: HeartRateChartXAxis.detailedTickInterval)
+                        ) { value in
+                            AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5))
+                                .foregroundStyle(.gray.opacity(0.3))
+                            AxisValueLabel {
+                                if let time = value.as(Double.self) {
+                                    Text(HeartRateChartXAxis.label(for: time))
+                                }
                             }
+                                .foregroundStyle(.gray)
                         }
-                            .foregroundStyle(.gray)
+                    } else {
+                        AxisMarks(position: .bottom, values: .automatic) { value in
+                            AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5))
+                                .foregroundStyle(.gray.opacity(0.3))
+                            AxisValueLabel {
+                                if let time = value.as(Double.self) {
+                                    Text(HeartRateChartXAxis.label(for: time))
+                                }
+                            }
+                                .foregroundStyle(.gray)
+                        }
                     }
                 }
                 .chartPlotStyle { plotArea in
@@ -377,11 +423,6 @@ struct HeartRateTimelineChart: View {
             return nil
         }
         return max(0, min(time, maxTime))
-    }
-
-    private func formatXAxisMinutes(_ time: TimeInterval) -> String {
-        let minutes = Int((time / 60).rounded())
-        return "\(minutes)m"
     }
 
     private func formatTime(_ time: TimeInterval) -> String {

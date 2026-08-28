@@ -40,6 +40,7 @@ struct ExpandedHeartRateChartView: View {
     @State private var visibleDuration: TimeInterval
     @State private var scrollPosition: TimeInterval = 0
     @State private var zoomStartDuration: TimeInterval?
+    @State private var showsPeakLabels = false
 
     private let viewport: HeartRateChartViewport
 
@@ -59,6 +60,7 @@ struct ExpandedHeartRateChartView: View {
         }
         .background(Color.black)
         .ignoresSafeArea()
+        .statusBarHidden(true)
     }
 
     private var landscapeContent: some View {
@@ -70,6 +72,7 @@ struct ExpandedHeartRateChartView: View {
                 segments: record.chartSegments,
                 maxTime: viewport.totalDuration,
                 allowsHorizontalScrolling: true,
+                showsPeakLabels: showsPeakLabels,
                 selectedTime: $selectedTime,
                 isDragging: $isInspecting,
                 visibleDuration: $visibleDuration,
@@ -96,9 +99,17 @@ struct ExpandedHeartRateChartView: View {
 
             Spacer(minLength: 12)
 
-            Label("Pinch to zoom • Drag to pan", systemImage: "hand.pinch")
-                .font(.caption)
-                .foregroundColor(.secondary)
+            Button {
+                withAnimation(.easeInOut(duration: 0.15)) {
+                    showsPeakLabels.toggle()
+                }
+            } label: {
+                Label("Peak labels", systemImage: showsPeakLabels ? "tag.fill" : "tag")
+                    .font(.caption)
+            }
+            .buttonStyle(.plain)
+            .foregroundColor(showsPeakLabels ? .white : .secondary)
+            .accessibilityValue(showsPeakLabels ? "On" : "Off")
 
             Text(zoomLabel)
                 .font(.caption.monospacedDigit())

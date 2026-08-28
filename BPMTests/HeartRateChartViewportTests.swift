@@ -24,4 +24,32 @@ struct HeartRateChartViewportTests {
         #expect(viewport.clampedScrollPosition(240, visibleDuration: 120) == 240)
         #expect(viewport.clampedScrollPosition(590, visibleDuration: 120) == 480)
     }
+
+    @Test func detailedAxisUsesThirtySecondLabelsAtMaximumZoom() {
+        #expect(HeartRateChartXAxis.usesDetailedMarks(visibleDuration: 60, allowsHorizontalScrolling: true))
+        #expect(!HeartRateChartXAxis.usesDetailedMarks(visibleDuration: 61, allowsHorizontalScrolling: true))
+        #expect(!HeartRateChartXAxis.usesDetailedMarks(visibleDuration: 60, allowsHorizontalScrolling: false))
+        #expect(HeartRateChartXAxis.label(for: 30) == "30s")
+        #expect(HeartRateChartXAxis.label(for: 60) == "1m")
+        #expect(HeartRateChartXAxis.label(for: 90) == "1m30s")
+        #expect(HeartRateChartXAxis.label(for: 120) == "2m")
+    }
+
+    @Test func peakLabelsSelectMajorLocalMaximumPerVisibleBucket() {
+        let points = [
+            HeartRateChartDataPoint(time: 0, bpm: 100),
+            HeartRateChartDataPoint(time: 5, bpm: 120),
+            HeartRateChartDataPoint(time: 10, bpm: 100),
+            HeartRateChartDataPoint(time: 15, bpm: 110),
+            HeartRateChartDataPoint(time: 20, bpm: 130),
+            HeartRateChartDataPoint(time: 25, bpm: 105),
+            HeartRateChartDataPoint(time: 30, bpm: 100)
+        ]
+
+        let zoomedPeaks = HeartRateChartPeaks.majorPeaks(in: points, visibleDuration: 60)
+        #expect(zoomedPeaks.map(\.bpm) == [120, 130])
+
+        let zoomedOutPeaks = HeartRateChartPeaks.majorPeaks(in: points, visibleDuration: 120)
+        #expect(zoomedOutPeaks.map(\.bpm) == [130])
+    }
 }
