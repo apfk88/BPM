@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		412019AB2EFA57960014B446 /* StoreKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 412019AA2EFA57960014B446 /* StoreKit.framework */; };
 		41EB7C092EB8547D003F2D59 /* BPMActivityExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 41EB7C002EB8547D003F2D59 /* BPMActivityExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		A10000012F4B000100000001 /* TelemetryDeck in Frameworks */ = {isa = PBXBuildFile; productRef = A10000032F4B000100000001 /* TelemetryDeck */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -107,6 +108,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				412019AB2EFA57960014B446 /* StoreKit.framework in Frameworks */,
+				A10000012F4B000100000001 /* TelemetryDeck in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -188,6 +190,7 @@
 			);
 			name = BPM;
 			packageProductDependencies = (
+				A10000032F4B000100000001 /* TelemetryDeck */,
 			);
 			productName = BPM;
 			productReference = 41EB7BC02EB8547B003F2D59 /* BPM.app */;
@@ -297,6 +300,9 @@
 			);
 			mainGroup = 41EB7BB72EB8547B003F2D59;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				A100000A2F4B000100000001 /* XCRemoteSwiftPackageReference "SwiftSDK" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 41EB7BC12EB8547B003F2D59 /* Products */;
 			projectDirPath = "";
@@ -754,6 +760,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		A100000A2F4B000100000001 /* XCRemoteSwiftPackageReference "SwiftSDK" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/TelemetryDeck/SwiftSDK";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.14.2;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		A10000032F4B000100000001 /* TelemetryDeck */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A100000A2F4B000100000001 /* XCRemoteSwiftPackageReference "SwiftSDK" */;
+			productName = TelemetryDeck;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 41EB7BB82EB8547B003F2D59 /* Project object */;
 }

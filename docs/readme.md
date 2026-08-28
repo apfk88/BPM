@@ -1,6 +1,6 @@
 # BPM Privacy Policy
 
-**Effective date: November 6, 2025**
+**Effective date: August 28, 2026**
 
 BPM is a minimalist heart rate display app. We respect your privacy and are committed to protecting it. This policy explains what data we handle and why.
 
@@ -9,6 +9,7 @@ BPM is a minimalist heart rate display app. We respect your privacy and are comm
 - We do not collect personal information.
 - Heart rate data stays on your device unless you explicitly choose to share it.
 - If you enable sharing, your heart rate is sent to your own backend and retained briefly so others with your code can view it.
+- We collect limited, non-personal app usage and device information through TelemetryDeck to understand app reliability and usage.
 
 ## Data We Handle
 
@@ -22,14 +23,19 @@ BPM is a minimalist heart rate display app. We respect your privacy and are comm
 
 - **When sharing is ON**:
   - Data is transmitted over HTTPS to your backend (by default a Vercel deployment using KV/Upstash).
-  - The backend stores the latest values for up to 24 hours to allow real-time viewing by someone who knows your code.
+  - Share sessions expire automatically after 90 minutes.
 - **When sharing is OFF**:
   - No heart rate data is transmitted off-device.
-  - The app does not upload analytics.
+
+## Analytics
+
+- TelemetryDeck receives app launch and session activity, app version, device type, operating system, and a non-personal device identifier for analytics.
+- Analytics never include heart rate data, workout details, share codes, or other health information.
+- Analytics data is not linked to your identity and is not used for advertising or cross-app tracking.
 
 ## Identifiers and Tracking
 
-- We do not use advertising identifiers and do not track users.
+- We do not use advertising identifiers or track users across apps or websites.
 - The share code and token are random and not linked to your identity.
 - Standard web server/host logs (e.g., IP address) may be recorded by your hosting provider (e.g., Vercel) for security/operations.
 
@@ -50,4 +56,3 @@ BPM is a minimalist heart rate display app. We respect your privacy and are comm
 ## Contact
 
 For questions or requests about this privacy policy, please contact: vibecodeinc@proton.me
-

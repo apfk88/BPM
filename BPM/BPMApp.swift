@@ -16,6 +16,7 @@ struct BPMApp: App {
     private static let logger = Logger(subsystem: "com.bpmapp.client", category: "BPMApp")
     
     init() {
+        AppAnalytics.configure()
         ICloudPreferencesSync.shared.start()
 
         // Set up notification observers for app termination/background
