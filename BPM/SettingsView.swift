@@ -132,6 +132,15 @@ struct SettingsView: View {
                     }
                 }
                 Section(header: Text("Support")) {
+                    Link(destination: appStoreReviewURL) {
+                        HStack {
+                            Text("Rate BPM")
+                            Spacer()
+                            Image(systemName: "star")
+                                .font(.footnote)
+                                .foregroundColor(.secondary)
+                        }
+                    }
                     Link(destination: privacyPolicyURL) {
                         HStack {
                             Text("Privacy Policy")
@@ -210,6 +219,10 @@ struct SettingsView: View {
 
     private var privacyPolicyURL: URL {
         URL(string: "https://bpmtracker.app/privacy.html")!
+    }
+
+    private var appStoreReviewURL: URL {
+        URL(string: "https://apps.apple.com/app/id6754830191?action=write-review")!
     }
 
     private var healthKitStatusText: String {
