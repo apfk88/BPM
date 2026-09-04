@@ -773,6 +773,7 @@ final class TimerViewModel: ObservableObject {
         guard state == .idle || state == .paused else { return }
         
         if state == .idle {
+            AppAnalytics.signal(.workoutStart)
             defaultWorkoutTitle = nil
             startTime = Date()
             pauseStartTime = nil
@@ -1084,6 +1085,7 @@ final class TimerViewModel: ObservableObject {
         guard let preset = activePreset, state == .idle || state == .paused else { return }
 
         if state == .idle {
+            AppAnalytics.signal(.workoutStart)
             stopTimer()
             stopPresetStartCountdownTimer()
             defaultWorkoutTitle = resolvedPresetName(for: preset)

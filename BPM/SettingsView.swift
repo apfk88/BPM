@@ -7,6 +7,7 @@
 import Foundation
 import SwiftUI
 struct SettingsView: View {
+    private let feedbackEmail = "vibecodeinc@proton.me"
     @Environment(\.dismiss) private var dismiss
     @AppStorage(HeartRateAlertDefaultsKey.heartRateEnabled) private var isHeartRateAlertEnabled = false
     @AppStorage(HeartRateAlertDefaultsKey.heartRateThreshold) private var heartRateAlertThreshold = 160
@@ -130,10 +131,27 @@ struct SettingsView: View {
                         }
                     }
                 }
+                Section(header: Text("Support")) {
+                    Link(destination: privacyPolicyURL) {
+                        HStack {
+                            Text("Privacy Policy")
+                            Spacer()
+                            Image(systemName: "arrow.up.right.square")
+                                .font(.footnote)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                }
                 Section {
                     VStack(spacing: 3) {
                         Text("Version \(appVersion)")
-                        Text("© 2026 Alex Kvamme")
+                        HStack(spacing: 4) {
+                            Text("© 2026 Alex Kvamme")
+                            Text("•")
+                            Link(feedbackEmail, destination: feedbackEmailURL)
+                                .foregroundColor(.accentColor)
+                                .accessibilityLabel("Email feedback or report an issue")
+                        }
                     }
                     .font(.caption2)
                     .foregroundColor(.secondary)
@@ -184,6 +202,14 @@ struct SettingsView: View {
 
     private var appVersion: String {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "—"
+    }
+
+    private var feedbackEmailURL: URL {
+        URL(string: "mailto:\(feedbackEmail)?subject=BPM%20Feedback")!
+    }
+
+    private var privacyPolicyURL: URL {
+        URL(string: "https://bpmtracker.app/privacy.html")!
     }
 
     private var healthKitStatusText: String {

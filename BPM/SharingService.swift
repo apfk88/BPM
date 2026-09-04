@@ -154,6 +154,7 @@ class SharingService: ObservableObject {
                 self.shareCode = shareResponse.code
                 self.shareToken = shareResponse.token
                 self.isSharing = true
+                AppAnalytics.signal(.shareOn)
                 self.errorMessage = nil
                 self.errorContext = nil
                 
@@ -205,6 +206,7 @@ class SharingService: ObservableObject {
     }
     
     func stopSharing() {
+        let wasSharing = isSharing
         let tokenToDelete = shareToken
         
         isSharing = false
@@ -219,6 +221,10 @@ class SharingService: ObservableObject {
         
         UserDefaults.standard.removeObject(forKey: shareCodeKey)
         UserDefaults.standard.removeObject(forKey: shareTokenKey)
+
+        if wasSharing {
+            AppAnalytics.signal(.shareOff)
+        }
         
         // End live activity when sharing stops
         #if canImport(ActivityKit)

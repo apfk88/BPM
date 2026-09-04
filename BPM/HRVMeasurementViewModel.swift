@@ -71,6 +71,8 @@ final class HRVMeasurementViewModel: ObservableObject {
             state = .error("Your heart rate monitor does not support RR intervals, which are required for accurate HRV measurement. Please use a compatible chest strap like Polar H10.")
             return
         }
+
+        AppAnalytics.signal(.hrvStart)
         
         // Stop live updates during measurement (heartRateSampleTimer will handle it)
         liveHeartRateTimer?.invalidate()

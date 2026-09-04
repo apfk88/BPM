@@ -5,32 +5,22 @@ struct DevicePickerView: View {
     @EnvironmentObject private var bluetoothManager: HeartRateBluetoothManager
     @EnvironmentObject private var sharingService: SharingService
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.openURL) private var openURL
     @State private var friendCodeInput: String = ""
+    @State private var isFriendSectionExpanded = false
     @FocusState private var isFriendCodeFieldFocused: Bool
 
     var body: some View {
         NavigationView {
             VStack(spacing: 0) {
-                Text("View a friend's BPM or select your own device below")
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-                    .multilineTextAlignment(.center)
-                    .frame(maxWidth: .infinity)
-                    .padding(.horizontal)
-                    .padding(.top, 16)
-                    .padding(.bottom, 8)
-                
+                deviceSection
                 friendCodeSection
-                
-                if !sharingService.isViewing {
-                    deviceSection
-                }
+                actionButtons
             }
             .navigationTitle("Select Device")
             .navigationBarTitleDisplayMode(.inline)
             .onAppear {
                 bluetoothManager.startScanning()
+                isFriendSectionExpanded = sharingService.isViewing
                 if let existingCode = sharingService.friendCode {
                     friendCodeInput = existingCode
                 }
@@ -39,17 +29,10 @@ struct DevicePickerView: View {
     }
     
     private var friendCodeSection: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: 0) {
             Divider()
-            
-            VStack(spacing: 12) {
-                Text("View Friend's BPM")
-                    .font(.headline)
-                    .foregroundColor(.secondary)
-                    .textCase(.uppercase)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal)
-                
+
+            DisclosureGroup(isExpanded: $isFriendSectionExpanded) {
                 VStack(spacing: 12) {
                     NumericCodeInputField(
                         code: Binding(
@@ -82,6 +65,7 @@ struct DevicePickerView: View {
                         Button {
                             let code = friendCodeInput
                             if code.count == 6 {
+                                AppAnalytics.signal(.connectFriendsCode)
                                 sharingService.startViewing(code: code)
                                 isFriendCodeFieldFocused = false
                                 dismiss()
@@ -98,11 +82,24 @@ struct DevicePickerView: View {
                         .disabled(friendCodeInput.count != 6)
                     }
                 }
-                .padding(.horizontal)
+                .padding(.top, 12)
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "person.2")
+                    Text(sharingService.isViewing ? "Viewing Friend's BPM" : "View a Friend's BPM")
+                    if sharingService.isViewing {
+                        Spacer()
+                        Circle()
+                            .fill(Color.green)
+                            .frame(width: 8, height: 8)
+                            .accessibilityHidden(true)
+                    }
+                }
+                .font(.subheadline.weight(.medium))
+                .foregroundColor(.secondary)
             }
-            .padding(.vertical, 16)
-            
-            Divider()
+            .padding(.horizontal)
+            .padding(.vertical, 12)
         }
         .background(Color(.systemGroupedBackground))
     }
@@ -119,10 +116,9 @@ struct DevicePickerView: View {
                     .padding(.top, 16)
                 
                 deviceList
-                actionButtons
-                privacyPolicyLink
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     @ViewBuilder
@@ -197,19 +193,6 @@ struct DevicePickerView: View {
             .buttonStyle(.bordered)
         }
         .padding()
-    }
-    
-    private var privacyPolicyLink: some View {
-        Button {
-            if let url = URL(string: "https://apfk88.github.io/BPM/") {
-                openURL(url)
-            }
-        } label: {
-            Text("Privacy Policy")
-                .font(.caption)
-                .foregroundColor(.secondary)
-        }
-        .padding(.bottom, 8)
     }
 }
 
@@ -305,6 +288,7 @@ private struct DeviceRow: View {
             if isConnected {
                 bluetoothManager.disconnect()
             } else {
+                AppAnalytics.signal(.connectDevice)
                 sharingService.stopViewing()
                 bluetoothManager.connect(to: device.peripheral)
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
@@ -353,6 +337,7 @@ private struct SimulatorDeviceRow: View {
             if bluetoothManager.isSimulatorConnected {
                 bluetoothManager.disconnectSimulator()
             } else {
+                AppAnalytics.signal(.connectDevice)
                 sharingService.stopViewing()
                 bluetoothManager.connectSimulator()
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
@@ -386,4 +371,3 @@ private struct SimulatorDeviceRow: View {
         .buttonStyle(.plain)
     }
 }
-

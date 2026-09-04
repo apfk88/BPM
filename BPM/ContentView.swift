@@ -2126,6 +2126,7 @@ struct HeartRateDisplayView: View {
             return
         }
         workoutStore.saveWorkout(record)
+        AppAnalytics.signal(.workoutSave)
         savedWorkoutId = record.id
         hasSavedWorkout = true
         pendingHealthKitActivityOption = defaultHealthKitActivityOption
