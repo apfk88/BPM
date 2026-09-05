@@ -47,7 +47,6 @@ h1 > span { color: var(--accent); }
 .button-arrow { margin-left: 16px; }
 .hero-note { color: var(--muted); font-size: 11px; margin-top: 13px; }
 .text-link { display: inline-flex; gap: 14px; align-items: center; min-height: 44px; font-size: 13px; }
-.explore-link { margin-top: 38px; color: var(--muted); }
 .product-preview { min-width: 0; }
 .phone-stage { position: relative; isolation: isolate; display: flex; justify-content: center; align-items: center; }
 .phone-frame { width: 310px; padding: 7px; border: 1px solid #64665f; border-radius: 46px; background: #22241f; box-shadow: 0 24px 60px #0005, inset 0 0 0 2px #363831; overflow: hidden; }
@@ -61,7 +60,7 @@ h1 > span { color: var(--accent); }
 .screen-controls button { background: transparent; color: var(--muted); border: 0; padding: 10px 14px; min-height: 44px; border-radius: 4px; cursor: pointer; font-size: 12px; white-space: nowrap; }
 .screen-controls button[aria-pressed='true'] { color: var(--bg); background: var(--accent); font-weight: 600; }
 .screen-controls button:hover:not([aria-pressed='true']) { color: var(--text); background: #282d23; }
-.preview-caption { margin: 13px auto 0; text-align: center; font-size: 11px; color: var(--muted); min-height: 36px; max-width: 340px; }
+.preview-error { margin: 13px auto 0; text-align: center; font-size: 11px; color: var(--muted); min-height: 36px; max-width: 340px; }
 .setup-strip { border-block: 1px solid var(--border); }
 .setup-list { padding-block: 23px; padding-inline: 0; list-style: none; display: grid; grid-template-columns: repeat(3, 1fr); gap: 28px; }
 .setup-list li { display: flex; align-items: center; gap: 20px; font-size: 14px; }
@@ -80,10 +79,6 @@ h2 > span { color: var(--muted); }
 .feature-display { height: 180px; display: flex; flex-direction: column; justify-content: center; color: var(--accent); font-size: clamp(31px, 3.2vw, 46px); line-height: 1.1; font-weight: 500; letter-spacing: -.055em; }
 .interval-display { display: block; padding-top: 35px; }
 .interval-display > span { color: #7d8a6e; }
-.recovery-display { font-size: clamp(46px, 4.7vw, 65px); font-variant-numeric: tabular-nums; }
-.recovery-display > span { font: 8px monospace; letter-spacing: .9px; margin-top: 12px; color: var(--muted); }
-.share-display { position: relative; padding-left: 20px; }
-.share-display .status-dot { position: absolute; left: 0; top: 66px; }
 h3 { font-size: 21px; font-weight: 500; letter-spacing: -.6px; margin-bottom: 12px; }
 .feature-card p, .feature-card li { font-size: 13px; line-height: 1.8; color: var(--muted); }
 .feature-card ul { margin: 24px 0 0; padding: 20px 0 0; list-style: none; border-top: 1px solid var(--border); }
@@ -134,7 +129,6 @@ h3 { font-size: 21px; font-weight: 500; letter-spacing: -.6px; margin-bottom: 12
   .hero-description { margin: 18px auto 0; max-width: 340px; font-size: 14px; line-height: 1.6; }
   .download-button { margin-top: 22px; padding: 14px 20px; font-size: 14px; }
   .hero-note { font-size: 10px; margin-top: 11px; }
-  .explore-link { display: none; }
   .phone-frame { width: min(340px, calc(100% - 24px)); border-radius: 44px; }
   .phone-frame img { border-radius: 36px; }
   .orbit-one { width: 100%; }
@@ -142,7 +136,7 @@ h3 { font-size: 21px; font-weight: 500; letter-spacing: -.6px; margin-bottom: 12
   .phone-stage { max-width: 470px; margin-inline: auto; }
   .screen-controls { margin-top: 24px; }
   .screen-controls button { padding-inline: 12px; }
-  .preview-caption { font-size: 11px; }
+  .preview-error { font-size: 11px; }
   .setup-list { grid-template-columns: 1fr; gap: 15px; padding-block: 26px; width: fit-content; }
   .setup-list li, .setup-list li:nth-child(2), .setup-list li:last-child { justify-content: flex-start; font-size: 14px; gap: 22px; }
   .section { padding-block: 65px; }
@@ -152,8 +146,6 @@ h3 { font-size: 21px; font-weight: 500; letter-spacing: -.6px; margin-bottom: 12
   .feature-card { padding: 25px; }
   .feature-display { height: 145px; font-size: 44px; }
   .interval-display { padding-top: 25px; }
-  .recovery-display { font-size: 64px; }
-  .share-display .status-dot { top: 47px; }
   .feature-card p, .feature-card li { font-size: 14px; }
   .feature-card ul { margin-top: 20px; padding-top: 14px; }
   .health-note { align-items: flex-start; margin-top: 25px; }
