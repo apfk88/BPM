@@ -163,11 +163,20 @@ final class TimerViewModel: ObservableObject {
     init(
         presetStartCountdownDuration: TimeInterval = 5.0,
         sessionStore: ActiveWorkoutSessionStore = .shared,
-        nowProvider: @escaping () -> Date = Date.init
+        nowProvider: (() -> Date)? = nil
     ) {
         self.presetStartCountdownDuration = max(0, presetStartCountdownDuration)
         self.sessionStore = sessionStore
-        self.nowProvider = nowProvider
+        let saved = sessionStore.load()
+        let clock: MeasurementClock
+        if let saved, let anchor = saved.clockDate, let ticks = saved.clockTicks,
+           let boot = saved.clockBootSessionID, boot == MeasurementClock.bootSessionID,
+           MeasurementClock.ticks >= ticks {
+            clock = MeasurementClock(anchorDate: anchor, anchorTicks: ticks)
+        } else {
+            clock = MeasurementClock()
+        }
+        self.nowProvider = nowProvider ?? clock.now
         caloriesStatus = CaloriesEstimator.estimate(samples: [], profile: UserEnergyProfileStore.currentProfile())
         userDefaultsObserver = NotificationCenter.default.addObserver(
             forName: UserDefaults.didChangeNotification,
@@ -193,6 +202,11 @@ final class TimerViewModel: ObservableObject {
         restorePersistedSessionIfAvailable()
     }
 
+    private var pauses: [WorkoutPause] = []
+    private var workoutStartedAt: Date?
+    private var workoutEndedAt: Date?
+    private var heartRateCancellable: AnyCancellable?
+    private var isRefreshingTiming = false
     private var startTime: Date?
     private var pauseStartTime: Date?
     private var timer: Timer?
@@ -204,10 +218,7 @@ final class TimerViewModel: ObservableObject {
     private var lastSetEndTime: TimeInterval = 0
     private var currentRestAssociatedWorkSetNumber: Int?
     private var restStartTime: Date? // Start time for rest period
-    private var cooldownOneMinuteTimer: Timer?
-    private var cooldownTwoMinuteTimer: Timer?
     private var heartRateSamples: [HeartRateSample] = [] // Track all heart rate samples during workout
-    private var heartRateSampleTimer: Timer? // Timer to sample heart rate periodically
     private var cooldownStartHeartRate: Int? // Heart rate at start of cooldown
     private var cooldownEndHeartRate: Int? // Heart rate at end of cooldown (2 minutes)
     private var presetPhaseStartTime: Date? // When current preset phase started
@@ -230,21 +241,17 @@ final class TimerViewModel: ObservableObject {
     }
 
     private func handleAppWillEnterForeground() {
-        syncDerivedState(referenceDate: nowProvider(), allowPresetCountdownCompletion: true)
+        refreshTiming()
         resumeRuntimeStateIfNeeded()
         persistCurrentSession(referenceDate: nowProvider())
     }
 
     private func restorePersistedSessionIfAvailable() {
-        guard let snapshot = sessionStore.load(), snapshot.hasSession else {
-            sessionStore.clear()
-            return
-        }
+        guard let snapshot = sessionStore.load(), snapshot.hasSession else { return }
 
         stopTimer()
         stopCooldownTimer()
         stopPresetStartCountdownTimer()
-        stopHeartRateSampling()
 
         state = snapshot.state
         elapsedTime = snapshot.elapsedTime
@@ -270,6 +277,9 @@ final class TimerViewModel: ObservableObject {
         isPresetPrestartCountdownActive = snapshot.isPresetPrestartCountdownActive
         defaultWorkoutTitle = snapshot.defaultWorkoutTitle
         startTime = snapshot.startTime
+        workoutStartedAt = snapshot.workoutStartedAt ?? snapshot.startTime
+        workoutEndedAt = snapshot.workoutEndedAt
+        pauses = snapshot.pauses ?? []
         pauseStartTime = snapshot.pauseStartTime
         cooldownStartTime = snapshot.cooldownStartTime
         cooldownPauseStartTime = snapshot.cooldownPauseStartTime
@@ -288,7 +298,7 @@ final class TimerViewModel: ObservableObject {
         presetStartCountdownEndTime = snapshot.presetStartCountdownEndTime
 
         updateCaloriesEstimate()
-        syncDerivedState(referenceDate: nowProvider(), allowPresetCountdownCompletion: true)
+        refreshTiming()
         resumeRuntimeStateIfNeeded()
         updateLiveActivityElapsed(force: true)
         persistCurrentSession(referenceDate: nowProvider())
@@ -362,41 +372,34 @@ final class TimerViewModel: ObservableObject {
                         startPresetStartCountdownTimer(remaining: remaining)
                     } else {
                         completePersistedPresetCountdown(at: nowProvider())
-                        startHeartRateSampling()
                         startPresetTimer()
                     }
                 } else {
-                    startHeartRateSampling()
                     startPresetTimer()
                 }
             } else {
-                startHeartRateSampling()
                 startTimer()
             }
         case .paused:
             stopTimer()
             stopCooldownTimer()
             stopPresetStartCountdownTimer()
-            stopHeartRateSampling()
         case .cooldown:
             stopTimer()
             stopPresetStartCountdownTimer()
             if isPresetMode {
                 startPresetCooldownTimer()
             } else {
-                startHeartRateSampling()
                 startCooldownTimer()
             }
         case .cooldownPaused:
             stopTimer()
             stopCooldownTimer()
             stopPresetStartCountdownTimer()
-            stopHeartRateSampling()
         case .idle:
             stopTimer()
             stopCooldownTimer()
             stopPresetStartCountdownTimer()
-            stopHeartRateSampling()
         }
     }
 
@@ -409,18 +412,20 @@ final class TimerViewModel: ObservableObject {
 
     private func completePersistedPresetCountdown(at referenceDate: Date) {
         guard let preset = activePreset else { return }
-
+        let deadline = presetStartCountdownEndTime ?? referenceDate
         stopPresetStartCountdownTimer()
         isPresetPrestartCountdownActive = false
         presetStartCountdownRemainingOnPause = 0
-        startTime = referenceDate
-        elapsedTime = 0
-        currentSetTime = 0
+        startTime = deadline
+        workoutStartedAt = deadline
+        workoutEndedAt = nil
+        elapsedTime = max(0, referenceDate.timeIntervalSince(deadline))
+        currentSetTime = elapsedTime
         pauseStartTime = nil
         presetPhase = .work
-        presetCurrentSet = max(1, presetCurrentSet)
+        presetCurrentSet = 1
         presetPhaseTimeRemaining = preset.workDuration
-        presetPhaseStartTime = referenceDate
+        presetPhaseStartTime = deadline
         presetPhasePausedTime = 0
         state = .running
     }
@@ -475,7 +480,13 @@ final class TimerViewModel: ObservableObject {
             cooldownEndHeartRate: cooldownEndHeartRate,
             presetPhaseStartTime: presetPhaseStartTime,
             presetStartCountdownRemainingOnPause: presetStartCountdownRemainingOnPause,
-            presetStartCountdownEndTime: presetStartCountdownEndTime
+            presetStartCountdownEndTime: presetStartCountdownEndTime,
+            clockDate: referenceDate,
+            clockTicks: MeasurementClock.ticks,
+            clockBootSessionID: MeasurementClock.bootSessionID,
+            pauses: pauses,
+            workoutStartedAt: workoutStartedAt,
+            workoutEndedAt: workoutEndedAt
         )
 
         sessionStore.save(snapshot)
@@ -496,75 +507,14 @@ final class TimerViewModel: ObservableObject {
         return total / Double(restSets.count)
     }
     
-    var avgHeartRate: Int? {
-        // Calculate average from heart rate samples during the workout only (exclude cooldown samples)
-        guard !heartRateSamples.isEmpty, let startTime = startTime else { return nil }
-        
-        // Filter samples to only include those from the workout period (before cooldown started)
-        // If frozenElapsedTime is 0, include all samples (no cooldown yet)
-        let workoutSamples: [HeartRateSample]
-        if frozenElapsedTime > 0 {
-            // Only include samples from before cooldown started
-            workoutSamples = heartRateSamples.filter { sample in
-                sample.timestamp.timeIntervalSince(startTime) <= frozenElapsedTime
-            }
-        } else {
-            // No cooldown yet, include all samples
-            workoutSamples = heartRateSamples
-        }
-        
-        let nonZeroSamples = workoutSamples.filter { $0.value > 0 }
-        guard !nonZeroSamples.isEmpty else { return nil }
-        let total = nonZeroSamples.reduce(0) { $0 + $1.value }
-        return Int((Double(total) / Double(nonZeroSamples.count)).rounded())
-    }
-    
-    var maxHeartRate: Int? {
-        // Calculate max from all heart rate samples during the workout
-        guard !heartRateSamples.isEmpty else {
-            // Fallback to current heart rate only while actively running
-            guard state == .running || state == .paused else { return nil }
-            return currentHeartRate?()
-        }
-        let maxFromSamples = heartRateSamples.map { $0.value }.max()
-        
-        // Also consider current heart rate if timer is running
-        if state == .running || state == .paused, let currentHR = currentHeartRate?() {
-            if let maxFromSamples = maxFromSamples {
-                return max(maxFromSamples, currentHR)
-            } else {
-                return currentHR
-            }
-        }
-        
-        return maxFromSamples
+    private var workoutMeasurementEnd: TimeInterval {
+        frozenElapsedTime > 0 ? frozenElapsedTime : elapsedTime
     }
 
-    var minHeartRate: Int? {
-        // Calculate min from all heart rate samples during the workout
-        guard !heartRateSamples.isEmpty else {
-            // Fallback to current heart rate only while actively running
-            guard state == .running || state == .paused else { return nil }
-            if let currentHR = currentHeartRate?(), currentHR > 0 {
-                return currentHR
-            }
-            return nil
-        }
-        let minFromSamples = heartRateSamples.map { $0.value }.filter { $0 > 0 }.min()
+    var avgHeartRate: Int? { averageBPM(from: 0, through: workoutMeasurementEnd) }
+    var maxHeartRate: Int? { samples(from: -1, through: workoutMeasurementEnd).map(\.value).max() }
+    var minHeartRate: Int? { samples(from: -1, through: workoutMeasurementEnd).map(\.value).min() }
 
-        // Also consider current heart rate if timer is running
-        if state == .running || state == .paused, let currentHR = currentHeartRate?() {
-            guard currentHR > 0 else { return minFromSamples }
-            if let minFromSamples = minFromSamples {
-                return min(minFromSamples, currentHR)
-            } else {
-                return currentHR
-            }
-        }
-
-        return minFromSamples
-    }
-    
     var heartRateRecovery: Int? {
         // HRR = heart rate at start of cooldown - heart rate at end of cooldown
         guard let startHR = cooldownStartHeartRate, let endHR = cooldownEndHeartRate else {
@@ -638,95 +588,29 @@ final class TimerViewModel: ObservableObject {
     
     // Calculate average BPM for a specific set based on heart rate samples during that set's time period
     func avgBPMForSet(_ set: SetRecord) -> Int? {
-        guard let startTime = startTime else { return nil }
-        let setStartTime = startTime.addingTimeInterval(set.totalTime - set.setTime)
-        let setEndTime = startTime.addingTimeInterval(set.totalTime)
-        
-        let samplesInSet = heartRateSamples.filter { sample in
-            sample.timestamp >= setStartTime && sample.timestamp <= setEndTime
-        }
-        
-        let nonZeroSamples = samplesInSet.filter { $0.value > 0 }
-        guard !nonZeroSamples.isEmpty else {
-            if let setHeartRate = set.heartRate, setHeartRate > 0 {
-                return setHeartRate
-            }
-            return nil
-        }
-        let total = nonZeroSamples.reduce(0) { $0 + $1.value }
-        return Int((Double(total) / Double(nonZeroSamples.count)).rounded())
+        averageBPM(from: set.totalTime - set.setTime, through: set.totalTime) ?? set.heartRate
     }
-    
+
     // Calculate max BPM for a specific set based on heart rate samples during that set's time period
     func maxBPMForSet(_ set: SetRecord) -> Int? {
-        guard let startTime = startTime else { return nil }
-        let setStartTime = startTime.addingTimeInterval(set.totalTime - set.setTime)
-        let setEndTime = startTime.addingTimeInterval(set.totalTime)
-        
-        let samplesInSet = heartRateSamples.filter { sample in
-            sample.timestamp >= setStartTime && sample.timestamp <= setEndTime
-        }
-        
+        let samplesInSet = samples(from: set.totalTime - set.setTime, through: set.totalTime)
         guard !samplesInSet.isEmpty else { return set.heartRate }
         return samplesInSet.map { $0.value }.max()
     }
     
     // Calculate average BPM for the current set being timed
     func avgBPMForCurrentSet() -> Int? {
-        guard let startTime = startTime else { return nil }
-        let currentSetStartTime = startTime.addingTimeInterval(lastSetEndTime)
-        let now = Date()
-        
-        let samplesInCurrentSet = heartRateSamples.filter { sample in
-            sample.timestamp >= currentSetStartTime && sample.timestamp <= now
-        }
-        
-        let nonZeroSamples = samplesInCurrentSet.filter { $0.value > 0 }
-        guard !nonZeroSamples.isEmpty else {
-            if let currentHR = currentHeartRate?(), currentHR > 0 {
-                return currentHR
-            }
-            return nil
-        }
-        let total = nonZeroSamples.reduce(0) { $0 + $1.value }
-        return Int((Double(total) / Double(nonZeroSamples.count)).rounded())
+        averageBPM(from: lastSetEndTime, through: elapsedTime)
     }
-    
+
     // Calculate max BPM for the current set being timed
     func maxBPMForCurrentSet() -> Int? {
-        guard let startTime = startTime else { return nil }
-        let currentSetStartTime = startTime.addingTimeInterval(lastSetEndTime)
-        let now = Date()
-        
-        let samplesInCurrentSet = heartRateSamples.filter { sample in
-            sample.timestamp >= currentSetStartTime && sample.timestamp <= now
-        }
-        
-        guard !samplesInCurrentSet.isEmpty else { return currentHeartRate?() }
-        let maxFromSamples = samplesInCurrentSet.map { $0.value }.max()
-        
-        // Also consider current heart rate
-        if let currentHR = currentHeartRate?() {
-            if let maxFromSamples = maxFromSamples {
-                return max(maxFromSamples, currentHR)
-            } else {
-                return currentHR
-            }
-        }
-        
-        return maxFromSamples
+        samples(from: lastSetEndTime, through: elapsedTime).map(\.value).max()
     }
     
     // Calculate min BPM for a specific set based on heart rate samples during that set's time period
     func minBPMForSet(_ set: SetRecord) -> Int? {
-        guard let startTime = startTime else { return nil }
-        let setStartTime = startTime.addingTimeInterval(set.totalTime - set.setTime)
-        let setEndTime = startTime.addingTimeInterval(set.totalTime)
-        
-        let samplesInSet = heartRateSamples.filter { sample in
-            sample.timestamp >= setStartTime && sample.timestamp <= setEndTime
-        }
-        
+        let samplesInSet = samples(from: set.totalTime - set.setTime, through: set.totalTime)
         let nonZeroSamples = samplesInSet.filter { $0.value > 0 }
         guard !nonZeroSamples.isEmpty else {
             if let setHeartRate = set.heartRate, setHeartRate > 0 {
@@ -739,43 +623,19 @@ final class TimerViewModel: ObservableObject {
     
     // Calculate min BPM for the current set being timed
     func minBPMForCurrentSet() -> Int? {
-        guard let startTime = startTime else { return nil }
-        let currentSetStartTime = startTime.addingTimeInterval(lastSetEndTime)
-        let now = Date()
-        
-        let samplesInCurrentSet = heartRateSamples.filter { sample in
-            sample.timestamp >= currentSetStartTime && sample.timestamp <= now
-        }
-        
-        let nonZeroSamples = samplesInCurrentSet.filter { $0.value > 0 }
-        guard !nonZeroSamples.isEmpty else {
-            if let currentHR = currentHeartRate?(), currentHR > 0 {
-                return currentHR
-            }
-            return nil
-        }
-        let minFromSamples = nonZeroSamples.map { $0.value }.min()
-        
-        // Also consider current heart rate
-        if let currentHR = currentHeartRate?() {
-            guard currentHR > 0 else { return minFromSamples }
-            if let minFromSamples = minFromSamples {
-                return min(minFromSamples, currentHR)
-            } else {
-                return currentHR
-            }
-        }
-        
-        return minFromSamples
+        samples(from: lastSetEndTime, through: elapsedTime).map(\.value).min()
     }
     
     func start() {
         guard state == .idle || state == .paused else { return }
         
         if state == .idle {
+            reset()
             AppAnalytics.signal(.workoutStart)
             defaultWorkoutTitle = nil
-            startTime = Date()
+            startTime = nowProvider()
+            workoutStartedAt = startTime
+            workoutEndedAt = nil
             pauseStartTime = nil
             setCounter = 0
             restSetCounter = 0
@@ -785,17 +645,17 @@ final class TimerViewModel: ObservableObject {
             sets.removeAll()
             heartRateSamples.removeAll()
             updateCaloriesEstimate()
-            startHeartRateSampling()
         } else if state == .paused {
             // Resume from paused state - adjust startTime to account for total elapsed time
             if let pauseStartTime = pauseStartTime {
                 // Calculate how long we were paused (this doesn't count toward elapsed time)
-                let pauseDuration = Date().timeIntervalSince(pauseStartTime)
+                let resumedAt = nowProvider()
+                pauses.append(WorkoutPause(start: pauseStartTime, end: resumedAt))
+                let pauseDuration = resumedAt.timeIntervalSince(pauseStartTime)
                 // Adjust startTime backward by the pause duration so elapsed time calculation is correct
-                startTime = (startTime ?? Date()).addingTimeInterval(pauseDuration)
+                startTime = (startTime ?? nowProvider()).addingTimeInterval(pauseDuration)
                 self.pauseStartTime = nil
             }
-            startHeartRateSampling()
         }
         
         state = .running
@@ -804,18 +664,18 @@ final class TimerViewModel: ObservableObject {
     }
     
     func stop() {
+        refreshTiming()
         guard state == .running else { return }
         state = .paused
         stopTimer()
-        pauseStartTime = Date()
-        stopHeartRateSampling()
+        pauseStartTime = nowProvider()
         persistCurrentSession()
     }
     
     func captureSet() {
         guard (state == .running || state == .paused), let startTime = startTime else { return }
         
-        let currentTotalTime = state == .paused ? elapsedTime : Date().timeIntervalSince(startTime)
+        let currentTotalTime = state == .paused ? elapsedTime : nowProvider().timeIntervalSince(startTime)
         let segmentTime = max(0, currentTotalTime - lastSetEndTime)
         let heartRate = currentHeartRate?()
         
@@ -860,7 +720,7 @@ final class TimerViewModel: ObservableObject {
     func captureRestSet() {
         guard (state == .running || state == .paused), !isTimingRestSet, let startTime = startTime else { return }
         
-        let currentTotalTime = state == .paused ? elapsedTime : Date().timeIntervalSince(startTime)
+        let currentTotalTime = state == .paused ? elapsedTime : nowProvider().timeIntervalSince(startTime)
         let segmentTime = max(0, currentTotalTime - lastSetEndTime)
         let heartRate = currentHeartRate?()
         let workSets = sets.filter { !$0.isRestSet && !$0.isCooldownSet }
@@ -912,34 +772,27 @@ final class TimerViewModel: ObservableObject {
     }
     
     func end() {
+        refreshTiming()
         guard state == .running || state == .paused else { return }
-        
-        stopTimer()
-        isTimingRestSet = false
-        currentRestAssociatedWorkSetNumber = nil
-        // Freeze the total elapsed time
         frozenElapsedTime = elapsedTime
-        // Capture heart rate at start of cooldown
-        cooldownStartHeartRate = currentHeartRate?()
-        // Start tracking rest time
-        restStartTime = Date()
-        state = .cooldown
-        cooldownStartTime = Date()
-        cooldownTime = 0
-        cooldownPauseStartTime = nil
-        startCooldownTimer()
+        stopTimer()
+        beginCooldown(at: nowProvider(), heartRate: currentHeartRate?())
         persistCurrentSession()
     }
     
     func toggleCooldown() {
+        refreshTiming()
         if state == .cooldown {
+            // Pausing changes the real recovery interval, so a two-minute HRR
+            // must not be reported for this cooldown.
+            cooldownStartHeartRate = nil
             // Pause cooldown
             state = .cooldownPaused
             stopCooldownTimer()
-            cooldownPauseStartTime = Date()
+            cooldownPauseStartTime = nowProvider()
             // Pause rest timer
             if let restStartTime = restStartTime {
-                let restElapsed = Date().timeIntervalSince(restStartTime)
+                let restElapsed = nowProvider().timeIntervalSince(restStartTime)
                 currentSetTime = restElapsed
                 self.restStartTime = nil
             }
@@ -947,11 +800,13 @@ final class TimerViewModel: ObservableObject {
             // Resume cooldown
             state = .cooldown
             if let cooldownPauseStartTime = cooldownPauseStartTime {
-                let pauseDuration = Date().timeIntervalSince(cooldownPauseStartTime)
+                let resumedAt = nowProvider()
+                pauses.append(WorkoutPause(start: cooldownPauseStartTime, end: resumedAt))
+                let pauseDuration = resumedAt.timeIntervalSince(cooldownPauseStartTime)
                 // Adjust cooldown start time to account for pause
-                cooldownStartTime = (cooldownStartTime ?? Date()).addingTimeInterval(pauseDuration)
+                cooldownStartTime = (cooldownStartTime ?? nowProvider()).addingTimeInterval(pauseDuration)
                 // Adjust rest start time to account for pause
-                restStartTime = Date().addingTimeInterval(-currentSetTime)
+                restStartTime = nowProvider().addingTimeInterval(-currentSetTime)
                 self.cooldownPauseStartTime = nil
             }
             startCooldownTimer()
@@ -960,59 +815,25 @@ final class TimerViewModel: ObservableObject {
     }
     
     func stopAndComplete() {
+        refreshTiming()
         guard state == .running || state == .paused else { return }
-        
-        stopTimer()
-        stopHeartRateSampling()
         frozenElapsedTime = elapsedTime
-        isTimingRestSet = false
-        currentRestAssociatedWorkSetNumber = nil
-        finalizeCaloriesSession()
-        state = .idle
+        finishWorkout(at: pauseStartTime ?? nowProvider())
         persistCurrentSession()
     }
     
     func stopCooldownAndComplete() {
+        refreshTiming()
         guard state == .cooldown || state == .cooldownPaused else { return }
-        
-        // Capture heart rate at end of cooldown if not already captured
-        if cooldownEndHeartRate == nil {
-            cooldownEndHeartRate = currentHeartRate?()
+        let completedCooldown = Double(sets.filter(\.isCooldownSet).count) * 60
+        let remainder = max(0, cooldownTime - completedCooldown)
+        if remainder > 0 {
+            sets.append(SetRecord(setNumber: restSetCounter + 1, setTime: remainder,
+                                  heartRate: currentHeartRate?(), totalTime: frozenElapsedTime + cooldownTime,
+                                  isRestSet: true, isCooldownSet: true, associatedWorkSetNumber: nil))
         }
-        
-        let cooldownElapsed = currentSetTime
-        if cooldownElapsed > 0 {
-            let nextCooldownNumber = restSetCounter + 1
-            let totalTime = frozenElapsedTime + cooldownElapsed
-            let heartRate = currentHeartRate?()
-            
-            let cooldownRecord = SetRecord(
-                setNumber: nextCooldownNumber,
-                setTime: cooldownElapsed,
-                heartRate: heartRate,
-                totalTime: totalTime,
-                isRestSet: true,
-                isCooldownSet: true,
-                associatedWorkSetNumber: nil
-            )
-            
-            restSetCounter = nextCooldownNumber
-            sets.append(cooldownRecord)
-        }
-        
-        stopCooldownTimer()
-        stopHeartRateSampling()
-        // If we're ending during cooldown, capture the current rest time if needed
-        // But don't add it as a set - just end
-        restStartTime = nil
-        cooldownStartTime = nil
-        cooldownPauseStartTime = nil
-        currentSetTime = 0
-        cooldownTime = 0
-        currentRestAssociatedWorkSetNumber = nil
-        isTimingRestSet = false
-        finalizeCaloriesSession()
-        state = .idle
+        // An early stop does not constitute a two-minute recovery measurement.
+        finishWorkout(at: cooldownPauseStartTime ?? nowProvider())
         persistCurrentSession()
     }
     
@@ -1020,12 +841,14 @@ final class TimerViewModel: ObservableObject {
         stopTimer()
         stopCooldownTimer()
         stopPresetStartCountdownTimer()
-        stopHeartRateSampling()
         state = .idle
         elapsedTime = 0
         currentSetTime = 0
         pauseStartTime = nil
         startTime = nil
+        pauses.removeAll()
+        workoutStartedAt = nil
+        workoutEndedAt = nil
         cooldownStartTime = nil
         cooldownPauseStartTime = nil
         restStartTime = nil
@@ -1057,6 +880,9 @@ final class TimerViewModel: ObservableObject {
     // MARK: - Preset Mode
 
     func loadPreset(_ preset: TimerPreset) {
+        guard preset.workDuration.isFinite, preset.workDuration > 0,
+              preset.restDuration.isFinite, preset.restDuration >= 0,
+              (1...1000).contains(preset.numberOfSets) else { return }
         reset()
         activePreset = preset
         presetPhase = .work
@@ -1066,6 +892,9 @@ final class TimerViewModel: ObservableObject {
     }
 
     func clearPreset() {
+        if isPresetPrestartCountdownActive && startTime == nil {
+            state = .idle
+        }
         stopPresetStartCountdownTimer()
         isPresetPrestartCountdownActive = false
         activePreset = nil
@@ -1130,12 +959,13 @@ final class TimerViewModel: ObservableObject {
 
             // Resume from paused state
             if let pauseStartTime = pauseStartTime {
-                let pauseDuration = Date().timeIntervalSince(pauseStartTime)
-                startTime = (startTime ?? Date()).addingTimeInterval(pauseDuration)
-                presetPhaseStartTime = (presetPhaseStartTime ?? Date()).addingTimeInterval(pauseDuration)
+                let resumedAt = nowProvider()
+                pauses.append(WorkoutPause(start: pauseStartTime, end: resumedAt))
+                let pauseDuration = resumedAt.timeIntervalSince(pauseStartTime)
+                startTime = (startTime ?? nowProvider()).addingTimeInterval(pauseDuration)
+                presetPhaseStartTime = (presetPhaseStartTime ?? nowProvider()).addingTimeInterval(pauseDuration)
                 self.pauseStartTime = nil
             }
-            startHeartRateSampling()
         }
 
         state = .running
@@ -1144,84 +974,44 @@ final class TimerViewModel: ObservableObject {
     }
 
     func pausePreset() {
+        refreshTiming()
         guard state == .running, isPresetMode else { return }
         state = .paused
 
         if isPresetPrestartCountdownActive {
             if let countdownEndTime = presetStartCountdownEndTime {
-                presetStartCountdownRemainingOnPause = max(0, countdownEndTime.timeIntervalSinceNow)
+                presetStartCountdownRemainingOnPause = max(0, countdownEndTime.timeIntervalSince(nowProvider()))
             } else {
                 presetStartCountdownRemainingOnPause = max(0, presetPhaseTimeRemaining)
             }
             stopPresetStartCountdownTimer()
-            pauseStartTime = Date()
+            pauseStartTime = nowProvider()
             persistCurrentSession()
             return
         }
 
         stopTimer()
-        pauseStartTime = Date()
+        pauseStartTime = nowProvider()
         // Save how much time has elapsed in current phase
         if let phaseStart = presetPhaseStartTime {
-            presetPhasePausedTime = Date().timeIntervalSince(phaseStart)
+            presetPhasePausedTime = nowProvider().timeIntervalSince(phaseStart)
         }
-        stopHeartRateSampling()
         persistCurrentSession()
     }
 
     func endPreset() {
-        guard isPresetMode, let preset = activePreset else { return }
-
-        if isPresetPrestartCountdownActive {
-            stopPresetStartCountdownTimer()
-            isPresetPrestartCountdownActive = false
-            activePreset = nil
-            state = .idle
-            presetPhaseTimeRemaining = 0
-            presetPhaseStartTime = nil
-            defaultWorkoutTitle = nil
-            persistCurrentSession()
-            return
-        }
-
-        // Capture current set if running
-        if state == .running || state == .paused {
-            if presetPhase == .work {
-                capturePresetSet()
-            } else if presetPhase == .rest {
-                capturePresetRestSet()
-            }
-        }
-
+        refreshTiming()
+        guard let preset = activePreset, state == .running || state == .paused else { return }
+        if isPresetPrestartCountdownActive { clearPreset(); return }
+        if presetPhase == .work { capturePresetSet() } else { capturePresetRestSet() }
+        frozenElapsedTime = elapsedTime
+        stopTimer()
         if preset.includeCooldown {
-            // Start automatic 2-minute cooldown
-            stopTimer()
-            isTimingRestSet = false
-            currentRestAssociatedWorkSetNumber = nil
-            frozenElapsedTime = elapsedTime
-            cooldownStartHeartRate = currentHeartRate?()
-            restStartTime = Date()
-            state = .cooldown
-            cooldownStartTime = Date()
-            cooldownTime = 0
-            cooldownPauseStartTime = nil
-            presetPhase = .cooldown
-            presetPhaseTimeRemaining = 120 // 2 minute cooldown
-            presetPhaseStartTime = Date()
-            presetPhasePausedTime = 0
-            startPresetCooldownTimer()
-            persistCurrentSession()
+            beginCooldown(at: nowProvider(), heartRate: currentHeartRate?())
         } else {
-            // No cooldown, just complete immediately
-            stopTimer()
-            stopHeartRateSampling()
-            isTimingRestSet = false
-            currentRestAssociatedWorkSetNumber = nil
-            frozenElapsedTime = elapsedTime
-            state = .idle
-            activePreset = nil
-            persistCurrentSession()
+            finishWorkout(at: pauseStartTime ?? nowProvider())
         }
+        persistCurrentSession()
     }
 
     func skipToCooldown() {
@@ -1235,39 +1025,12 @@ final class TimerViewModel: ObservableObject {
     }
 
     func stopPresetAndComplete() {
-        guard isPresetMode else { return }
-
-        if isPresetPrestartCountdownActive {
-            stopPresetStartCountdownTimer()
-            isPresetPrestartCountdownActive = false
-            activePreset = nil
-            state = .idle
-            presetPhaseTimeRemaining = 0
-            presetPhaseStartTime = nil
-            defaultWorkoutTitle = nil
-            persistCurrentSession()
-            return
-        }
-
-        // Capture current set if running
-        if state == .running || state == .paused {
-            if presetPhase == .work {
-                capturePresetSet()
-            } else if presetPhase == .rest {
-                capturePresetRestSet()
-            }
-        }
-
-        // Stop immediately without cooldown
-        stopTimer()
-        stopCooldownTimer()
-        stopHeartRateSampling()
-        isTimingRestSet = false
-        currentRestAssociatedWorkSetNumber = nil
+        refreshTiming()
+        guard isPresetMode, state == .running || state == .paused else { return }
+        if isPresetPrestartCountdownActive { clearPreset(); return }
+        if presetPhase == .work { capturePresetSet() } else { capturePresetRestSet() }
         frozenElapsedTime = elapsedTime
-        finalizeCaloriesSession()
-        state = .idle
-        activePreset = nil
+        finishWorkout(at: pauseStartTime ?? nowProvider())
         persistCurrentSession()
     }
 
@@ -1278,37 +1041,14 @@ final class TimerViewModel: ObservableObject {
 
     private func startPresetStartCountdownTimer(remaining: TimeInterval) {
         stopPresetStartCountdownTimer()
-
-        let clampedRemaining = max(0, remaining)
-        presetStartCountdownRemainingOnPause = clampedRemaining
-        presetStartCountdownEndTime = Date().addingTimeInterval(clampedRemaining)
-        presetPhaseTimeRemaining = clampedRemaining
-
-        guard clampedRemaining > 0 else {
-            completePresetPrestartCountdownAndStartWork()
-            return
+        presetStartCountdownRemainingOnPause = max(0, remaining)
+        presetStartCountdownEndTime = nowProvider().addingTimeInterval(max(0, remaining))
+        presetPhaseTimeRemaining = max(0, remaining)
+        presetStartCountdownTimer = Timer(timeInterval: 0.1, repeats: true) { [weak self] _ in
+            self?.refreshTiming()
         }
-
-        presetStartCountdownTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
-            guard let self = self else { return }
-            DispatchQueue.main.async {
-                guard self.isPresetPrestartCountdownActive else { return }
-                guard let endTime = self.presetStartCountdownEndTime else { return }
-
-                let remainingTime = max(0, endTime.timeIntervalSinceNow)
-                self.presetPhaseTimeRemaining = remainingTime
-                self.presetStartCountdownRemainingOnPause = remainingTime
-                self.elapsedTime = 0
-                self.currentSetTime = 0
-                self.updateLiveActivityElapsed()
-
-                if remainingTime <= 0 {
-                    self.stopPresetStartCountdownTimer()
-                    self.completePresetPrestartCountdownAndStartWork()
-                }
-            }
-        }
-        RunLoop.current.add(presetStartCountdownTimer!, forMode: .common)
+        RunLoop.main.add(presetStartCountdownTimer!, forMode: .common)
+        refreshTiming()
     }
 
     private func stopPresetStartCountdownTimer() {
@@ -1318,50 +1058,15 @@ final class TimerViewModel: ObservableObject {
     }
 
     private func completePresetPrestartCountdownAndStartWork() {
-        guard let preset = activePreset, isPresetPrestartCountdownActive else { return }
-
-        stopPresetStartCountdownTimer()
-        isPresetPrestartCountdownActive = false
-        presetStartCountdownRemainingOnPause = 0
-        startTime = Date()
-        elapsedTime = 0
-        currentSetTime = 0
-        pauseStartTime = nil
-        presetPhase = .work
-        presetCurrentSet = 1
-        presetPhaseTimeRemaining = preset.workDuration
-        presetPhaseStartTime = Date()
-        presetPhasePausedTime = 0
-        startHeartRateSampling()
+        guard isPresetPrestartCountdownActive else { return }
+        completePersistedPresetCountdown(at: nowProvider())
         startPresetTimer()
+        refreshTiming()
         persistCurrentSession()
     }
 
     private func startPresetTimer() {
-        timer?.invalidate()
-        timer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
-            guard let self = self, let preset = self.activePreset else { return }
-            DispatchQueue.main.async {
-                guard let startTime = self.startTime else { return }
-
-                self.elapsedTime = Date().timeIntervalSince(startTime)
-                self.currentSetTime = self.elapsedTime - self.lastSetEndTime
-                self.updateLiveActivityElapsed()
-
-                // Update phase countdown
-                if let phaseStart = self.presetPhaseStartTime {
-                    let phaseElapsed = Date().timeIntervalSince(phaseStart)
-                    let phaseDuration = self.presetPhase == .work ? preset.workDuration : preset.restDuration
-                    self.presetPhaseTimeRemaining = max(0, phaseDuration - phaseElapsed)
-
-                    // Check if phase is complete - use >= for precise timing
-                    if phaseElapsed >= phaseDuration {
-                        self.advancePresetPhase()
-                    }
-                }
-            }
-        }
-        RunLoop.current.add(timer!, forMode: .common)
+        startTimer()
     }
 
     private func playPhaseEndSound() {
@@ -1440,72 +1145,55 @@ final class TimerViewModel: ObservableObject {
 
     private func advancePresetPhase() {
         guard let preset = activePreset, let phaseStart = presetPhaseStartTime else { return }
-
-        // Calculate exact end time of previous phase to avoid drift
-        let previousPhaseDuration = presetPhase == .work ? preset.workDuration : preset.restDuration
-        let exactPhaseEndTime = phaseStart.addingTimeInterval(previousPhaseDuration)
-
-        // Play sound at end of phase
-        playPhaseEndSound()
-
+        let duration = presetPhase == .work ? preset.workDuration : preset.restDuration
+        let boundary = phaseStart.addingTimeInterval(duration)
+        let timely = abs(nowProvider().timeIntervalSince(boundary)) <= 1
+        let bpm = timely ? currentHeartRate?() : heartRate(at: lastSetEndTime + duration)
+        if timely { playPhaseEndSound() }
         if presetPhase == .work {
-            // Capture the work set
-            capturePresetSet()
-
-            if presetCurrentSet >= preset.numberOfSets {
-                // All sets complete, start cooldown
-                endPreset()
-            } else {
-                // Move to rest phase
-                presetPhase = .rest
-                presetPhaseTimeRemaining = preset.restDuration
-                presetPhaseStartTime = exactPhaseEndTime // Use exact time, not Date()
-                presetPausedTime = 0
-                isTimingRestSet = true
-
-                // Create rest set record - use lastSetEndTime which is set to exact duration
-                let heartRate = currentHeartRate?()
-                let restSetRecord = SetRecord(
-                    setNumber: presetCurrentSet,
-                    setTime: 0,
-                    heartRate: heartRate,
-                    totalTime: lastSetEndTime,
-                    isRestSet: true,
-                    isCooldownSet: false,
-                    associatedWorkSetNumber: presetCurrentSet
-                )
-                sets.append(restSetRecord)
-                currentRestAssociatedWorkSetNumber = presetCurrentSet
+            capturePresetSet(duration: duration, boundaryHeartRate: bpm)
+            if presetCurrentSet == preset.numberOfSets {
+                // This set was already captured. Do not call the manual end action.
+                elapsedTime = lastSetEndTime
+                frozenElapsedTime = elapsedTime
+                currentSetTime = 0
+                stopTimer()
+                if preset.includeCooldown {
+                    beginCooldown(at: boundary, heartRate: bpm)
+                } else {
+                    finishWorkout(at: boundary)
+                }
+                return
             }
-        } else if presetPhase == .rest {
-            // Capture the rest set
-            capturePresetRestSet()
-
-            // Move to next work phase
+            presetPhase = .rest
+            isTimingRestSet = true
+            currentRestAssociatedWorkSetNumber = presetCurrentSet
+            sets.append(SetRecord(setNumber: presetCurrentSet, setTime: 0, heartRate: nil,
+                                  totalTime: lastSetEndTime, isRestSet: true, isCooldownSet: false,
+                                  associatedWorkSetNumber: presetCurrentSet))
+        } else {
+            capturePresetRestSet(duration: duration, boundaryHeartRate: bpm)
             presetCurrentSet += 1
             presetPhase = .work
-            presetPhaseTimeRemaining = preset.workDuration
-            presetPhaseStartTime = exactPhaseEndTime // Use exact time, not Date()
-            presetPausedTime = 0
             isTimingRestSet = false
             currentRestAssociatedWorkSetNumber = nil
         }
-        persistCurrentSession()
+        presetPhaseStartTime = boundary
+        presetPhaseTimeRemaining = presetPhase == .work ? preset.workDuration : preset.restDuration
     }
 
-    private var presetPausedTime: TimeInterval = 0
 
-    private func capturePresetSet() {
+    private func capturePresetSet(duration: TimeInterval? = nil, boundaryHeartRate: Int? = nil) {
         guard let preset = activePreset else { return }
 
         // Use exact preset duration instead of actual elapsed time to avoid drift
-        let segmentTime = preset.workDuration
-        let heartRate = currentHeartRate?()
+        let segmentTime = duration ?? min(preset.workDuration, max(0, elapsedTime - lastSetEndTime))
+        let heartRate = duration == nil ? currentHeartRate?() : boundaryHeartRate
 
         setCounter += 1
 
         // Calculate total time based on completed sets
-        let previousTotalTime = sets.last?.totalTime ?? 0
+        let previousTotalTime = lastSetEndTime
         let currentTotalTime = previousTotalTime + segmentTime
 
         let workSetRecord = SetRecord(
@@ -1521,18 +1209,17 @@ final class TimerViewModel: ObservableObject {
         sets.append(workSetRecord)
         lastSetEndTime = currentTotalTime
         currentSetTime = 0
-        persistCurrentSession()
     }
 
-    private func capturePresetRestSet() {
+    private func capturePresetRestSet(duration: TimeInterval? = nil, boundaryHeartRate: Int? = nil) {
         guard let preset = activePreset else { return }
 
         // Use exact preset duration instead of actual elapsed time to avoid drift
-        let segmentTime = preset.restDuration
-        let heartRate = currentHeartRate?()
+        let segmentTime = duration ?? min(preset.restDuration, max(0, elapsedTime - lastSetEndTime))
+        let heartRate = duration == nil ? currentHeartRate?() : boundaryHeartRate
 
         // Calculate total time based on last set
-        let previousTotalTime = sets.last?.totalTime ?? 0
+        let previousTotalTime = lastSetEndTime
         let currentTotalTime = previousTotalTime + segmentTime
 
         // Update the existing rest set record
@@ -1551,108 +1238,121 @@ final class TimerViewModel: ObservableObject {
 
         lastSetEndTime = currentTotalTime
         currentSetTime = 0
-        persistCurrentSession()
     }
 
     private func startPresetCooldownTimer() {
-        cooldownTimer?.invalidate()
-        cooldownOneMinuteTimer?.invalidate()
-        cooldownTwoMinuteTimer?.invalidate()
-
-        guard cooldownStartTime != nil else { return }
-
-        // Capture heart rate at 1 minute
-        cooldownOneMinuteTimer = Timer.scheduledTimer(withTimeInterval: 60.0, repeats: false) { [weak self] _ in
-            guard let self = self else { return }
-            if self.state == .cooldown {
-                self.captureCooldownHeartRate(minute: 1)
-            }
-        }
-
-        // Capture heart rate at 2 minutes and complete
-        cooldownTwoMinuteTimer = Timer.scheduledTimer(withTimeInterval: 120.0, repeats: false) { [weak self] _ in
-            guard let self = self else { return }
-            if self.state == .cooldown {
-                self.cooldownEndHeartRate = self.currentHeartRate?()
-                self.captureCooldownHeartRate(minute: 2)
-                self.playPhaseEndSound() // Sound at end of cooldown
-                self.stopHeartRateSampling()
-                self.stopCooldownTimer()
-                DispatchQueue.main.async {
-                    self.state = .idle
-                    self.activePreset = nil
-                    self.persistCurrentSession()
-                }
-            }
-        }
-
-        // Update cooldown time display
-        cooldownTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
-            guard let self = self else { return }
-            DispatchQueue.main.async {
-                if let cooldownStartTime = self.cooldownStartTime {
-                    self.cooldownTime = Date().timeIntervalSince(cooldownStartTime)
-                    self.presetPhaseTimeRemaining = max(0, 120 - self.cooldownTime)
-                }
-                if let restStartTime = self.restStartTime {
-                    self.currentSetTime = Date().timeIntervalSince(restStartTime)
-                }
-                self.updateLiveActivityElapsed()
-            }
-        }
-        RunLoop.current.add(cooldownTimer!, forMode: .common)
-        startHeartRateSampling()
+        startCooldownTimer()
     }
     
     private func startTimer() {
-        timer?.invalidate()
-        timer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
-            guard let self = self else { return }
-            DispatchQueue.main.async {
-                if let startTime = self.startTime {
-                    self.elapsedTime = Date().timeIntervalSince(startTime)
-                    // Calculate current set time
-                    self.currentSetTime = self.elapsedTime - self.lastSetEndTime
-                    self.updateLiveActivityElapsed()
-                }
-            }
-        }
-        RunLoop.current.add(timer!, forMode: .common)
+        stopTimer()
+        timer = Timer(timeInterval: 0.1, repeats: true) { [weak self] _ in self?.refreshTiming() }
+        RunLoop.main.add(timer!, forMode: .common)
     }
     
     private func stopTimer() {
         timer?.invalidate()
         timer = nil
     }
-    
-    private func startHeartRateSampling() {
-        heartRateSampleTimer?.invalidate()
-        // Sample heart rate every second (1 Hz) to match main mode behavior
-        heartRateSampleTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
-            guard let self = self else { return }
-            DispatchQueue.main.async {
-                if let heartRate = self.currentHeartRate?() {
-                    // Calculate workout time for chart display
-                    let workoutTime: TimeInterval
-                    if self.frozenElapsedTime > 0 {
-                        // During cooldown: workout time = frozen workout time + cooldown time
-                        workoutTime = self.frozenElapsedTime + self.cooldownTime
-                    } else {
-                        // During workout: use elapsedTime (excludes pauses)
-                        workoutTime = self.elapsedTime
-                    }
-                    let sample = HeartRateSample(value: heartRate, timestamp: Date(), workoutTime: workoutTime)
-                    self.heartRateSamples.append(sample)
-                    self.updateCaloriesEstimate()
-                }
+
+    func observeHeartRate(from manager: HeartRateBluetoothManager) {
+        heartRateCancellable = manager.heartRateMeasurements.sink { [weak self] sample in
+            self?.recordHeartRateSample(sample)
+        }
+    }
+
+    func recordHeartRateSample(_ sample: HeartRateSample) {
+        refreshTiming()
+        guard (state == .running && !isPresetPrestartCountdownActive) || state == .cooldown,
+              sample.value > 0, sample.sensorContactStatus != .notDetected else { return }
+        let time = state == .cooldown ? frozenElapsedTime + cooldownTime : elapsedTime
+        heartRateSamples.append(HeartRateSample(value: sample.value, timestamp: nowProvider(),
+                                               workoutTime: time, sensorContactStatus: sample.sensorContactStatus))
+        updateCaloriesEstimate()
+        // Persist received data while backgrounded, not just the state at background entry.
+        persistCurrentSession()
+    }
+
+    private func samples(from start: TimeInterval, through end: TimeInterval) -> [HeartRateSample] {
+        heartRateSamples.filter {
+            guard let time = $0.workoutTime else { return false }
+            return time > start && time <= end && $0.value > 0
+        }
+    }
+
+    private func heartRate(at time: TimeInterval) -> Int? {
+        heartRateSamples.last {
+            guard let sampleTime = $0.workoutTime else { return false }
+            return sampleTime <= time && time - sampleTime <= 1
+        }?.value
+    }
+
+    /// Reconcile every elapsed boundary before handling input, foregrounding, or samples.
+    func refreshTiming() {
+        guard !isRefreshingTiming else { return }
+        isRefreshingTiming = true
+        defer { isRefreshingTiming = false }
+        let now = nowProvider()
+        let wasPrestart = isPresetPrestartCountdownActive
+        if state != .paused || !isPresetPrestartCountdownActive {
+            syncDerivedState(referenceDate: now, allowPresetCountdownCompletion: true)
+        }
+        if wasPrestart && !isPresetPrestartCountdownActive { startPresetTimer() }
+        var advancedPhase = false
+        while state == .running && !isPresetPrestartCountdownActive,
+              let preset = activePreset, let phaseStart = presetPhaseStartTime {
+            let duration = presetPhase == .work ? preset.workDuration : preset.restDuration
+            guard duration.isFinite && duration >= 0,
+                  now.timeIntervalSince(phaseStart) >= duration else { break }
+            advancePresetPhase()
+            advancedPhase = true
+        }
+        syncDerivedState(referenceDate: now, allowPresetCountdownCompletion: false)
+        if state == .cooldown {
+            for minute in 1...2 where cooldownTime >= Double(minute * 60) {
+                captureCooldownHeartRate(minute: minute)
+            }
+            if cooldownTime >= 120, let start = cooldownStartTime {
+                cooldownTime = 120
+                currentSetTime = 120
+                if abs(now.timeIntervalSince(start) - 120) <= 1 { playPhaseEndSound() }
+                finishWorkout(at: start.addingTimeInterval(120))
+                persistCurrentSession()
             }
         }
-        RunLoop.current.add(heartRateSampleTimer!, forMode: .common)
+        if advancedPhase { persistCurrentSession() }
+        updateLiveActivityElapsed()
     }
-    
-    private func stopHeartRateSampling() {
-        heartRateSampleTimer?.invalidate()
-        heartRateSampleTimer = nil
+
+    private func beginCooldown(at date: Date, heartRate: Int?) {
+        if state == .paused, let pauseStartTime {
+            pauses.append(WorkoutPause(start: pauseStartTime, end: date))
+        }
+        pauseStartTime = nil
+        isTimingRestSet = false
+        currentRestAssociatedWorkSetNumber = nil
+        cooldownStartHeartRate = heartRate
+        cooldownEndHeartRate = nil
+        cooldownStartTime = date
+        restStartTime = date
+        cooldownTime = 0
+        currentSetTime = 0
+        cooldownPauseStartTime = nil
+        if isPresetMode { presetPhase = .cooldown }
+        state = .cooldown
+        startCooldownTimer()
+    }
+
+    private func finishWorkout(at date: Date) {
+        stopTimer()
+        stopCooldownTimer()
+        stopPresetStartCountdownTimer()
+        isTimingRestSet = false
+        currentRestAssociatedWorkSetNumber = nil
+        workoutEndedAt = date
+        state = .idle
+        activePreset = nil
+        finalizeCaloriesSession(endAt: date)
     }
 
     private func updateLiveActivityElapsed(force: Bool = false) {
@@ -1673,15 +1373,30 @@ final class TimerViewModel: ObservableObject {
             }
 
             lastLiveActivityElapsedSeconds = elapsed
+            let advancing = state == .running && !isPresetPrestartCountdownActive || state == .cooldown
+            let elapsedValue = state == .cooldown ? frozenElapsedTime + cooldownTime : elapsedTime
+            let reference = advancing ? Date().addingTimeInterval(-elapsedValue) : nil
+            let totalLimit: TimeInterval? = state == .cooldown ? frozenElapsedTime + 120 : activePreset?.totalDuration
+            let endDate = reference.flatMap { reference in totalLimit.map { reference.addingTimeInterval($0) } }
             Task { @MainActor in
-                HeartRateActivityController.shared.updateTimer(elapsedSeconds: elapsed, isRunning: elapsed != nil)
+                HeartRateActivityController.shared.updateTimer(elapsedSeconds: elapsed, isRunning: elapsed != nil,
+                                                               referenceDate: reference, endDate: endDate)
             }
         }
         #endif
     }
 
+    private var calorieSamples: [HeartRateSample] {
+        // Calories use the active timeline too; pauses must not become exercise.
+        return heartRateSamples.map { sample in
+            HeartRateSample(value: sample.value,
+                            timestamp: Date(timeIntervalSince1970: sample.workoutTime ?? 0),
+                            workoutTime: sample.workoutTime, sensorContactStatus: sample.sensorContactStatus)
+        }
+    }
+
     private func updateCaloriesEstimate() {
-        let samples = heartRateSamples
+        let samples = calorieSamples
         let profile = UserEnergyProfileStore.currentProfile()
         caloriesQueue.async { [weak self] in
             let status = CaloriesEstimator.estimate(samples: samples, profile: profile)
@@ -1694,7 +1409,7 @@ final class TimerViewModel: ObservableObject {
     private func finalizeCaloriesSession(endAt: Date = Date()) {
         guard let startTime = startTime else { return }
         let profile = UserEnergyProfileStore.currentProfile()
-        let status = CaloriesEstimator.estimate(samples: heartRateSamples, profile: profile)
+        let status = CaloriesEstimator.estimate(samples: calorieSamples, profile: profile)
         guard case let .available(estimate) = status else { return }
 
         let session = CaloriesSession(
@@ -1709,92 +1424,32 @@ final class TimerViewModel: ObservableObject {
     }
     
     private func startCooldownTimer() {
-        cooldownTimer?.invalidate()
-        cooldownOneMinuteTimer?.invalidate()
-        cooldownTwoMinuteTimer?.invalidate()
-        
-        guard let cooldownStartTime = cooldownStartTime else { return }
-        let elapsed = Date().timeIntervalSince(cooldownStartTime)
-        
-        // Capture heart rate at 1 minute (if not already passed)
-        if elapsed < 60.0 {
-            let remaining1Min = 60.0 - elapsed
-            cooldownOneMinuteTimer = Timer.scheduledTimer(withTimeInterval: remaining1Min, repeats: false) { [weak self] _ in
-                guard let self = self else { return }
-                if self.state == .cooldown {
-                    self.captureCooldownHeartRate(minute: 1)
-                }
-            }
+        stopCooldownTimer()
+        guard state == .cooldown else { return }
+        cooldownTimer = Timer(timeInterval: 0.1, repeats: true) { [weak self] _ in
+            self?.refreshTiming()
         }
-        
-        // Capture heart rate at 2 minutes and stop (if not already passed)
-        if elapsed < 120.0 {
-            let remaining2Min = 120.0 - elapsed
-            cooldownTwoMinuteTimer = Timer.scheduledTimer(withTimeInterval: remaining2Min, repeats: false) { [weak self] _ in
-                guard let self = self else { return }
-                if self.state == .cooldown {
-                    // Capture heart rate at end of cooldown
-                    self.cooldownEndHeartRate = self.currentHeartRate?()
-                    self.captureCooldownHeartRate(minute: 2)
-                    // Stop heart rate sampling and end workout
-                    self.stopHeartRateSampling()
-                    self.stopCooldownTimer()
-                    DispatchQueue.main.async {
-                        self.state = .idle
-                        self.persistCurrentSession()
-                    }
-                }
-            }
-        }
-        
-        // Update cooldown time display and rest time
-        cooldownTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
-            guard let self = self else { return }
-            DispatchQueue.main.async {
-                if let cooldownStartTime = self.cooldownStartTime {
-                    self.cooldownTime = Date().timeIntervalSince(cooldownStartTime)
-                }
-                // Update rest time (currentSetTime) during cooldown
-                if let restStartTime = self.restStartTime {
-                    self.currentSetTime = Date().timeIntervalSince(restStartTime)
-                }
-            }
-        }
-        RunLoop.current.add(cooldownTimer!, forMode: .common)
+        RunLoop.main.add(cooldownTimer!, forMode: .common)
+        refreshTiming()
     }
     
     private func stopCooldownTimer() {
         cooldownTimer?.invalidate()
         cooldownTimer = nil
-        cooldownOneMinuteTimer?.invalidate()
-        cooldownOneMinuteTimer = nil
-        cooldownTwoMinuteTimer?.invalidate()
-        cooldownTwoMinuteTimer = nil
     }
     
     private func captureCooldownHeartRate(minute: Int) {
-        guard cooldownStartTime != nil else { return }
-        
-        let workoutTime = sets.isEmpty ? 0 : (sets.last?.totalTime ?? 0)
-        let cooldownElapsed = TimeInterval(minute * 60)
-        let totalTime = workoutTime + cooldownElapsed
-        let heartRate = currentHeartRate?()
-        
-        restSetCounter += 1
-        let setRecord = SetRecord(
-            setNumber: restSetCounter,
-            setTime: cooldownElapsed,
-            heartRate: heartRate,
-            totalTime: totalTime,
-            isRestSet: true,
-            isCooldownSet: true,
-            associatedWorkSetNumber: nil
-        )
-        
-        DispatchQueue.main.async {
-            self.sets.append(setRecord)
-            self.persistCurrentSession()
-        }
+        guard let cooldownStartTime,
+              !sets.contains(where: { $0.isCooldownSet && $0.setNumber == minute }) else { return }
+        let boundary = TimeInterval(minute * 60)
+        let total = frozenElapsedTime + boundary
+        let timely = abs(nowProvider().timeIntervalSince(cooldownStartTime) - boundary) <= 1
+        let heartRate = timely ? currentHeartRate?() : heartRate(at: total)
+        if minute == 2 { cooldownEndHeartRate = heartRate }
+        restSetCounter = minute
+        sets.append(SetRecord(setNumber: minute, setTime: 60, heartRate: heartRate,
+                              totalTime: total, isRestSet: true, isCooldownSet: true,
+                              associatedWorkSetNumber: nil))
     }
     
     // MARK: - Chart Data
@@ -1915,26 +1570,33 @@ final class TimerViewModel: ObservableObject {
 
     /// Returns time spent in each heart rate zone based on heart rate samples
     func timeInZones(config: HeartRateZoneConfig) -> [ZoneTimeData] {
-        var zoneDurations: [HeartRateZone: TimeInterval] = [:]
-
-        // Initialize all zones to 0
-        for zone in HeartRateZone.allCases {
-            zoneDurations[zone] = 0
-        }
-
-        // Each sample represents approximately 1 second of time
-        // (since we sample at 1 Hz in startHeartRateSampling)
-        let sampleInterval: TimeInterval = 1.0
-
-        for sample in heartRateSamples {
+        var durations: [HeartRateZone: TimeInterval] = [:]
+        for (sample, duration) in weightedSamples(from: 0, through: resolvedTotalTime()) {
             if let zone = HeartRateZone.zone(for: sample.value, config: config) {
-                zoneDurations[zone, default: 0] += sampleInterval
+                durations[zone, default: 0] += duration
             }
         }
+        return HeartRateZone.allCases.map { ZoneTimeData(zone: $0, duration: durations[$0, default: 0]) }
+    }
 
-        return HeartRateZone.allCases.map { zone in
-            ZoneTimeData(zone: zone, duration: zoneDurations[zone] ?? 0)
+    private func weightedSamples(from start: TimeInterval, through end: TimeInterval) -> [(HeartRateSample, TimeInterval)] {
+        heartRateSamples.enumerated().compactMap { index, sample in
+            guard let time = sample.workoutTime else { return nil }
+            let next = index + 1 < heartRateSamples.count ? (heartRateSamples[index + 1].workoutTime ?? end) : end
+            // A received reading can represent at most the same 3-second freshness
+            // window used for live BPM. Never extend it through a long data gap.
+            let stop = min(end, next, time + HeartRateBluetoothManager.defaultHeartRateFreshnessInterval)
+            let duration = max(0, stop - max(start, time))
+            return duration > 0 ? (sample, duration) : nil
         }
+    }
+
+    private func averageBPM(from start: TimeInterval, through end: TimeInterval) -> Int? {
+        let values = weightedSamples(from: start, through: end)
+        let duration = values.reduce(0) { $0 + $1.1 }
+        guard duration > 0 else { return samples(from: start, through: end).last?.value }
+        let total = values.reduce(0.0) { $0 + Double($1.0.value) * $1.1 }
+        return Int((total / duration).rounded())
     }
 
     func workoutRecord(
@@ -1943,9 +1605,11 @@ final class TimerViewModel: ObservableObject {
         title: String? = nil,
         notes: String? = nil
     ) -> WorkoutRecord? {
+        refreshTiming()
         guard let startTime = startTime else { return nil }
         let totalTime = resolvedTotalTime()
-        let endTime = startTime.addingTimeInterval(totalTime)
+        let actualStart = workoutStartedAt ?? startTime
+        let endTime = workoutEndedAt ?? nowProvider()
         let notesValue = notes?.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalizedNotes = notesValue?.isEmpty == false ? notesValue : nil
 
@@ -1987,7 +1651,7 @@ final class TimerViewModel: ObservableObject {
             id: workoutId ?? UUID(),
             schemaVersion: WorkoutRecord.schemaVersion,
             title: title,
-            startAt: startTime,
+            startAt: actualStart,
             endAt: endTime,
             durationSeconds: totalTime,
             avgHr: avgHeartRate,
@@ -2006,8 +1670,9 @@ final class TimerViewModel: ObservableObject {
             healthKitWorkoutUUID: nil,
             healthKitSyncedAt: nil,
             healthKitLastError: nil,
-            createdAt: Date(),
-            updatedAt: Date()
+            createdAt: nowProvider(),
+            updatedAt: nowProvider(),
+            pauses: pauses
         )
     }
 
@@ -2020,7 +1685,7 @@ final class TimerViewModel: ObservableObject {
         let cooldownSets = sets.filter { $0.isCooldownSet }
         let zones = timeInZones(config: zoneConfig)
         let totalZoneTime = zones.reduce(0) { $0 + $1.duration }
-        let caloriesStatus = CaloriesEstimator.estimate(samples: heartRateSamples, profile: UserEnergyProfileStore.currentProfile())
+        let caloriesStatus = CaloriesEstimator.estimate(samples: calorieSamples, profile: UserEnergyProfileStore.currentProfile())
 
         lines.append("🏁 Workout Summary")
         lines.append("")
@@ -2075,22 +1740,22 @@ final class TimerViewModel: ObservableObject {
         let workoutTime = frozenElapsedTime > 0 ? frozenElapsedTime : totalTime
         let zones = timeInZones(config: zoneConfig)
         let totalZoneTime = zones.reduce(0) { $0 + $1.duration }
-        let caloriesStatus = CaloriesEstimator.estimate(samples: heartRateSamples, profile: UserEnergyProfileStore.currentProfile())
+        let caloriesStatus = CaloriesEstimator.estimate(samples: calorieSamples, profile: UserEnergyProfileStore.currentProfile())
 
         lines.append("BPM Workout Detail Export")
         lines.append("Context:")
         lines.append("- App: BPM (iOS heart-rate app).")
-        lines.append("- Heart rate samples: ~1 Hz from a Bluetooth heart rate monitor; values are bpm.")
+        lines.append("- Heart rate samples: received Bluetooth measurements; values are bpm. Gaps are not filled.")
         lines.append("- Zones: derived from max HR (default 190) or user config; zone is chosen by lower-bound thresholds.")
         lines.append("- Sets: work/rest/cooldown; total time includes workout + cooldown; workout time is pre-cooldown.")
         lines.append("- HRR (2 min): HR at cooldown start minus HR after 2 minutes of cooldown.")
         lines.append("- Calories: HR-only estimate using profile inputs; no accelerometer.")
         lines.append("- Durations are formatted as m:ss(.t) or h:mm:ss.")
         lines.append("")
-        lines.append("Exported: \(formatter.string(from: Date()))")
-        if let startTime = startTime {
+        lines.append("Exported: \(formatter.string(from: nowProvider()))")
+        if let startTime = workoutStartedAt ?? startTime {
             lines.append("Start: \(formatter.string(from: startTime))")
-            let endTime = startTime.addingTimeInterval(totalTime)
+            let endTime = workoutEndedAt ?? nowProvider()
             lines.append("End: \(formatter.string(from: endTime))")
         } else {
             lines.append("Start: unknown")
@@ -2185,13 +1850,7 @@ final class TimerViewModel: ObservableObject {
     }
 
     private func resolvedTotalTime() -> TimeInterval {
-        if let lastTotal = sets.last?.totalTime {
-            return max(lastTotal, frozenElapsedTime)
-        }
-        if frozenElapsedTime > 0 {
-            return frozenElapsedTime
-        }
-        return elapsedTime
+        max(elapsedTime, frozenElapsedTime + cooldownTime, sets.last?.totalTime ?? 0)
     }
 
     private func formatWaitSeconds(_ remaining: TimeInterval) -> String {
@@ -2249,8 +1908,5 @@ final class TimerViewModel: ObservableObject {
         }
         timer?.invalidate()
         cooldownTimer?.invalidate()
-        cooldownOneMinuteTimer?.invalidate()
-        cooldownTwoMinuteTimer?.invalidate()
-        heartRateSampleTimer?.invalidate()
     }
 }

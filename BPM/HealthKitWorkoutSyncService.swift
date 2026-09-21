@@ -51,7 +51,8 @@ protocol HealthStoreWriting {
         start: Date,
         end: Date,
         metadata: [String: Any],
-        samples: [HKSample]
+        samples: [HKSample],
+        events: [HKWorkoutEvent]
     ) async throws -> UUID
 }
 
@@ -91,7 +92,8 @@ final class HKHealthStoreAdapter: HealthStoreWriting {
         start: Date,
         end: Date,
         metadata: [String: Any],
-        samples: [HKSample]
+        samples: [HKSample],
+        events: [HKWorkoutEvent]
     ) async throws -> UUID {
         let configuration = HKWorkoutConfiguration()
         configuration.activityType = activityType
@@ -109,6 +111,15 @@ final class HKHealthStoreAdapter: HealthStoreWriting {
         }
         if !samples.isEmpty {
             try await add(samples, to: builder)
+        }
+        if !events.isEmpty {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                builder.addWorkoutEvents(events) { success, error in
+                    if let error { continuation.resume(throwing: error) }
+                    else if success { continuation.resume() }
+                    else { continuation.resume(throwing: HealthKitSyncError.writeFailed("Could not save workout pauses.")) }
+                }
+            }
         }
         try await endCollection(for: builder, at: end)
         return try await finishWorkout(for: builder)
@@ -277,7 +288,8 @@ final class HealthKitWorkoutSyncService: ObservableObject {
                 start: bounds.start,
                 end: bounds.end,
                 metadata: metadata,
-                samples: associatedSamples
+                samples: associatedSamples,
+                events: Self.pauseEvents(for: record)
             )
         } catch {
             throw HealthKitSyncError.writeFailed(error.localizedDescription)
@@ -295,6 +307,18 @@ final class HealthKitWorkoutSyncService: ObservableObject {
             types.insert(activeEnergyType)
         }
         return types
+    }
+
+    static func pauseEvents(for record: WorkoutRecord) -> [HKWorkoutEvent] {
+        (record.pauses ?? []).flatMap { pause -> [HKWorkoutEvent] in
+            let start = max(record.startAt, pause.start)
+            let end = min(record.endAt, pause.end)
+            guard end > start else { return [] }
+            return [
+                HKWorkoutEvent(type: .pause, dateInterval: DateInterval(start: start, duration: 0), metadata: nil),
+                HKWorkoutEvent(type: .resume, dateInterval: DateInterval(start: end, duration: 0), metadata: nil)
+            ]
+        }.sorted { $0.dateInterval.start < $1.dateInterval.start }
     }
 
     private func workoutBounds(for record: WorkoutRecord) -> (start: Date, end: Date) {

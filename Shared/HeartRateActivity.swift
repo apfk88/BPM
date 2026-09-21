@@ -49,17 +49,21 @@ struct HeartRateActivityAttributes: ActivityAttributes {
         let maximum: Int?
         let minimum: Int?
         let elapsedSeconds: Int?
+        var timerReferenceDate: Date? = nil
+        var timerEndDate: Date? = nil
         let zone: ZoneInfo?
         let isSharing: Bool
         let isViewing: Bool
         let hasError: Bool
 
-        init(bpm: Int?, average: Int?, maximum: Int?, minimum: Int?, elapsedSeconds: Int? = nil, zone: ZoneInfo? = nil, isSharing: Bool = false, isViewing: Bool = false, hasError: Bool = false) {
+        init(bpm: Int?, average: Int?, maximum: Int?, minimum: Int?, elapsedSeconds: Int? = nil, timerReferenceDate: Date? = nil, timerEndDate: Date? = nil, zone: ZoneInfo? = nil, isSharing: Bool = false, isViewing: Bool = false, hasError: Bool = false) {
             self.bpm = bpm
             self.average = average
             self.maximum = maximum
             self.minimum = minimum
             self.elapsedSeconds = elapsedSeconds
+            self.timerReferenceDate = timerReferenceDate
+            self.timerEndDate = timerEndDate
             self.zone = zone
             self.isSharing = isSharing
             self.isViewing = isViewing
@@ -67,7 +71,7 @@ struct HeartRateActivityAttributes: ActivityAttributes {
         }
 
         enum CodingKeys: String, CodingKey {
-            case bpm, average, maximum, minimum, elapsedSeconds, zone, isSharing, isViewing, hasError
+            case bpm, average, maximum, minimum, elapsedSeconds, timerReferenceDate, timerEndDate, zone, isSharing, isViewing, hasError
         }
 
         init(from decoder: Decoder) throws {
@@ -77,6 +81,8 @@ struct HeartRateActivityAttributes: ActivityAttributes {
             maximum = try container.decodeIfPresent(Int.self, forKey: .maximum)
             minimum = try container.decodeIfPresent(Int.self, forKey: .minimum)
             elapsedSeconds = try container.decodeIfPresent(Int.self, forKey: .elapsedSeconds)
+            timerReferenceDate = try container.decodeIfPresent(Date.self, forKey: .timerReferenceDate)
+            timerEndDate = try container.decodeIfPresent(Date.self, forKey: .timerEndDate)
             zone = try container.decodeIfPresent(ZoneInfo.self, forKey: .zone)
             isSharing = try container.decodeIfPresent(Bool.self, forKey: .isSharing) ?? false
             isViewing = try container.decodeIfPresent(Bool.self, forKey: .isViewing) ?? false
@@ -90,6 +96,8 @@ struct HeartRateActivityAttributes: ActivityAttributes {
             try container.encodeIfPresent(maximum, forKey: .maximum)
             try container.encodeIfPresent(minimum, forKey: .minimum)
             try container.encodeIfPresent(elapsedSeconds, forKey: .elapsedSeconds)
+            try container.encodeIfPresent(timerReferenceDate, forKey: .timerReferenceDate)
+            try container.encodeIfPresent(timerEndDate, forKey: .timerEndDate)
             try container.encodeIfPresent(zone, forKey: .zone)
             try container.encode(isSharing, forKey: .isSharing)
             try container.encode(isViewing, forKey: .isViewing)
@@ -126,6 +134,9 @@ final class HeartRateActivityController {
     private var lastIsSharing: Bool = false
     private var lastIsViewing: Bool = false
     private var lastHasError: Bool = false
+    private var lastBpmReceivedAt: Date?
+    private var lastTimerReferenceDate: Date?
+    private var lastTimerEndDate: Date?
     private var lastElapsedSeconds: Int?
     private var isEndingActivity = false
     private var missingHeartRateSince: Date?
@@ -159,7 +170,9 @@ final class HeartRateActivityController {
     }
 
     func updateActivity(bpm: Int?, average: Int?, maximum: Int?, minimum: Int?, zone: ZoneInfo? = nil, isSharing: Bool = false, isViewing: Bool = false, hasError: Bool = false) {
+        guard lastElapsedSeconds == nil || !isViewing else { return }
         lastBpm = bpm
+        lastBpmReceivedAt = bpm == nil ? nil : Date()
         lastAverage = average
         lastMaximum = maximum
         lastMinimum = minimum
@@ -170,8 +183,19 @@ final class HeartRateActivityController {
         applyUpdate()
     }
 
-    func updateTimer(elapsedSeconds: Int?, isRunning: Bool) {
+    func updateTimer(elapsedSeconds: Int?, isRunning: Bool, referenceDate: Date? = nil, endDate: Date? = nil) {
+        if isRunning && lastIsViewing {
+            lastBpm = nil
+            lastBpmReceivedAt = nil
+            lastAverage = nil
+            lastMaximum = nil
+            lastMinimum = nil
+            lastZone = nil
+            lastIsViewing = false
+        }
         lastElapsedSeconds = isRunning ? elapsedSeconds : nil
+        lastTimerReferenceDate = referenceDate
+        lastTimerEndDate = endDate
         applyUpdate()
     }
 
@@ -219,6 +243,8 @@ final class HeartRateActivityController {
             maximum: lastMaximum,
             minimum: lastMinimum,
             elapsedSeconds: lastElapsedSeconds,
+            timerReferenceDate: lastTimerReferenceDate,
+            timerEndDate: lastTimerEndDate,
             zone: lastZone,
             isSharing: lastIsSharing,
             isViewing: lastIsViewing,
@@ -228,9 +254,7 @@ final class HeartRateActivityController {
         Task { @MainActor [weak self] in
             guard let self else { return }
 
-            let staleDate = missingHeartRateSince?.addingTimeInterval(
-                HeartRateActivityLifecycle.missingHeartRateDismissalInterval
-            )
+            let staleDate = lastBpmReceivedAt?.addingTimeInterval(3) ?? missingHeartRateSince
             let content = ActivityContent(state: state, staleDate: staleDate)
 
             if let currentActivity = activity {

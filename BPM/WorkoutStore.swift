@@ -88,7 +88,8 @@ final class WorkoutStore: ObservableObject {
                     healthKitSyncedAt: record.healthKitSyncedAt,
                     healthKitLastError: record.healthKitLastError,
                     createdAt: records[existingIndex].createdAt,
-                    updatedAt: now
+                    updatedAt: now,
+                    pauses: record.pauses
                 )
                 records[existingIndex] = updated
             } else {
@@ -116,7 +117,8 @@ final class WorkoutStore: ObservableObject {
                     healthKitSyncedAt: record.healthKitSyncedAt,
                     healthKitLastError: record.healthKitLastError,
                     createdAt: now,
-                    updatedAt: now
+                    updatedAt: now,
+                    pauses: record.pauses
                 )
                 records.insert(updated, at: 0)
             }
@@ -381,7 +383,8 @@ final class WorkoutStore: ObservableObject {
             healthKitSyncedAt: record.healthKitSyncedAt,
             healthKitLastError: record.healthKitLastError,
             createdAt: record.createdAt,
-            updatedAt: record.updatedAt
+            updatedAt: record.updatedAt,
+            pauses: record.pauses
         )
     }
 

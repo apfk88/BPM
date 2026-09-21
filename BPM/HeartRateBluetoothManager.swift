@@ -9,7 +9,8 @@ import ActivityKit
 struct RRInterval: Identifiable {
     let id = UUID()
     let value: Double // RR interval in milliseconds
-    let timestamp: Date
+    let timestamp: Date // Packet receipt time, not an ECG beat timestamp
+    var receivedTicks: TimeInterval = MeasurementClock.ticks
 }
 
 struct DiscoveredPeripheral: Identifiable, Equatable {
@@ -93,6 +94,8 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
     @Published var connectionMessage: String?
     @Published var supportsRRIntervals: Bool = false
     @Published private(set) var rrIntervals: [RRInterval] = []
+    private(set) var rrStreamID = UUID()
+    let heartRateMeasurements = PassthroughSubject<HeartRateSample, Never>()
 
     // Simulator-specific properties
     @Published var simulatorDevice: SimulatorDevice?
@@ -103,6 +106,7 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
         connectedDevice != nil || isSimulatorConnected
     }
 
+    private let measurementClock = MeasurementClock()
     private var centralManager: CBCentralManager!
     private let heartRateServiceUUID = CBUUID(string: "180D")
     private let heartRateMeasurementCharacteristicUUID = CBUUID(string: "2A37")
@@ -110,6 +114,7 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
     private let centralRestoreIdentifier = "com.bpmapp.client.central"
     private var backgroundTaskIdentifier: UIBackgroundTaskIdentifier = .invalid
     private var shouldResumeScanningAfterBackground = false
+    private var lastHeartRateSampleTicks: TimeInterval?
     private var lastHeartRateSampleTime: Date?
     private var noDataTimer: Timer?
     private var noDataWarningTimer: Timer?
@@ -270,6 +275,7 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
         currentHeartRate = nil
         heartRateSamples.removeAll()
         rrIntervals.removeAll()
+        rrStreamID = UUID()
 #if canImport(ActivityKit)
         if #available(iOS 16.1, *) {
             Task { @MainActor in
@@ -450,6 +456,7 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
         currentHeartRate = nil
         heartRateSamples.removeAll()
         rrIntervals.removeAll()
+        rrStreamID = UUID()
         supportsRRIntervals = false
         startScanning()
 #if canImport(ActivityKit)
@@ -542,12 +549,12 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
         )
     }
 
-    private func isStaleSample(now: Date = Date()) -> Bool {
-        Self.isStaleSample(lastSample: lastHeartRateSampleTime, now: now, timeout: noDataTimeoutInterval)
+    private func isStaleSample(now: Date? = nil) -> Bool {
+        Self.isStaleSample(lastSample: lastHeartRateSampleTime, now: now ?? measurementClock.now(), timeout: noDataTimeoutInterval)
     }
 
     @discardableResult
-    private func resumeReconnectAfterForegroundIfNeeded(now: Date = Date()) -> Bool {
+    private func resumeReconnectAfterForegroundIfNeeded(now: Date? = nil) -> Bool {
         guard !isSimulator else { return false }
         guard reconnectTimer == nil else { return false }
         guard let device = connectedDevice else { return false }
@@ -555,7 +562,7 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
             isUserInitiatedDisconnect: isUserInitiatedDisconnect,
             hasReceivedDataSinceConnect: hasReceivedDataSinceConnect,
             lastSample: lastHeartRateSampleTime,
-            now: now,
+            now: now ?? measurementClock.now(),
             interval: noDataReconnectInterval
         )
         guard shouldReconnect else { return false }
@@ -576,15 +583,9 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
     }
 
     var freshHeartRate: Int? {
-        guard let currentHeartRate else { return nil }
-        guard Self.isFreshHeartRate(
-            lastSample: lastHeartRateSampleTime,
-            sensorContactStatus: sensorContactStatus,
-            now: Date(),
-            maxAge: heartRateFreshnessInterval
-        ) else {
-            return nil
-        }
+        guard let currentHeartRate, let ticks = lastHeartRateSampleTicks,
+              MeasurementClock.ticks - ticks <= heartRateFreshnessInterval else { return nil }
+        guard sensorContactStatus != .notDetected else { return nil }
         return currentHeartRate
     }
 
@@ -595,7 +596,8 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
         maxAge: TimeInterval
     ) -> Bool {
         guard sensorContactStatus != .notDetected, let lastSample else { return false }
-        return now.timeIntervalSince(lastSample) <= maxAge
+        let age = now.timeIntervalSince(lastSample)
+        return age >= 0 && age <= maxAge
     }
 
     private func addHeartRateSample(
@@ -613,7 +615,7 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
                 return
             }
 
-            let now = Date()
+            let now = measurementClock.now()
             recordHeartRatePacketReceipt(at: now)
             hasSentNoDataToSharing = false
             preserveConnectionMessageOnDisconnect = false
@@ -626,6 +628,8 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
                 sensorContactStatus: sensorContactStatus
             )
             heartRateSamples.append(sample)
+            currentHeartRate = value
+            heartRateMeasurements.send(sample)
 
             let cutoff = now.addingTimeInterval(-3600)
             heartRateSamples.removeAll { $0.timestamp < cutoff }
@@ -661,7 +665,7 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
                         minimum: min,
                         zone: zone?.zoneInfo,
                         isSharing: sharingService.isSharing,
-                        isViewing: sharingService.isViewing
+                        isViewing: false
                     )
                 }
             }
@@ -675,6 +679,7 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
 
     private func recordHeartRatePacketReceipt(at now: Date) {
         lastHeartRateSampleTime = now
+        lastHeartRateSampleTicks = MeasurementClock.ticks
         scheduleNoDataTimeout()
         scheduleNoDataWarning()
         scheduleNoDataShareTimeout()
@@ -683,7 +688,8 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
     }
 
     private func handlePoorSensorContactReading() {
-        let now = Date()
+        rrStreamID = UUID()
+        let now = measurementClock.now()
         recordHeartRatePacketReceipt(at: now)
         invalidateHeartRateFreshnessTimer()
         sensorContactStatus = .notDetected
@@ -704,7 +710,7 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
                     minimum: nil,
                     zone: nil,
                     isSharing: sharingService.isSharing,
-                    isViewing: sharingService.isViewing
+                    isViewing: false
                 )
             }
         }
@@ -712,6 +718,7 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
     }
 
     private func handleZeroHeartRateReading() {
+        rrStreamID = UUID()
         invalidateHeartRateFreshnessTimer()
         currentHeartRate = nil
         handleHeartRateAlerts(for: nil)
@@ -727,7 +734,7 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
                     minimum: nil,
                     zone: nil,
                     isSharing: sharingService.isSharing,
-                    isViewing: sharingService.isViewing
+                    isViewing: false
                 )
             }
         }
@@ -751,7 +758,7 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
     private func clearCurrentHeartRateIfStale(sampleTime: Date) {
         guard currentHeartRate != nil else { return }
         guard lastHeartRateSampleTime == sampleTime else { return }
-        guard Date().timeIntervalSince(sampleTime) >= heartRateFreshnessInterval else { return }
+        guard let ticks = lastHeartRateSampleTicks, MeasurementClock.ticks - ticks >= heartRateFreshnessInterval else { return }
 
         currentHeartRate = nil
         connectionMessage = "Waiting for fresh heart-rate data..."
@@ -771,7 +778,7 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
                     minimum: nil,
                     zone: nil,
                     isSharing: sharingService.isSharing,
-                    isViewing: sharingService.isViewing
+                    isViewing: false
                 )
             }
         }
@@ -869,7 +876,7 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
 
     private func showNoDataWarningIfNeeded() {
         guard connectedDevice != nil || isSimulatorConnected else { return }
-        let now = Date()
+        let now = measurementClock.now()
         let shouldWarn = Self.shouldShowInitialNoDataWarning(
             hasReceivedDataSinceConnect: hasReceivedDataSinceConnect,
             lastSample: lastHeartRateSampleTime,
@@ -884,7 +891,7 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
     private func attemptNoDataReconnectIfNeeded() {
         guard connectedDevice != nil || isSimulatorConnected else { return }
         guard !isUserInitiatedDisconnect else { return }
-        let now = Date()
+        let now = measurementClock.now()
         let shouldReconnect = Self.shouldAttemptNoDataReconnect(
             hasReceivedDataSinceConnect: hasReceivedDataSinceConnect,
             lastSample: lastHeartRateSampleTime,
@@ -906,7 +913,7 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
     private func sendNoDataToSharingIfNeeded() {
         guard sharingService.isSharing else { return }
         guard !hasSentNoDataToSharing else { return }
-        let now = Date()
+        let now = measurementClock.now()
         let shouldSend = Self.shouldSendNoDataToSharing(
             lastSample: lastHeartRateSampleTime,
             now: now,
@@ -919,7 +926,7 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
 
     private func handleNoDataTimeout() {
         guard let lastSample = lastHeartRateSampleTime else { return }
-        guard Date().timeIntervalSince(lastSample) >= noDataTimeoutInterval else { return }
+        guard measurementClock.now().timeIntervalSince(lastSample) >= noDataTimeoutInterval else { return }
 
         if let device = connectedDevice {
             centralManager.cancelPeripheralConnection(device)
@@ -941,6 +948,7 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
         currentHeartRate = nil
         heartRateSamples.removeAll()
         rrIntervals.removeAll()
+        rrStreamID = UUID()
         supportsRRIntervals = false
         connectionStatus = "Disconnected - No data"
         sharingService.updateHeartRate(nil, max: nil, avg: nil, min: nil)
@@ -983,12 +991,12 @@ extension HeartRateBluetoothManager {
             zoneDurations[zone] = 0
         }
 
-        // Match timer sampling behavior: treat each sample as ~1 second.
-        let sampleInterval: TimeInterval = 1.0
-
-        for sample in heartRateSamples {
+        let now = measurementClock.now()
+        for (index, sample) in heartRateSamples.enumerated() {
+            let next = index + 1 < heartRateSamples.count ? heartRateSamples[index + 1].timestamp : now
+            let duration = max(0, min(Self.defaultHeartRateFreshnessInterval, next.timeIntervalSince(sample.timestamp)))
             if let zone = HeartRateZone.zone(for: sample.value, config: config) {
-                zoneDurations[zone, default: 0] += sampleInterval
+                zoneDurations[zone, default: 0] += duration
             }
         }
 
@@ -1098,6 +1106,8 @@ extension HeartRateBluetoothManager: CBCentralManagerDelegate {
         )
 
         if wasConnectedDevice {
+            rrStreamID = UUID()
+            supportsRRIntervals = false
             invalidateNoDataTimer()
             invalidateNoDataWarningTimer()
             invalidateHeartRateFreshnessTimer()
@@ -1131,7 +1141,7 @@ extension HeartRateBluetoothManager: CBCentralManagerDelegate {
                         minimum: nil,
                         zone: nil,
                         isSharing: sharingService.isSharing,
-                        isViewing: sharingService.isViewing
+                        isViewing: false
                     )
                 }
             }
@@ -1256,64 +1266,37 @@ extension HeartRateBluetoothManager: CBPeripheralDelegate {
     }
 
     func peripheral(_ peripheral: CBPeripheral, didUpdateValueFor characteristic: CBCharacteristic, error: Error?) {
-        if let error = error {
-            let msg = "Error reading characteristic value: \(error.localizedDescription)"
-            print(msg)
-            addDebugMessage(msg)
+        // CoreBluetooth is configured on the main queue. Process in callback order,
+        // before another disconnect or device switch can change the active source.
+        guard connectedDevice?.identifier == peripheral.identifier,
+              characteristic.uuid == heartRateMeasurementCharacteristicUUID else { return }
+        guard error == nil, let data = characteristic.value else {
+            rrStreamID = UUID()
             return
         }
-        guard let data = characteristic.value else {
-            let msg = "No data received from characteristic"
-            print(msg)
-            addDebugMessage(msg)
-            return
-        }
+        receiveHeartRateMeasurement(Self.parseHeartRateData(from: data))
+    }
 
-        let parsedData = Self.parseHeartRateData(from: data)
-        DispatchQueue.main.async { [weak self] in
-            guard let self = self else { return }
-            
-            guard let heartRate = parsedData.heartRate else {
-                let msg = "Failed to parse heart rate from data: \(data.map { String(format: "%02x", $0) }.joined(separator: " "))"
-                print(msg)
-                self.addDebugMessage(msg)
-                return
-            }
-            
-            // Update RR interval support status
-            if parsedData.hasRRIntervals {
-                if !self.supportsRRIntervals {
-                    self.supportsRRIntervals = true
-                    let msg = "Device supports RR intervals"
-                    print(msg)
-                    self.addDebugMessage(msg)
-                }
-                
-                // Add RR intervals
-                let now = Date()
-                for rrValue in parsedData.rrIntervals {
-                    let interval = RRInterval(value: rrValue, timestamp: now)
-                    self.rrIntervals.append(interval)
-                }
-                
-                // Keep only last hour of RR intervals
-                let cutoff = now.addingTimeInterval(-3600)
-                self.rrIntervals.removeAll { $0.timestamp < cutoff }
-            } else {
-                // If we previously detected RR intervals but now they're missing, keep the support flag
-                // (some packets may not include RR intervals even if device supports them)
-            }
-            
-            let msg = "Received heart rate: \(heartRate) BPM" + (parsedData.hasRRIntervals ? " (with \(parsedData.rrIntervals.count) RR intervals)" : "")
-            print(msg)
-            self.addDebugMessage(msg)
-            self.addHeartRateSample(heartRate, sensorContactStatus: parsedData.sensorContactStatus)
-            if parsedData.sensorContactStatus != .notDetected {
-                self.connectionStatus = "Connected - Receiving data"
-            }
+    func receiveHeartRateMeasurement(_ measurement: HeartRateMeasurementData) {
+        guard let heartRate = measurement.heartRate else {
+            rrStreamID = UUID()
+            return
+        }
+        if heartRate > 0 && measurement.sensorContactStatus != .notDetected && measurement.hasRRIntervals {
+            supportsRRIntervals = true
+            let now = measurementClock.now()
+            let ticks = MeasurementClock.ticks
+            rrIntervals.append(contentsOf: measurement.rrIntervals.map {
+                RRInterval(value: $0, timestamp: now, receivedTicks: ticks)
+            })
+            rrIntervals.removeAll { ticks - $0.receivedTicks > 3600 }
+        }
+        addHeartRateSample(heartRate, sensorContactStatus: measurement.sensorContactStatus)
+        if heartRate > 0 && measurement.sensorContactStatus != .notDetected {
+            connectionStatus = "Connected - Receiving data"
         }
     }
-    
+
     func peripheral(_ peripheral: CBPeripheral, didUpdateNotificationStateFor characteristic: CBCharacteristic, error: Error?) {
         if let error = error {
             let msg = "Error updating notification state: \(error.localizedDescription)"
@@ -1356,83 +1339,29 @@ extension HeartRateBluetoothManager: CBPeripheralDelegate {
     }
 
     static func parseHeartRateData(from data: Data) -> HeartRateMeasurementData {
-        guard !data.isEmpty else {
-            return HeartRateMeasurementData(
-                heartRate: nil,
-                sensorContactStatus: .unsupported,
-                hasRRIntervals: false,
-                rrIntervals: []
-            )
-        }
-
-        let flags = data[0]
-        let is16Bit = (flags & 0x01) != 0
-        let hasEnergyExpended = (flags & 0x08) != 0
-        let hasRRIntervals = (flags & 0x10) != 0 // Bit 4 indicates RR intervals present
-        let sensorContactStatus = sensorContactStatus(from: flags)
-        
-        // Parse heart rate
-        var heartRate: Int?
-        var offset: Int
-        
-        if is16Bit {
-            guard data.count >= 3 else {
-                return HeartRateMeasurementData(
-                    heartRate: nil,
-                    sensorContactStatus: sensorContactStatus,
-                    hasRRIntervals: false,
-                    rrIntervals: []
-                )
-            }
-            let lower = Int(data[1])
-            let upper = Int(data[2]) << 8
-            heartRate = lower | upper
-            offset = 3
-        } else {
-            guard data.count >= 2 else {
-                return HeartRateMeasurementData(
-                    heartRate: nil,
-                    sensorContactStatus: sensorContactStatus,
-                    hasRRIntervals: false,
-                    rrIntervals: []
-                )
-            }
-            heartRate = Int(data[1])
-            offset = 2
-        }
-
-        if hasEnergyExpended {
-            guard data.count >= offset + 2 else {
-                return HeartRateMeasurementData(
-                    heartRate: heartRate,
-                    sensorContactStatus: sensorContactStatus,
-                    hasRRIntervals: false,
-                    rrIntervals: []
-                )
-            }
+        // Data slices need not have a zero startIndex.
+        let bytes = Array(data)
+        let contact = bytes.first.map { sensorContactStatus(from: $0) } ?? .unsupported
+        let invalid = HeartRateMeasurementData(heartRate: nil, sensorContactStatus: contact, hasRRIntervals: false, rrIntervals: [])
+        guard let flags = bytes.first else { return invalid }
+        let is16Bit = flags & 0x01 != 0
+        let hasEnergy = flags & 0x08 != 0
+        let hasRR = flags & 0x10 != 0
+        var offset = is16Bit ? 3 : 2
+        guard bytes.count >= offset else { return invalid }
+        let heartRate = is16Bit ? Int(bytes[1]) | (Int(bytes[2]) << 8) : Int(bytes[1])
+        if hasEnergy { offset += 2 }
+        guard bytes.count >= offset else { return invalid }
+        let rrBytes = bytes.count - offset
+        guard hasRR ? (rrBytes >= 2 && rrBytes.isMultiple(of: 2)) : rrBytes == 0 else { return invalid }
+        var intervals: [Double] = []
+        while offset < bytes.count {
+            let raw = UInt16(bytes[offset]) | (UInt16(bytes[offset + 1]) << 8)
+            guard raw > 0 else { return invalid }
+            intervals.append(Double(raw) * 1000 / 1024)
             offset += 2
         }
-        
-        // Parse RR intervals if present
-        var rrIntervals: [Double] = []
-        if hasRRIntervals {
-            // RR intervals are stored as 2-byte values in 1/1024 second units
-            // Multiple RR intervals can be present
-            while offset + 2 <= data.count {
-                let rrValue = UInt16(data[offset]) | (UInt16(data[offset + 1]) << 8)
-                // Convert from 1/1024 seconds to milliseconds
-                let rrMs = (Double(rrValue) / 1024.0) * 1000.0
-                rrIntervals.append(rrMs)
-                offset += 2
-            }
-        }
-        
-        return HeartRateMeasurementData(
-            heartRate: heartRate,
-            sensorContactStatus: sensorContactStatus,
-            hasRRIntervals: hasRRIntervals,
-            rrIntervals: rrIntervals
-        )
+        return HeartRateMeasurementData(heartRate: heartRate, sensorContactStatus: contact, hasRRIntervals: hasRR, rrIntervals: intervals)
     }
 
     static func sensorContactStatus(from flags: UInt8) -> HeartRateSensorContactStatus {
@@ -1516,6 +1445,7 @@ extension HeartRateBluetoothManager: CBPeripheralDelegate {
             self.fakeHeartRateBase = 100
             self.heartRateSamples.removeAll()
             self.rrIntervals.removeAll()
+            self.rrStreamID = UUID()
             self.supportsRRIntervals = true // Simulator supports RR intervals for testing
             
             // Start with an initial heart rate (already on main thread)
@@ -1565,7 +1495,7 @@ extension HeartRateBluetoothManager: CBPeripheralDelegate {
         // RR interval = 60000 / BPM (in milliseconds)
         let baseRR = 60000.0 / Double(heartRate)
         let numIntervals = Int.random(in: 1...3)
-        let now = Date()
+        let now = measurementClock.now()
         
         for _ in 0..<numIntervals {
             // Add some realistic variation (±5% of base RR interval)

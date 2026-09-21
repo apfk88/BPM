@@ -11,6 +11,7 @@ final class HRVStore: ObservableObject {
     @Published private(set) var records: [HRVRecord] = []
     @Published private(set) var lastError: String?
 
+    private var cachedRecords: [HRVRecord] = []
     private let storeURL: URL
     private let userDefaults: UserDefaults
     private let queue = DispatchQueue(label: "bpm.hrv-store", qos: .utility)
@@ -27,9 +28,9 @@ final class HRVStore: ObservableObject {
         return value > 0 ? value : 365
     }
 
-    func saveRecord(_ record: HRVRecord) {
+    func saveRecord(_ record: HRVRecord, completion: ((Bool) -> Void)? = nil) {
         queue.async {
-            var records = self.records
+            var records = self.cachedRecords
             let now = Date()
 
             if let existingIndex = records.firstIndex(where: { $0.id == record.id }) {
@@ -73,19 +74,23 @@ final class HRVStore: ObservableObject {
             }
 
             records = self.pruneRetentionInternal(records: records, now: now)
-            self.persist(records: records)
+            guard self.persist(records: records) else {
+                DispatchQueue.main.async { completion?(false) }
+                return
+            }
             DispatchQueue.main.async {
                 self.lastError = nil
                 self.records = self.sorted(records)
+                completion?(true)
             }
         }
     }
 
     func deleteRecord(_ record: HRVRecord) {
         queue.async {
-            var records = self.records
+            var records = self.cachedRecords
             records.removeAll { $0.id == record.id }
-            self.persist(records: records)
+            guard self.persist(records: records) else { return }
             DispatchQueue.main.async {
                 self.lastError = nil
                 self.records = self.sorted(records)
@@ -109,7 +114,7 @@ final class HRVStore: ObservableObject {
                 decoder.dateDecodingStrategy = .iso8601
                 var records = try decoder.decode([HRVRecord].self, from: data)
                 records = self.pruneRetentionInternal(records: records, now: Date())
-                self.persist(records: records)
+                guard self.persist(records: records) else { return }
                 DispatchQueue.main.async {
                     self.lastError = nil
                     self.records = self.sorted(records)
@@ -124,7 +129,7 @@ final class HRVStore: ObservableObject {
         }
     }
 
-    private func persist(records: [HRVRecord]) {
+    private func persist(records: [HRVRecord]) -> Bool {
         do {
             try ensureDirectoryExists()
             let encoder = JSONEncoder()
@@ -132,10 +137,13 @@ final class HRVStore: ObservableObject {
             encoder.dateEncodingStrategy = .iso8601
             let data = try encoder.encode(records)
             try data.write(to: storeURL, options: [.atomic])
+            cachedRecords = records
+            return true
         } catch {
             DispatchQueue.main.async {
                 self.lastError = "Failed to save HRV history"
             }
+            return false
         }
     }
 

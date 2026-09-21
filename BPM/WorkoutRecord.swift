@@ -1,5 +1,10 @@
 import Foundation
 
+struct WorkoutPause: Codable, Equatable {
+    let start: Date
+    let end: Date
+}
+
 struct WorkoutHeartRateSample: Codable {
     let timestamp: Date
     let bpm: Int
@@ -109,6 +114,7 @@ struct WorkoutRecord: Codable, Identifiable {
     let healthKitLastError: String?
     let createdAt: Date
     let updatedAt: Date
+    var pauses: [WorkoutPause]? = nil
 }
 
 extension WorkoutRecord {
@@ -191,7 +197,8 @@ extension WorkoutRecord {
             healthKitSyncedAt: syncedAt,
             healthKitLastError: lastError,
             createdAt: createdAt,
-            updatedAt: Date()
+            updatedAt: Date(),
+            pauses: pauses
         )
     }
 }

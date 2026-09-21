@@ -115,6 +115,21 @@ struct HealthKitWorkoutSyncServiceTests {
         #expect(result.workoutUUID == mockStore.savedWorkoutUUID)
     }
 
+    @Test @MainActor func syncPreservesPauseEventsAndPrePauseSamples() async throws {
+        let mock = MockHealthStore()
+        let service = HealthKitWorkoutSyncService(healthStore: mock)
+        let start = Date()
+        var record = makeRecord(start: start, end: start.addingTimeInterval(200), caloriesTotal: nil, caloriesActive: nil,
+                                samples: [WorkoutHeartRateSample(timestamp: start.addingTimeInterval(5), bpm: 120, workoutTime: 5)])
+        record.pauses = [WorkoutPause(start: start.addingTimeInterval(10), end: start.addingTimeInterval(110))]
+        let updated = record.updatingHealthKitSync(workoutUUID: nil, syncedAt: nil, lastError: nil)
+        #expect(updated.pauses == record.pauses)
+        _ = try await service.syncWorkout(record: updated, activityType: .running)
+        #expect(mock.savedEvents.map(\.type) == [.pause, .resume])
+        #expect(mock.savedEvents.map { $0.dateInterval.start } == [start.addingTimeInterval(10), start.addingTimeInterval(110)])
+        #expect(mock.savedSamples.count == 1)
+    }
+
     private func makeRecord(
         start: Date,
         end: Date,
@@ -163,6 +178,7 @@ private final class MockHealthStore: HealthStoreWriting {
     var savedEnd: Date?
     var savedMetadata: [String: Any] = [:]
     var savedSamples: [HKSample] = []
+    var savedEvents: [HKWorkoutEvent] = []
     var onRequestAuthorization: (() -> Void)?
 
     func authorizationStatus(for objectType: HKObjectType) -> HKAuthorizationStatus {
@@ -182,7 +198,8 @@ private final class MockHealthStore: HealthStoreWriting {
         start: Date,
         end: Date,
         metadata: [String: Any],
-        samples: [HKSample]
+        samples: [HKSample],
+        events: [HKWorkoutEvent]
     ) async throws -> UUID {
         if let saveWorkoutError {
             throw saveWorkoutError
@@ -192,6 +209,7 @@ private final class MockHealthStore: HealthStoreWriting {
         savedEnd = end
         savedMetadata = metadata
         savedSamples = samples
+        savedEvents = events
         return savedWorkoutUUID
     }
 }

@@ -94,6 +94,29 @@ enum ViewDefaultsKey {
     static let timerMode = "BPM_View_TimerMode"
 }
 
+private struct SetConfirmationOverlay: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.accessibilityDimFlashingLights) private var dimFlashingLights
+    @State private var flashOpacity = 0.0
+
+    var body: some View {
+        Color.white.opacity(flashOpacity).ignoresSafeArea()
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+        .task {
+            flashOpacity = reduceMotion || dimFlashingLights ? 0 : 0.16
+            do {
+                try await Task.sleep(for: .milliseconds(80))
+                withAnimation(.easeOut(duration: 0.4)) {
+                    flashOpacity = 0
+                }
+            } catch {
+                // A new tap or leaving the workout cancels this confirmation.
+            }
+        }
+    }
+}
+
 
 struct HeartRateDisplayView: View {
     @EnvironmentObject var bluetoothManager: HeartRateBluetoothManager
@@ -140,6 +163,7 @@ struct HeartRateDisplayView: View {
     @State private var workoutSaveBannerMessage: String?
     @State private var workoutSaveBannerDismissTask: Task<Void, Never>?
     @State private var setTableBpmDisplay: SetTableBpmDisplay = .avg
+    @State private var setConfirmation: UUID?
 
     private var isPad: Bool {
         UIDevice.current.userInterfaceIdiom == .pad
@@ -184,7 +208,11 @@ struct HeartRateDisplayView: View {
         GeometryReader { geometry in
             ZStack {
                 Color.black.ignoresSafeArea()
-                portraitLayout(geometry: geometry)
+                responsiveLayout(geometry: geometry)
+                if isTimerMode, let setConfirmation {
+                    SetConfirmationOverlay()
+                        .id(setConfirmation)
+                }
             }
         }
         .onChange(of: timerViewModel.sets.isEmpty) { _, isEmpty in
@@ -195,6 +223,7 @@ struct HeartRateDisplayView: View {
             }
         }
         .onChange(of: isTimerMode) { _, isActive in
+            setConfirmation = nil
             if isActive && !hasChangedTimerViewModeInSession {
                 timerViewModeRawValue = TimerViewMode.table.rawValue
             }
@@ -256,6 +285,8 @@ struct HeartRateDisplayView: View {
             Text("Are you sure you want to disconnect? You'll need to start a new session and share a new code.")
         }
         .onAppear {
+            let bluetoothManager = self.bluetoothManager
+
             // Restore mode based on saved state
             if sharingService.isViewing {
                 appMode = .friendCode
@@ -277,13 +308,9 @@ struct HeartRateDisplayView: View {
             )
             pendingHealthKitActivityOption = defaultHealthKitActivityOption
             
-            // Set up timer heart rate callback - use friend's heart rate when viewing
-            timerViewModel.currentHeartRate = { [weak bluetoothManager, weak sharingService] in
-                if sharingService?.isViewing == true {
-                    return sharingService?.friendHeartRate
-                } else {
-                    return bluetoothManager?.freshHeartRate
-                }
+            timerViewModel.observeHeartRate(from: bluetoothManager)
+            timerViewModel.currentHeartRate = { [weak bluetoothManager] in
+                bluetoothManager?.freshHeartRate
             }
         }
         .onChange(of: appMode) { oldMode, newMode in
@@ -296,28 +323,10 @@ struct HeartRateDisplayView: View {
                 IdleTimer.disable() // Keep screen on when viewing friend's heart rate
             }
             heartRateExtremumDisplay = .max
-            
-            // Update timer heart rate callback when mode changes
-            timerViewModel.currentHeartRate = { [weak bluetoothManager, weak sharingService] in
-                if sharingService?.isViewing == true {
-                    return sharingService?.friendHeartRate
-                } else {
-                    return bluetoothManager?.freshHeartRate
-                }
-            }
         }
         .onChange(of: sharingService.isViewing) { oldValue, newValue in
             if newValue && appMode == .myDevice && !oldValue {
                 appMode = .friendCode
-            }
-            
-            // Update timer heart rate callback when viewing status changes
-            timerViewModel.currentHeartRate = { [weak bluetoothManager, weak sharingService] in
-                if sharingService?.isViewing == true {
-                    return sharingService?.friendHeartRate
-                } else {
-                    return bluetoothManager?.freshHeartRate
-                }
             }
         }
         .onDisappear {
@@ -332,7 +341,7 @@ struct HeartRateDisplayView: View {
     }
     
     @ViewBuilder
-    private func portraitLayout(geometry: GeometryProxy) -> some View {
+    private func responsiveLayout(geometry: GeometryProxy) -> some View {
         if isHRVMode {
             HRVMeasurementView(viewModel: hrvViewModel, onDismiss: {
                 isHRVMode = false
@@ -340,7 +349,9 @@ struct HeartRateDisplayView: View {
                 .environmentObject(bluetoothManager)
                 .environmentObject(sharingService)
         } else if isTimerMode {
-            timerModeLayout(geometry: geometry, isLandscape: false)
+            timerModeLayout(geometry: geometry, isLandscape: geometry.size.width > geometry.size.height)
+        } else if geometry.size.width > geometry.size.height {
+            landscapeHomeLayout(geometry: geometry)
         } else {
             let bpmOffset = -portraitBottomContentHeight / 2 - geometry.size.height * 0.1
             ZStack {
@@ -440,7 +451,7 @@ struct HeartRateDisplayView: View {
     }
     
     private var displayedHeartRate: Int? {
-        if appMode == .myDevice {
+        if isTimerMode || appMode == .myDevice {
             return bluetoothManager.freshHeartRate
         } else {
             return sharingService.friendHeartRate
@@ -557,13 +568,11 @@ struct HeartRateDisplayView: View {
         let verticalPadding: CGFloat = isLandscape ? 12 : 10
         let columnSpacing: CGFloat = isLandscape ? 12 : 10
         let rowSpacing: CGFloat = isLandscape ? 12 : 10
-        let tileWidth = max(1, floor((containerSize.width - (horizontalPadding * 2) - columnSpacing) / 2))
-        let tileHeight = max(1, floor((containerSize.height - (verticalPadding * 2) - (rowSpacing * 3)) / 4))
-
-        let columns = [
-            GridItem(.fixed(tileWidth), spacing: columnSpacing),
-            GridItem(.fixed(tileWidth), spacing: columnSpacing)
-        ]
+        let columnCount = isLandscape ? 4 : 2
+        let rowCount = isLandscape ? 2 : 4
+        let tileWidth = max(1, floor((containerSize.width - horizontalPadding * 2 - columnSpacing * CGFloat(columnCount - 1)) / CGFloat(columnCount)))
+        let tileHeight = max(1, floor((containerSize.height - verticalPadding * 2 - rowSpacing * CGFloat(rowCount - 1)) / CGFloat(rowCount)))
+        let columns = Array(repeating: GridItem(.fixed(tileWidth), spacing: columnSpacing), count: columnCount)
 
         return VStack(spacing: 0) {
             LazyVGrid(columns: columns, alignment: .center, spacing: rowSpacing) {
@@ -807,267 +816,176 @@ struct HeartRateDisplayView: View {
     }
     
 
-    @ViewBuilder
     private func statsBar(screenWidth: CGFloat) -> some View {
-        // Scale factor: smaller screens get smaller sizes
-        // Base scale on iPhone SE (375pt) = 1.0, scale down proportionally
         let scaleFactor = min(1.0, screenWidth / 375.0)
-        let scaledPadding = max(12.0, 20.0 * scaleFactor)
-        let scaledButtonSize = max(20.0, 24.0 * scaleFactor)
-        let scaledButtonPadding = max(8.0, 12.0 * scaleFactor)
-        
-        if appMode == .myDevice {
-            // Portrait mode - stats above buttons
-            VStack(spacing: max(12.0, 16.0 * scaleFactor)) {
-                // Stats row: Avg, Min, Max, Zone - equal width columns
-                HStack(spacing: 0) {
-                    statColumn(
-                        title: "Avg",
-                        value: bluetoothManager.avgHeartRateLastHour,
-                        scaleFactor: scaleFactor,
-                        isLandscape: false
-                    )
+        return VStack(spacing: max(12.0, 16.0 * scaleFactor)) {
+            homeStatistics(isLandscape: false, scaleFactor: scaleFactor)
+            homeButtons(screenWidth: screenWidth, isLandscape: false)
+        }
+        .padding(.horizontal, max(12.0, 20.0 * scaleFactor))
+        .padding(.vertical, max(12.0, 16.0 * scaleFactor))
+        .background(Color.black.opacity(0.8))
+    }
+
+    private func homeStatistics(isLandscape: Bool, scaleFactor: CGFloat = 1) -> some View {
+        HStack(spacing: 0) {
+            statColumn(title: "Avg", value: appMode == .myDevice ? bluetoothManager.avgHeartRateLastHour : sharingService.friendAvgHeartRate, scaleFactor: scaleFactor, isLandscape: isLandscape)
+                .frame(maxWidth: .infinity)
+            statColumn(title: "Min", value: appMode == .myDevice ? bluetoothManager.minHeartRateLastHour : sharingService.friendMinHeartRate, scaleFactor: scaleFactor, isLandscape: isLandscape)
+                .frame(maxWidth: .infinity)
+            statColumn(title: "Max", value: appMode == .myDevice ? bluetoothManager.maxHeartRateLastHour : sharingService.friendMaxHeartRate, scaleFactor: scaleFactor, isLandscape: isLandscape)
+                .frame(maxWidth: .infinity)
+            if appMode == .myDevice {
+                zoneStatColumn(heartRate: displayedHeartRate, scaleFactor: scaleFactor, isLandscape: isLandscape)
                     .frame(maxWidth: .infinity)
-                    statColumn(
-                        title: "Min",
-                        value: bluetoothManager.minHeartRateLastHour,
-                        scaleFactor: scaleFactor,
-                        isLandscape: false
-                    )
-                    .frame(maxWidth: .infinity)
-                    statColumn(
-                        title: "Max",
-                        value: bluetoothManager.maxHeartRateLastHour,
-                        scaleFactor: scaleFactor,
-                        isLandscape: false
-                    )
-                    .frame(maxWidth: .infinity)
-                    zoneStatColumn(
-                        heartRate: displayedHeartRate,
-                        scaleFactor: scaleFactor,
-                        isLandscape: false
-                    )
-                    .frame(maxWidth: .infinity)
+            }
+        }
+    }
+
+    private func landscapeHomeLayout(geometry: GeometryProxy) -> some View {
+        HStack(spacing: 20) {
+            VStack(spacing: 8) {
+                VStack(spacing: 6) {
+                    connectionPrompt
+                    bluetoothMessageDisplay
+                    errorMessageDisplay
+                    sharingCodeDisplay
                 }
+                GeometryReader { proxy in
+                    heartRateDisplay(size: proxy.size)
+                }
+                homeStatistics(isLandscape: true)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-                // Buttons row with labels - equal width
-                HStack(spacing: max(6.0, 8.0 * scaleFactor)) {
-                    Button {
-                        showDevicePicker = true
-                    } label: {
-                        VStack(spacing: 4) {
-                            Image(systemName: heartIconName)
-                                .font(.system(size: scaledButtonSize))
-                            Text("Device")
-                                .font(.system(size: max(10.0, 12.0 * scaleFactor), weight: .medium))
+            GeometryReader { controlsGeometry in
+                ScrollView {
+                    VStack(spacing: 12) {
+                        Button {
+                            showSettings = true
+                        } label: {
+                            topBarCircleIcon(systemName: "gearshape", accessibilityLabel: "Settings")
                         }
-                        .foregroundColor(heartButtonColor)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, scaledButtonPadding)
-                        .background(
-                            RoundedRectangle(cornerRadius: 8)
-                                .fill(Color.gray.opacity(0.3))
-                        )
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+                        homeButtons(screenWidth: geometry.size.width, isLandscape: true)
                     }
+                    .frame(minHeight: controlsGeometry.size.height, alignment: .center)
+                }
+                .scrollIndicators(.hidden)
+            }
+            .frame(width: landscapeControlsWidth(for: geometry.size.width))
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 8)
+    }
 
-                    Button {
-                        if sharingService.isSharing {
-                            showDisconnectAlert = true
+    private func landscapeControlsWidth(for width: CGFloat) -> CGFloat {
+        min(200, max(150, width * 0.23))
+    }
+
+    private func homeButtons(screenWidth: CGFloat, isLandscape: Bool) -> some View {
+        let scaleFactor = min(1.0, screenWidth / 375.0)
+        let scaledButtonSize = isLandscape ? 20 : max(20.0, 24.0 * scaleFactor)
+        let scaledButtonPadding = isLandscape ? 12 : max(8.0, 12.0 * scaleFactor)
+        let layout = isLandscape
+            ? AnyLayout(VStackLayout(spacing: 8))
+            : AnyLayout(HStackLayout(spacing: max(6.0, 8.0 * scaleFactor)))
+        return layout {
+            Button {
+                showDevicePicker = true
+            } label: {
+                (isLandscape ? AnyLayout(HStackLayout(spacing: 8)) : AnyLayout(VStackLayout(spacing: 4))) {
+                    Image(systemName: heartIconName)
+                        .font(.system(size: scaledButtonSize))
+                    Text("Device")
+                        .font(.system(size: isLandscape ? 14 : max(10.0, 12.0 * scaleFactor), weight: .medium))
+                }
+                .foregroundColor(heartButtonColor)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, scaledButtonPadding)
+                .background(
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(Color.gray.opacity(0.3))
+                )
+            }
+
+            Button {
+                if sharingService.isSharing {
+                    showDisconnectAlert = true
+                } else {
+                    Task {
+                        if !bluetoothManager.hasActiveDataSource {
+                            sharingService.errorMessage = "Please connect a heart rate device before sharing."
+                            sharingService.errorContext = .sharing
                         } else {
-                            Task {
-                                if !bluetoothManager.hasActiveDataSource {
-                                    sharingService.errorMessage = "Please connect a heart rate device before sharing."
-                                    sharingService.errorContext = .sharing
-                                } else {
-                                    do {
-                                        try await sharingService.startSharing()
-                                    } catch {
-                                        // Error handled by sharingService
-                                    }
-                                }
+                            do {
+                                try await sharingService.startSharing()
+                            } catch {
+                                // Error handled by sharingService
                             }
                         }
-                    } label: {
-                        VStack(spacing: 4) {
-                            Image(systemName: "antenna.radiowaves.left.and.right")
-                                .font(.system(size: scaledButtonSize))
-                            Text("Share")
-                            .font(.system(size: max(10.0, 12.0 * scaleFactor), weight: .medium))
-                        }
-                        .foregroundColor(sharingService.isSharing ? .green : .white)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, scaledButtonPadding)
-                        .background(
-                            RoundedRectangle(cornerRadius: 8)
-                                .fill(Color.gray.opacity(0.3))
-                        )
-                    }
-
-                    Button {
-                        isTimerMode.toggle()
-                        if !isTimerMode {
-                            timerViewModel.reset()
-                        }
-                    } label: {
-                        VStack(spacing: 4) {
-                            Image(systemName: "stopwatch")
-                                .renderingMode(.template)
-                                .font(.system(size: scaledButtonSize))
-                            Text("Workout")
-                                .font(.system(size: max(10.0, 12.0 * scaleFactor), weight: .medium))
-                        }
-                        .foregroundColor(isTimerMode ? .green : .white)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, scaledButtonPadding)
-                        .background(
-                            RoundedRectangle(cornerRadius: 8)
-                                .fill(Color.gray.opacity(0.3))
-                        )
-                    }
-
-                    Button {
-                        isHRVMode.toggle()
-                        if !isHRVMode {
-                            hrvViewModel.reset()
-                        }
-                    } label: {
-                        VStack(spacing: 4) {
-                            Image(systemName: "waveform.path.ecg")
-                                .renderingMode(.template)
-                                .font(.system(size: scaledButtonSize))
-                            Text("HRV")
-                                .font(.system(size: max(10.0, 12.0 * scaleFactor), weight: .medium))
-                        }
-                        .foregroundColor(isHRVMode ? .green : .white)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, scaledButtonPadding)
-                        .background(
-                            RoundedRectangle(cornerRadius: 8)
-                                .fill(Color.gray.opacity(0.3))
-                        )
                     }
                 }
+            } label: {
+                (isLandscape ? AnyLayout(HStackLayout(spacing: 8)) : AnyLayout(VStackLayout(spacing: 4))) {
+                    Image(systemName: "antenna.radiowaves.left.and.right")
+                        .font(.system(size: scaledButtonSize))
+                    Text("Share")
+                    .font(.system(size: isLandscape ? 14 : max(10.0, 12.0 * scaleFactor), weight: .medium))
+                }
+                .foregroundColor(appMode == .friendCode ? .gray : (sharingService.isSharing ? .green : .white))
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, scaledButtonPadding)
+                .background(
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(Color.gray.opacity(0.3))
+                )
             }
-            .frame(maxWidth: .infinity)
-            .padding(.horizontal, scaledPadding)
-            .padding(.vertical, max(12.0, 16.0 * scaleFactor))
-            .background(Color.black.opacity(0.8))
-        } else {
-            // Friend mode stats
-            VStack(spacing: max(12.0, 16.0 * scaleFactor)) {
-                // Stats row: Avg, Min, Max - equal width columns
-                HStack(spacing: 0) {
-                    statColumn(
-                        title: "Avg",
-                        value: sharingService.friendAvgHeartRate,
-                        scaleFactor: scaleFactor,
-                        isLandscape: false
-                    )
-                    .frame(maxWidth: .infinity)
-                    statColumn(
-                        title: "Min",
-                        value: sharingService.friendMinHeartRate,
-                        scaleFactor: scaleFactor,
-                        isLandscape: false
-                    )
-                    .frame(maxWidth: .infinity)
-                    statColumn(
-                        title: "Max",
-                        value: sharingService.friendMaxHeartRate,
-                        scaleFactor: scaleFactor,
-                        isLandscape: false
-                    )
-                    .frame(maxWidth: .infinity)
+            .disabled(appMode == .friendCode)
+
+            Button {
+                isTimerMode.toggle()
+                if !isTimerMode {
+                    timerViewModel.reset()
                 }
-
-                // Buttons row with labels - equal width
-                HStack(spacing: max(6.0, 8.0 * scaleFactor)) {
-                    Button {
-                        showDevicePicker = true
-                    } label: {
-                        VStack(spacing: 4) {
-                            Image(systemName: heartIconName)
-                                .font(.system(size: scaledButtonSize))
-                            Text("Device")
-                                .font(.system(size: max(10.0, 12.0 * scaleFactor), weight: .medium))
-                        }
-                        .foregroundColor(heartButtonColor)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, scaledButtonPadding)
-                        .background(
-                            RoundedRectangle(cornerRadius: 8)
-                                .fill(Color.gray.opacity(0.3))
-                        )
-                    }
-
-                    Button {
-                        // Disabled - no action
-                    } label: {
-                        VStack(spacing: 4) {
-                            Image(systemName: "antenna.radiowaves.left.and.right")
-                                .font(.system(size: scaledButtonSize))
-                            Text("Share")
-                                .font(.system(size: max(10.0, 12.0 * scaleFactor), weight: .medium))
-                        }
-                        .foregroundColor(.gray)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, scaledButtonPadding)
-                        .background(
-                            RoundedRectangle(cornerRadius: 8)
-                                .fill(Color.gray.opacity(0.2))
-                        )
-                    }
-                    .disabled(true)
-
-                    Button {
-                        isTimerMode.toggle()
-                        if !isTimerMode {
-                            timerViewModel.reset()
-                        }
-                    } label: {
-                        VStack(spacing: 4) {
-                            Image(systemName: "stopwatch")
-                                .renderingMode(.template)
-                                .font(.system(size: scaledButtonSize))
-                            Text("Workout")
-                                .font(.system(size: max(10.0, 12.0 * scaleFactor), weight: .medium))
-                        }
-                        .foregroundColor(isTimerMode ? .green : .white)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, scaledButtonPadding)
-                        .background(
-                            RoundedRectangle(cornerRadius: 8)
-                                .fill(Color.gray.opacity(0.3))
-                        )
-                    }
-
-                    Button {
-                        isHRVMode.toggle()
-                        if !isHRVMode {
-                            hrvViewModel.reset()
-                        }
-                    } label: {
-                        VStack(spacing: 4) {
-                            Image(systemName: "waveform.path.ecg")
-                                .renderingMode(.template)
-                                .font(.system(size: scaledButtonSize))
-                            Text("HRV")
-                                .font(.system(size: max(10.0, 12.0 * scaleFactor), weight: .medium))
-                        }
-                        .foregroundColor(isHRVMode ? .green : .white)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, scaledButtonPadding)
-                        .background(
-                            RoundedRectangle(cornerRadius: 8)
-                                .fill(Color.gray.opacity(0.3))
-                        )
-                    }
+            } label: {
+                (isLandscape ? AnyLayout(HStackLayout(spacing: 8)) : AnyLayout(VStackLayout(spacing: 4))) {
+                    Image(systemName: "stopwatch")
+                        .renderingMode(.template)
+                        .font(.system(size: scaledButtonSize))
+                    Text("Workout")
+                        .font(.system(size: isLandscape ? 14 : max(10.0, 12.0 * scaleFactor), weight: .medium))
                 }
+                .foregroundColor(isTimerMode ? .green : .white)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, scaledButtonPadding)
+                .background(
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(Color.gray.opacity(0.3))
+                )
             }
-            .frame(maxWidth: .infinity)
-            .padding(.horizontal, scaledPadding)
-            .padding(.vertical, max(12.0, 16.0 * scaleFactor))
-            .background(Color.black.opacity(0.8))
+
+            Button {
+                isHRVMode.toggle()
+                if !isHRVMode {
+                    hrvViewModel.reset()
+                }
+            } label: {
+                (isLandscape ? AnyLayout(HStackLayout(spacing: 8)) : AnyLayout(VStackLayout(spacing: 4))) {
+                    Image(systemName: "waveform.path.ecg")
+                        .renderingMode(.template)
+                        .font(.system(size: scaledButtonSize))
+                    Text("HRV")
+                        .font(.system(size: isLandscape ? 14 : max(10.0, 12.0 * scaleFactor), weight: .medium))
+                }
+                .foregroundColor(isHRVMode ? .green : .white)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, scaledButtonPadding)
+                .background(
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(Color.gray.opacity(0.3))
+                )
+            }
         }
     }
 
@@ -1290,81 +1208,108 @@ struct HeartRateDisplayView: View {
                 .transition(.move(edge: .top).combined(with: .opacity))
             }
 
-            TabView(selection: timerViewModeSelection) {
+            let contentLayout = isLandscape
+                ? AnyLayout(HStackLayout(spacing: 16))
+                : AnyLayout(VStackLayout(spacing: 0))
+            contentLayout {
                 VStack(spacing: 0) {
-                    // Stopwatch display with BPM (or completion stats when done)
-                    stopwatchDisplay()
-                        .padding(.top, 18)
-
-                    Rectangle()
-                        .fill(Color.gray.opacity(0.3))
-                        .frame(height: 1)
-                        .padding(.horizontal, isLandscape ? 40 : 20)
-                        .padding(.top, 16)
-
-                    setsTable(isLandscape: isLandscape, screenWidth: geometry.size.width)
-                        .padding(.horizontal, isLandscape ? 40 : 20)
-                        .padding(.top, 8)
-
-                    Spacer(minLength: 0)
-                }
-                .tag(TimerViewMode.table)
-
-                GeometryReader { proxy in
-                    heartRateDisplay(size: proxy.size)
-                }
-                .tag(TimerViewMode.bpm)
-
-                GeometryReader { proxy in
-                    let times = timerDisplayTimes()
-                    runningExpandedPanel(
-                        totalTime: times.total,
-                        setTime: times.set,
-                        isLandscape: isLandscape,
-                        containerSize: proxy.size
-                    )
-                    .padding(.top, 8)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                }
-                .tag(TimerViewMode.stats)
-
-                VStack(spacing: 0) {
-                    // Stopwatch display with BPM (or completion stats when done)
-                    stopwatchDisplay()
-                        .padding(.top, 18)
-
                     GeometryReader { proxy in
-                        let horizontalPadding: CGFloat = isLandscape ? 40 : 20
-                        let chartSpacing: CGFloat = 12
-                        let availableHeight = max(0, proxy.size.height - chartSpacing)
-                        let panelHeight = availableHeight / 2
-
-                        VStack(spacing: chartSpacing) {
-                            HeartRateChartView(timerViewModel: timerViewModel, isLandscape: isLandscape)
-                                .frame(maxWidth: .infinity, maxHeight: panelHeight)
-
-                            TimerTimeInZoneView(timerViewModel: timerViewModel, zoneStorage: zoneStorage, isLandscape: isLandscape)
-                                .frame(maxWidth: .infinity, maxHeight: panelHeight, alignment: .top)
-                        }
-                        .padding(.horizontal, horizontalPadding)
-                        .padding(.top, 12)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                        timerPages(size: proxy.size, isLandscape: isLandscape)
                     }
+                    timerViewPageDots(isLandscape: isLandscape)
                 }
-                .tag(TimerViewMode.chart)
-            }
-            .tabViewStyle(PageTabViewStyle(indexDisplayMode: .never))
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            timerViewPageDots(isLandscape: isLandscape)
-            
-            // Timer control buttons at bottom
-            timerControlButtons(isLandscape: isLandscape, screenWidth: geometry.size.width)
-                .padding(.bottom, geometry.safeAreaInsets.bottom)
+                if isLandscape {
+                    GeometryReader { controlsGeometry in
+                        ScrollView {
+                            timerControlButtons(isLandscape: true, screenWidth: geometry.size.width)
+                                .frame(minHeight: controlsGeometry.size.height, alignment: .center)
+                        }
+                        .scrollIndicators(.hidden)
+                    }
+                    .frame(width: landscapeControlsWidth(for: geometry.size.width))
+                    .padding(.trailing, 20)
+                    .padding(.bottom, 8)
+                } else {
+                    timerControlButtons(isLandscape: false, screenWidth: geometry.size.width)
+                        .padding(.bottom, geometry.safeAreaInsets.bottom)
+                }
+            }
+
         }
         .transaction { transaction in
             transaction.animation = nil
         }
+    }
+
+    private func timerPages(size: CGSize, isLandscape: Bool) -> some View {
+        TabView(selection: timerViewModeSelection) {
+            VStack(spacing: 0) {
+                // Stopwatch display with BPM (or completion stats when done)
+                stopwatchDisplay(isLandscape: isLandscape)
+                    .padding(.top, isLandscape ? 8 : 18)
+
+                Rectangle()
+                    .fill(Color.gray.opacity(0.3))
+                    .frame(height: 1)
+                    .padding(.horizontal, isLandscape ? 12 : 20)
+                    .padding(.top, isLandscape ? 8 : 16)
+
+                setsTable(isLandscape: false, screenWidth: size.width)
+                    .padding(.horizontal, 20)
+                    .padding(.top, 8)
+
+                Spacer(minLength: 0)
+            }
+            .tag(TimerViewMode.table)
+
+            GeometryReader { proxy in
+                heartRateDisplay(size: proxy.size)
+            }
+            .tag(TimerViewMode.bpm)
+
+            GeometryReader { proxy in
+                let times = timerDisplayTimes()
+                runningExpandedPanel(
+                    totalTime: times.total,
+                    setTime: times.set,
+                    isLandscape: isLandscape,
+                    containerSize: proxy.size
+                )
+                .padding(.top, 8)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+            .tag(TimerViewMode.stats)
+
+            VStack(spacing: 0) {
+                // Stopwatch display with BPM (or completion stats when done)
+                stopwatchDisplay(isLandscape: isLandscape)
+                    .padding(.top, isLandscape ? 8 : 18)
+
+                GeometryReader { proxy in
+                    let horizontalPadding: CGFloat = isLandscape ? 12 : 20
+                    let chartSpacing: CGFloat = 12
+                    let availableHeight = max(0, proxy.size.height - chartSpacing)
+                    let panelHeight = isLandscape ? availableHeight : availableHeight / 2
+
+                    (isLandscape ? AnyLayout(HStackLayout(spacing: chartSpacing)) : AnyLayout(VStackLayout(spacing: chartSpacing))) {
+                        HeartRateChartView(timerViewModel: timerViewModel, isLandscape: isLandscape)
+                            .frame(maxWidth: .infinity, maxHeight: panelHeight)
+
+                        TimerTimeInZoneView(timerViewModel: timerViewModel, zoneStorage: zoneStorage, isLandscape: isLandscape)
+                            .frame(maxWidth: .infinity, maxHeight: panelHeight, alignment: .top)
+                    }
+                    .padding(.horizontal, horizontalPadding)
+                    .padding(.top, 12)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                }
+            }
+            .tag(TimerViewMode.chart)
+        }
+        .tabViewStyle(PageTabViewStyle(indexDisplayMode: .never))
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+
     }
 
     private func timerViewPageDots(isLandscape: Bool) -> some View {
@@ -1382,14 +1327,41 @@ struct HeartRateDisplayView: View {
     }
     
     @ViewBuilder
-    private func stopwatchDisplay() -> some View {
-        if isPad {
+    private func stopwatchDisplay(isLandscape: Bool = false) -> some View {
+        if isLandscape {
+            compactWorkoutHeader()
+        } else if isPad {
             landscapeStopwatchDisplay()
         } else {
             portraitStopwatchDisplay()
         }
     }
     
+    private func compactWorkoutHeader() -> some View {
+        let times = timerDisplayTimes()
+        return HStack(spacing: 12) {
+            summaryStatColumn(
+                title: "Total Time",
+                value: isTimerEmptyState ? "---" : formatTime(times.total, showTenths: false),
+                labelSize: 12,
+                valueSize: 28
+            )
+            summaryStatColumn(
+                title: timerViewModel.isCompleted ? "Avg Work" : "Set Time",
+                value: isTimerEmptyState ? "---" : formatTime(times.set, showTenths: shouldShowTenthsInTimer),
+                labelSize: 12,
+                valueSize: 28
+            )
+            summaryStatColumn(
+                title: "BPM",
+                value: displayedHeartRate.map(String.init) ?? "---",
+                labelSize: 12,
+                valueSize: 28
+            )
+        }
+        .padding(.horizontal, 12)
+    }
+
     @ViewBuilder
     private func landscapeStopwatchDisplay() -> some View {
         // Always show stats - don't hide them when completed
@@ -1553,7 +1525,7 @@ struct HeartRateDisplayView: View {
         let headerFontSize: CGFloat = 14.0
         let columnSpacing: CGFloat = isLandscape ? 6.0 : max(6.0, 8.0 * scaleFactor)
         let columnCount = isLandscape ? 6 : 4 // 6 columns in landscape (add Max BPM and Min BPM), 4 in portrait
-        let columnWidth = (screenWidth - (isLandscape ? 80 : 40) - 24 - (columnSpacing * CGFloat(columnCount - 1))) / CGFloat(columnCount) // Equal width columns
+        let columnWidth = (screenWidth - (isLandscape ? 24 : 40) - 24 - (columnSpacing * CGFloat(columnCount - 1))) / CGFloat(columnCount) // Equal width columns
         let workSetCount = timerViewModel.sets.filter { !$0.isRestSet && !$0.isCooldownSet }.count
         let showDefaultEmptyRow = timerViewModel.state == .idle && timerViewModel.sets.isEmpty && !timerViewModel.isPresetMode
         let showTenths = shouldShowTenthsInTimer
@@ -2223,10 +2195,11 @@ struct HeartRateDisplayView: View {
     @ViewBuilder
     private func timerControlButtons(isLandscape: Bool, screenWidth: CGFloat) -> some View {
         let scaleFactor = min(1.0, screenWidth / 375.0)
-        let buttonSpacing = isLandscape ? 12.0 : max(12.0, 16.0 * scaleFactor)
-        let buttonPadding = isLandscape ? 40.0 : max(20.0, 24.0 * scaleFactor)
+        let buttonSpacing = isLandscape ? 8.0 : max(12.0, 16.0 * scaleFactor)
+        let buttonPadding = isLandscape ? 0.0 : max(20.0, 24.0 * scaleFactor)
         let buttonFontSize = isLandscape ? 16.0 : max(14.0, 18.0 * scaleFactor)
-        let buttonPaddingSize = isLandscape ? 12.0 : max(12.0, 16.0 * scaleFactor)
+        let buttonPaddingSize = isLandscape ? 8.0 : max(12.0, 16.0 * scaleFactor)
+        let rowLayout = isLandscape ? AnyLayout(VStackLayout(spacing: buttonSpacing)) : AnyLayout(HStackLayout(spacing: buttonSpacing))
         let isCooldownDisabled = timerViewModel.state == .idle && !timerViewModel.isPresetMode
         let isInCooldownMode = timerViewModel.isInCooldownMode
         let isCompleted = timerViewModel.isCompleted
@@ -2263,7 +2236,7 @@ struct HeartRateDisplayView: View {
                 .frame(maxWidth: .infinity)
                 .disabled(hasSavedWorkout)
 
-                HStack(spacing: buttonSpacing) {
+                rowLayout {
                 Button {
                     if hasSavedWorkout {
                         timerViewModel.reset()
@@ -2307,11 +2280,11 @@ struct HeartRateDisplayView: View {
                 }
             }
             .padding(.horizontal, buttonPadding)
-            .padding(.vertical, 20)
+            .padding(.vertical, isLandscape ? 4 : 20)
             .background(Color.black.opacity(0.8))
         } else if isStartState {
             VStack(spacing: buttonSpacing) {
-                HStack(spacing: buttonSpacing) {
+                rowLayout {
                     Button {
                         if isPresetMode {
                             timerViewModel.startPreset()
@@ -2346,7 +2319,7 @@ struct HeartRateDisplayView: View {
                 }
 
                 if !isPresetMode {
-                    HStack(spacing: buttonSpacing) {
+                    rowLayout {
                         HStack(spacing: 4) {
                             Image(systemName: "plus")
                                 .font(.system(size: buttonFontSize, weight: .semibold))
@@ -2388,172 +2361,13 @@ struct HeartRateDisplayView: View {
                 }
             }
             .padding(.horizontal, buttonPadding)
-            .padding(.vertical, 20)
-            .background(Color.black.opacity(0.8))
-        } else if isLandscape {
-            // Landscape: single row with all buttons
-            HStack(spacing: buttonSpacing) {
-                // Start/Pause/Reset button
-                Button {
-                    if timerViewModel.state == .running {
-                        if isPresetMode {
-                            timerViewModel.pausePreset()
-                        } else {
-                            timerViewModel.stop()
-                        }
-                    } else if timerViewModel.state == .cooldown {
-                        // Pause cooldown (works for both preset and non-preset)
-                        timerViewModel.toggleCooldown()
-                    } else if timerViewModel.state == .cooldownPaused {
-                        // Resume cooldown
-                        timerViewModel.toggleCooldown()
-                    } else if isCompleted {
-                        if hasSavedWorkout {
-                            timerViewModel.reset()
-                        } else {
-                            // Reset button - show confirmation alert
-                            showResetAlert = true
-                        }
-                    } else if timerViewModel.state == .paused {
-                        if isPresetMode {
-                            timerViewModel.startPreset()
-                        } else {
-                            timerViewModel.start()
-                        }
-                    } else {
-                        if isPresetMode {
-                            timerViewModel.startPreset()
-                        } else {
-                            timerViewModel.start()
-                        }
-                    }
-                } label: {
-                    let buttonText: String = {
-                        if isCompleted { return "Reset" }
-                        if timerViewModel.state == .running || timerViewModel.state == .cooldown { return "Pause" }
-                        if timerViewModel.state == .paused || timerViewModel.state == .cooldownPaused { return "Start" }
-                        return "Start"
-                    }()
-                    Text(buttonText)
-                        .font(.system(size: buttonFontSize, weight: .semibold))
-                        .foregroundColor(.white)
-                        .frame(maxWidth: .infinity)
-                        .padding(.horizontal, buttonPaddingSize * 1.5)
-                        .padding(.vertical, buttonPaddingSize)
-                        .background(Color.gray.opacity(0.3))
-                        .cornerRadius(buttonPaddingSize)
-                }
-                .frame(maxWidth: .infinity)
-
-                // End button
-                Button {
-                    if timerViewModel.state == .cooldown || timerViewModel.state == .cooldownPaused {
-                        timerViewModel.stopCooldownAndComplete()
-                    } else if isPresetMode {
-                        // In preset mode, End stops the workout entirely (skips cooldown)
-                        if timerViewModel.state == .running || timerViewModel.state == .paused {
-                            timerViewModel.stopPresetAndComplete()
-                        } else {
-                            // Preset loaded but not started - just clear it
-                            timerViewModel.clearPreset()
-                        }
-                    } else {
-                        if timerViewModel.state == .running || timerViewModel.state == .paused {
-                            timerViewModel.captureSet()
-                        }
-                        timerViewModel.stopAndComplete()
-                    }
-                } label: {
-                    Text("End")
-                        .font(.system(size: buttonFontSize, weight: .semibold))
-                        .foregroundColor((timerViewModel.state == .idle && timerViewModel.sets.isEmpty && !isPresetMode) || isCompleted ? .gray.opacity(0.5) : .white)
-                        .frame(maxWidth: .infinity)
-                        .padding(.horizontal, buttonPaddingSize * 1.5)
-                        .padding(.vertical, buttonPaddingSize)
-                        .background((timerViewModel.state == .idle && timerViewModel.sets.isEmpty && !isPresetMode) || isCompleted ? Color.gray.opacity(0.1) : Color.gray.opacity(0.3))
-                        .cornerRadius(buttonPaddingSize)
-                }
-                .disabled((timerViewModel.state == .idle && timerViewModel.sets.isEmpty && !isPresetMode) || isCompleted)
-                .frame(maxWidth: .infinity)
-
-                // Cool button (hidden in preset mode)
-                if !isPresetMode {
-                    Button {
-                        if timerViewModel.state == .cooldown || timerViewModel.state == .cooldownPaused {
-                            timerViewModel.toggleCooldown()
-                        } else {
-                            if timerViewModel.state == .running || timerViewModel.state == .paused {
-                                timerViewModel.captureSet()
-                            }
-                            timerViewModel.end()
-                        }
-                    } label: {
-                        Text("Cool")
-                            .font(.system(size: buttonFontSize, weight: .semibold))
-                            .foregroundColor(isCooldownDisabled || isInCooldownMode || isCompleted ? .gray.opacity(0.5) : .white)
-                            .frame(maxWidth: .infinity)
-                            .padding(.horizontal, buttonPaddingSize * 1.5)
-                            .padding(.vertical, buttonPaddingSize)
-                            .background((isCooldownDisabled || isInCooldownMode || isCompleted) ? Color.gray.opacity(0.1) : Color.gray.opacity(0.3))
-                            .cornerRadius(buttonPaddingSize)
-                    }
-                    .disabled(isCooldownDisabled || isInCooldownMode || isCompleted)
-                    .frame(maxWidth: .infinity)
-                }
-
-                // Work Set button (hidden in preset mode)
-                if !isPresetMode {
-                    Button {
-                        timerViewModel.captureSet()
-                    } label: {
-                        HStack(spacing: 4) {
-                            Image(systemName: "plus")
-                                .font(.system(size: buttonFontSize, weight: .semibold))
-                            Text("Work Set")
-                                .font(.system(size: buttonFontSize, weight: .semibold))
-                        }
-                        .foregroundColor(workSetDisabled ? .gray.opacity(0.5) : .white)
-                        .frame(maxWidth: .infinity)
-                        .padding(.horizontal, buttonPaddingSize * 1.5)
-                        .padding(.vertical, buttonPaddingSize)
-                        .background(workSetDisabled ? Color.gray.opacity(0.1) : Color.gray.opacity(0.3))
-                        .cornerRadius(buttonPaddingSize)
-                    }
-                    .disabled(workSetDisabled)
-                    .frame(maxWidth: .infinity)
-
-                    // Rest Set button
-                    Button {
-                        timerViewModel.captureRestSet()
-                    } label: {
-                        HStack(spacing: 4) {
-                            Image(systemName: "plus")
-                                .font(.system(size: buttonFontSize, weight: .semibold))
-                            Text("Rest Set")
-                                .font(.system(size: buttonFontSize, weight: .semibold))
-                        }
-                        .foregroundColor(restSetDisabled ? .gray.opacity(0.5) : .white)
-                        .frame(maxWidth: .infinity)
-                        .padding(.horizontal, buttonPaddingSize * 1.5)
-                        .padding(.vertical, buttonPaddingSize)
-                        .background(restSetDisabled ? Color.gray.opacity(0.1) : Color.gray.opacity(0.3))
-                        .cornerRadius(buttonPaddingSize)
-                    }
-                    .disabled(restSetDisabled)
-                    .frame(maxWidth: .infinity)
-                } else {
-                    presetNamePlaceholder(text: presetName, buttonFontSize: buttonFontSize, buttonPaddingSize: buttonPaddingSize)
-                        .frame(maxWidth: .infinity)
-                }
-            }
-            .padding(.horizontal, buttonPadding)
-            .padding(.vertical, 20)
+            .padding(.vertical, isLandscape ? 4 : 20)
             .background(Color.black.opacity(0.8))
         } else {
-            // Portrait: always two rows
+            // Stack each control on the right in landscape; use two rows in portrait.
             VStack(spacing: buttonSpacing) {
                 // Top row: Start/Pause/Reset, End, Cool (Cool hidden in preset mode)
-                HStack(spacing: buttonSpacing) {
+                rowLayout {
                     Button {
                         if timerViewModel.state == .running {
                             if isPresetMode {
@@ -2672,9 +2486,10 @@ struct HeartRateDisplayView: View {
 
                 // Bottom row: Work/Rest controls or preset label
                 if !isPresetMode {
-                    HStack(spacing: buttonSpacing) {
+                    rowLayout {
                         Button {
                             timerViewModel.captureSet()
+                            setConfirmation = UUID()
                         } label: {
                             HStack(spacing: 4) {
                                 Image(systemName: "plus")
@@ -2697,6 +2512,7 @@ struct HeartRateDisplayView: View {
 
                         Button {
                             timerViewModel.captureRestSet()
+                            setConfirmation = UUID()
                         } label: {
                             HStack(spacing: 4) {
                                 Image(systemName: "plus")
@@ -2722,7 +2538,7 @@ struct HeartRateDisplayView: View {
                 }
             }
             .padding(.horizontal, buttonPadding)
-            .padding(.vertical, 20)
+            .padding(.vertical, isLandscape ? 4 : 20)
             .background(Color.black.opacity(0.8))
         }
     }

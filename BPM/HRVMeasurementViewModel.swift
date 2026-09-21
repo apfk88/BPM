@@ -1,10 +1,3 @@
-//
-//  HRVMeasurementViewModel.swift
-//  BPM
-//
-//  Created for HRV measurement feature
-//
-
 import Foundation
 import Combine
 import UIKit
@@ -15,197 +8,136 @@ enum HRVMeasurementState: Equatable {
     case idle
     case countingDown
     case completed
-    case error(String) // Error state with message
+    case error(String)
 }
 
 final class HRVMeasurementViewModel: ObservableObject {
     @Published var state: HRVMeasurementState = .idle
-    @Published var remainingTime: TimeInterval = 120.0 // 2 minutes
-    @Published var hrvValue: Double? // RMSSD value in milliseconds
+    @Published var remainingTime: TimeInterval = 120
+    @Published var hrvValue: Double?
     @Published var avgHeartRate: Int?
     @Published var minHeartRate: Int?
     @Published var maxHeartRate: Int?
     @Published var currentBPM: Int?
-    
+
     private var timer: Timer?
-    private var heartRateSampleTimer: Timer?
-    private var liveHeartRateTimer: Timer? // Timer for live BPM updates when not measuring
-    private var heartRateSamples: [Int] = []
-    private var rrIntervalsDuringMeasurement: [Double] = [] // RR intervals collected during measurement
-    private var measurementStartRRIndex: Int = 0 // Index in bluetooth manager's RR intervals array when measurement started
+    private var liveHeartRateTimer: Timer?
+    private var intervals: [RRInterval] = []
+    private var seenIntervals: Set<UUID> = []
+    private var heartRateSamples: [HRVHeartRateSample] = []
     private var startTime: Date?
+    private var startTicks: TimeInterval?
+    private var streamID: UUID?
     private var completedAt: Date?
-    private let measurementDuration: TimeInterval = 120.0 // 2 minutes
+    private var lastSampleTicks: TimeInterval?
+    private let measurementDuration: TimeInterval = 120
+    private let ticksProvider: () -> TimeInterval
+    private let nowProvider: () -> Date
     private var audioPlayer: AVAudioPlayer?
-    
+
     var currentHeartRate: (() -> Int?)?
-    var getRRIntervals: (() -> [RRInterval])? // Callback to get current RR intervals from bluetooth manager
-    var supportsRRIntervals: (() -> Bool)? // Callback to check if device supports RR intervals
-    
-    var isCompleted: Bool {
-        if case .completed = state {
-            return true
-        }
-        return false
+    var getRRIntervals: (() -> [RRInterval])?
+    var supportsRRIntervals: (() -> Bool)?
+    var currentRRStreamID: (() -> UUID?)?
+
+    init(ticksProvider: @escaping () -> TimeInterval = { MeasurementClock.ticks }, nowProvider: @escaping () -> Date = Date.init) {
+        self.ticksProvider = ticksProvider
+        self.nowProvider = nowProvider
     }
-    
-    var hasError: Bool {
-        if case .error = state {
-            return true
-        }
-        return false
-    }
-    
+
+    var isCompleted: Bool { state == .completed }
+    var hasError: Bool { errorMessage != nil }
     var errorMessage: String? {
-        if case .error(let message) = state {
-            return message
-        }
+        if case .error(let message) = state { return message }
         return nil
     }
-    
+
     func startMeasurement() {
-        guard state == .idle || state == .completed || hasError else { return }
-        
-        // Check if device supports RR intervals
-        if let supportsRR = supportsRRIntervals?(), !supportsRR {
-            state = .error("Your heart rate monitor does not support RR intervals, which are required for accurate HRV measurement. Please use a compatible chest strap like Polar H10.")
+        guard state != .countingDown else { return }
+        reset()
+        guard supportsRRIntervals?() == true, currentHeartRate?() != nil,
+              let currentStream = currentRRStreamID?() else {
+            fail("HRV requires fresh beat intervals from your connected heart rate monitor. Check your strap connection and contact, then try again.")
             return
         }
-
-        AppAnalytics.signal(.hrvStart)
-        
-        // Stop live updates during measurement (heartRateSampleTimer will handle it)
-        liveHeartRateTimer?.invalidate()
-        liveHeartRateTimer = nil
-        
-        // Get current heart rate before resetting (to avoid blanking)
-        let currentHeartRateValue = currentHeartRate?()
-        
-        // Reset state
+        stopLiveHeartRateUpdates()
+        startTime = nowProvider()
+        startTicks = ticksProvider()
+        streamID = currentStream
+        // Identity, not array offsets: the manager's rolling history can be pruned.
+        seenIntervals = Set((getRRIntervals?() ?? []).map(\.id))
+        currentBPM = currentHeartRate?()
         state = .countingDown
-        remainingTime = measurementDuration
-        heartRateSamples.removeAll()
-        rrIntervalsDuringMeasurement.removeAll()
-        hrvValue = nil
-        avgHeartRate = nil
-        minHeartRate = nil
-        maxHeartRate = nil
-        // Preserve current BPM if available, otherwise set to nil
-        currentBPM = currentHeartRateValue
-        startTime = Date()
-        
-        // Record the starting index of RR intervals
-        if let currentRRIntervals = getRRIntervals?() {
-            measurementStartRRIndex = currentRRIntervals.count
-        } else {
-            measurementStartRRIndex = 0
-        }
-        
-        // Use 5 seconds for simulator, 120 seconds for real device
-        #if targetEnvironment(simulator)
-        let actualDuration = 5.0
-        #else
-        let actualDuration = measurementDuration
-        #endif
-        
-        // Start countdown timer
-        timer?.invalidate()
-        timer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
-            guard let self = self else { return }
-            DispatchQueue.main.async {
-                if let startTime = self.startTime {
-                    let elapsed = Date().timeIntervalSince(startTime)
-                    self.remainingTime = max(0, actualDuration - elapsed)
-                    
-                    // Check if measurement is complete
-                    if self.remainingTime <= 0 {
-                        self.completeMeasurement()
-                    }
-                }
-            }
-        }
-        RunLoop.current.add(timer!, forMode: .common)
-        
-        // Start heart rate sampling timer (every second)
-        heartRateSampleTimer?.invalidate()
-        heartRateSampleTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
-            guard let self = self else { return }
-            DispatchQueue.main.async {
-                #if targetEnvironment(simulator)
-                // Generate phony heart rate data for simulator (between 60-100 BPM)
-                let phonyHeartRate = Int.random(in: 60...100)
-                self.currentBPM = phonyHeartRate
-                self.heartRateSamples.append(phonyHeartRate)
-                
-                // Update min/max
-                if self.minHeartRate == nil || phonyHeartRate < self.minHeartRate! {
-                    self.minHeartRate = phonyHeartRate
-                }
-                if self.maxHeartRate == nil || phonyHeartRate > self.maxHeartRate! {
-                    self.maxHeartRate = phonyHeartRate
-                }
-                #else
-                if let heartRate = self.currentHeartRate?() {
-                    self.currentBPM = heartRate
-                    self.heartRateSamples.append(heartRate)
-                    
-                    // Update min/max
-                    if heartRate > 0 && (self.minHeartRate == nil || heartRate < self.minHeartRate!) {
-                        self.minHeartRate = heartRate
-                    }
-                    if self.maxHeartRate == nil || heartRate > self.maxHeartRate! {
-                        self.maxHeartRate = heartRate
-                    }
-                }
-                #endif
-            }
-        }
-        RunLoop.current.add(heartRateSampleTimer!, forMode: .common)
+        AppAnalytics.signal(.hrvStart)
+        timer = Timer(timeInterval: 0.1, repeats: true) { [weak self] _ in self?.updateMeasurement() }
+        RunLoop.main.add(timer!, forMode: .common)
     }
-    
+
+    /// Timer callbacks only refresh the display; monotonic time defines the window.
+    func updateMeasurement() {
+        guard state == .countingDown, let startTicks else { return }
+        guard currentRRStreamID?() == streamID, supportsRRIntervals?() == true else {
+            fail("The sensor connection or contact changed during measurement. Check your strap and measure again.")
+            return
+        }
+        let nowTicks = ticksProvider()
+        let deadline = startTicks + measurementDuration
+        for interval in getRRIntervals?() ?? [] where !seenIntervals.contains(interval.id) {
+            seenIntervals.insert(interval.id)
+            if interval.receivedTicks > startTicks && interval.receivedTicks <= deadline {
+                intervals.append(interval)
+            }
+        }
+        currentBPM = currentHeartRate?()
+        // Keep real receipt times for the accompanying BPM trace.
+        if nowTicks <= deadline, nowTicks - (lastSampleTicks ?? startTicks) >= 1 {
+            lastSampleTicks = nowTicks
+            if let bpm = currentBPM, bpm > 0 {
+                heartRateSamples.append(HRVHeartRateSample(timestamp: nowProvider(), bpm: bpm))
+                minHeartRate = min(minHeartRate ?? bpm, bpm)
+                maxHeartRate = max(maxHeartRate ?? bpm, bpm)
+            }
+        }
+        remainingTime = max(0, deadline - nowTicks)
+        if nowTicks >= deadline {
+            completeMeasurement()
+        } else if nowTicks - (intervals.last?.receivedTicks ?? startTicks) > 5 {
+            fail("Beat data stopped during measurement. Check your strap connection and measure again.")
+        }
+    }
+
     private func completeMeasurement() {
+        guard let startTicks, let startTime else { return }
+        if let error = HRVCalculator.qualityError(intervals: intervals, start: startTicks, duration: measurementDuration) {
+            fail(error)
+            return
+        }
+        guard let result = HRVCalculator.rmssd(intervals.map(\.value)) else {
+            fail("Unable to calculate HRV from this recording. Please measure again.")
+            return
+        }
         timer?.invalidate()
         timer = nil
-        heartRateSampleTimer?.invalidate()
-        heartRateSampleTimer = nil
-        
-        // Calculate average heart rate
-        if !heartRateSamples.isEmpty {
-            let nonZeroSamples = heartRateSamples.filter { $0 > 0 }
-            if !nonZeroSamples.isEmpty {
-                let total = nonZeroSamples.reduce(0, +)
-                avgHeartRate = Int((Double(total) / Double(nonZeroSamples.count)).rounded())
-            }
+        hrvValue = result
+        let values = heartRateSamples.map(\.bpm)
+        if !values.isEmpty {
+            avgHeartRate = Int((Double(values.reduce(0, +)) / Double(values.count)).rounded())
         }
-        
-        // Collect RR intervals that were received during measurement
-        if let allRRIntervals = getRRIntervals?() {
-            // Get RR intervals from the start of measurement to now
-            let endIndex = allRRIntervals.count
-            if endIndex > measurementStartRRIndex {
-                let measurementRRIntervals = Array(allRRIntervals[measurementStartRRIndex..<endIndex])
-                rrIntervalsDuringMeasurement = measurementRRIntervals.map { $0.value }
-            }
-        }
-        
-        // Calculate HRV (RMSSD) from actual RR intervals if available, otherwise fall back to BPM conversion
-        if !rrIntervalsDuringMeasurement.isEmpty {
-            hrvValue = calculateRMSSDFromRRIntervals(rrIntervalsDuringMeasurement)
-        } else {
-            // Fallback: calculate from BPM samples (less accurate)
-            hrvValue = calculateRMSSD(from: heartRateSamples)
-        }
-        
+        completedAt = startTime.addingTimeInterval(measurementDuration)
         state = .completed
-        completedAt = Date()
-        
-        // Play sound and vibrate to alert user (they may have eyes closed)
         playCompletionFeedback()
-        
-        // Restart live heart rate updates after measurement completes
         startLiveHeartRateUpdates()
     }
-    
+
+    private func fail(_ message: String) {
+        timer?.invalidate()
+        timer = nil
+        hrvValue = nil
+        completedAt = nil
+        state = .error(message)
+        startLiveHeartRateUpdates()
+    }
+
     private func playCompletionFeedback() {
         // Haptic feedback - success notification (strong vibration)
         let generator = UINotificationFeedbackGenerator()
@@ -242,100 +174,48 @@ final class HRVMeasurementViewModel: ObservableObject {
         }
     }
     
-    private func calculateRMSSDFromRRIntervals(_ rrIntervals: [Double]) -> Double? {
-        guard rrIntervals.count >= 2 else { return nil }
-        
-        // Calculate successive differences between RR intervals
-        var differences: [Double] = []
-        for i in 1..<rrIntervals.count {
-            let diff = rrIntervals[i] - rrIntervals[i-1]
-            differences.append(diff * diff) // Square the difference
-        }
-        
-        guard !differences.isEmpty else { return nil }
-        
-        // Calculate mean of squared differences
-        let meanSquaredDiff = differences.reduce(0.0, +) / Double(differences.count)
-        
-        // RMSSD = sqrt(mean of squared differences)
-        return sqrt(meanSquaredDiff)
-    }
-    
-    private func calculateRMSSD(from samples: [Int]) -> Double? {
-        guard samples.count >= 2 else { return nil }
-        
-        // Convert BPM to RR intervals (milliseconds)
-        // RR interval = 60000 / BPM
-        // This is a fallback method - less accurate than using actual RR intervals
-        let rrIntervals = samples.map { 60000.0 / Double($0) }
-        
-        return calculateRMSSDFromRRIntervals(rrIntervals)
-    }
-    
     func startLiveHeartRateUpdates() {
-        // Start continuous heart rate updates when view appears
-        liveHeartRateTimer?.invalidate()
-        liveHeartRateTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
-            guard let self = self else { return }
-            DispatchQueue.main.async {
-                // Only update if not currently measuring (during measurement, heartRateSampleTimer handles it)
-                if self.state != .countingDown {
-                    if let heartRate = self.currentHeartRate?() {
-                        self.currentBPM = heartRate
-                    }
-                }
-            }
+        stopLiveHeartRateUpdates()
+        liveHeartRateTimer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in
+            guard let self, self.state != .countingDown else { return }
+            self.currentBPM = self.currentHeartRate?()
         }
-        RunLoop.current.add(liveHeartRateTimer!, forMode: .common)
+        RunLoop.main.add(liveHeartRateTimer!, forMode: .common)
     }
-    
+
     func stopLiveHeartRateUpdates() {
         liveHeartRateTimer?.invalidate()
         liveHeartRateTimer = nil
     }
-    
+
     func reset() {
         timer?.invalidate()
         timer = nil
-        heartRateSampleTimer?.invalidate()
-        heartRateSampleTimer = nil
         state = .idle
         remainingTime = measurementDuration
+        intervals.removeAll()
+        seenIntervals.removeAll()
         heartRateSamples.removeAll()
-        rrIntervalsDuringMeasurement.removeAll()
         hrvValue = nil
         avgHeartRate = nil
         minHeartRate = nil
         maxHeartRate = nil
         currentBPM = nil
         startTime = nil
-        measurementStartRRIndex = 0
+        startTicks = nil
+        streamID = nil
         completedAt = nil
+        lastSampleTicks = nil
     }
 
     func hrvRecord(recordId: UUID? = nil) -> HRVRecord? {
-        guard let startTime, let completedAt else { return nil }
-        let duration = max(0, completedAt.timeIntervalSince(startTime))
-        let samples = heartRateSamples.enumerated().map { index, bpm in
-            let timestamp = startTime.addingTimeInterval(TimeInterval(index))
-            return HRVHeartRateSample(timestamp: timestamp, bpm: bpm)
-        }
+        guard isCompleted, let startTime, let completedAt, let hrvValue, hrvValue.isFinite else { return nil }
         return HRVRecord(
-            id: recordId ?? UUID(),
-            schemaVersion: HRVRecord.schemaVersion,
-            startAt: startTime,
-            endAt: completedAt,
-            durationSeconds: duration,
-            hrvValue: hrvValue,
-            avgHr: avgHeartRate,
-            minHr: minHeartRate,
-            maxHr: maxHeartRate,
-            hrSamples: samples,
-            rrIntervalsMs: rrIntervalsDuringMeasurement,
-            source: "phone",
-            appVersion: appVersionString(),
-            createdAt: Date(),
-            updatedAt: Date()
+            id: recordId ?? UUID(), schemaVersion: HRVRecord.schemaVersion,
+            startAt: startTime, endAt: completedAt, durationSeconds: measurementDuration,
+            hrvValue: hrvValue, avgHr: avgHeartRate, minHr: minHeartRate, maxHr: maxHeartRate,
+            hrSamples: heartRateSamples, rrIntervalsMs: intervals.map(\.value),
+            source: "phone", appVersion: appVersionString(), createdAt: nowProvider(), updatedAt: nowProvider()
         )
     }
 
@@ -344,10 +224,9 @@ final class HRVMeasurementViewModel: ObservableObject {
         let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "0"
         return "\(short) (\(build))"
     }
-    
+
     deinit {
         timer?.invalidate()
-        heartRateSampleTimer?.invalidate()
         liveHeartRateTimer?.invalidate()
     }
 }

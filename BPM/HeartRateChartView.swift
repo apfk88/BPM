@@ -171,7 +171,12 @@ struct HeartRateTimelineChart: View {
 
     var body: some View {
         if dataPoints.isEmpty {
-            Chart {}
+            Chart(dataPoints) { point in
+                LineMark(
+                    x: .value("Time", point.time),
+                    y: .value("BPM", point.bpm)
+                )
+            }
                 .chartXScale(domain: 0...60)
                 .chartYScale(domain: 60...180)
                 .chartXAxis {

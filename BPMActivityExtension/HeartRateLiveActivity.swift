@@ -6,14 +6,14 @@ import SwiftUI
 struct HeartRateLiveActivity: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: HeartRateActivityAttributes.self) { context in
-            HeartRateLiveActivityView(content: context.state)
+            HeartRateLiveActivityView(content: context.state, isStale: context.isStale)
                 .padding()
                 .activityBackgroundTint(Color.black)
                 .activitySystemActionForegroundColor(.white)
         } dynamicIsland: { context in
             DynamicIsland {
                 DynamicIslandExpandedRegion(.bottom) {
-                    HeartRateLiveActivityView(content: context.state)
+                    HeartRateLiveActivityView(content: context.state, isStale: context.isStale)
                         .padding(.horizontal, 12)
                         .padding(.top, 8)
                         .padding(.bottom, 10)
@@ -28,7 +28,7 @@ struct HeartRateLiveActivity: Widget {
                     return .white
                 }()
 
-                Text(context.state.bpm.map { "\($0)" } ?? "--")
+                Text(context.isStale ? "--" : (context.state.bpm.map { "\($0)" } ?? "--"))
                     .font(.system(size: 26, weight: .bold, design: .monospaced))
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
@@ -36,8 +36,9 @@ struct HeartRateLiveActivity: Widget {
                 .foregroundColor(textColor)
             } compactTrailing: {
                 if let elapsed = context.state.elapsedSeconds {
-                    Text(formatDuration(elapsed))
+                    WorkoutElapsedText(content: context.state, elapsed: elapsed, width: 80, alignment: .trailing)
                         .font(.system(size: 16, weight: .semibold, design: .monospaced))
+                        .multilineTextAlignment(.trailing)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                         .minimumScaleFactor(0.7)
@@ -53,7 +54,7 @@ struct HeartRateLiveActivity: Widget {
                     return .white
                 }()
 
-                Text(context.state.bpm.map { "\($0)" } ?? "--")
+                Text(context.isStale ? "--" : (context.state.bpm.map { "\($0)" } ?? "--"))
                     .font(.system(size: 16, weight: .bold, design: .monospaced))
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
@@ -77,6 +78,7 @@ private func formatDuration(_ seconds: Int) -> String {
 @available(iOSApplicationExtension 16.1, *)
 private struct HeartRateLiveActivityView: View {
     let content: HeartRateActivityAttributes.ContentState
+    let isStale: Bool
 
     var body: some View {
         HStack(alignment: .center, spacing: 16) {
@@ -98,7 +100,7 @@ private struct HeartRateLiveActivityView: View {
                 }
 
                 // BPM number (show "--" when disconnected)
-                Text(content.bpm.map { "\($0)" } ?? "--")
+                Text(isStale ? "--" : (content.bpm.map { "\($0)" } ?? "--"))
                     .font(.system(size: 56, weight: .bold, design: .monospaced))
                     .lineLimit(1)
                     .minimumScaleFactor(0.55)
@@ -111,7 +113,14 @@ private struct HeartRateLiveActivityView: View {
             // Stats on the right, horizontal
             HStack(spacing: 16) {
                 if let elapsed = content.elapsedSeconds {
-                    StatTextValue(label: "Time", value: formatDuration(elapsed))
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Time").font(.system(size: 13, weight: .semibold)).foregroundStyle(.secondary)
+                        WorkoutElapsedText(content: content, elapsed: elapsed, width: 110)
+                            .font(.system(size: 22, weight: .bold, design: .monospaced))
+                            .multilineTextAlignment(.leading)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.6)
+                    }
                 } else {
                     if let max = content.maximum {
                         StatValue(label: "Max", value: max)
@@ -120,7 +129,7 @@ private struct HeartRateLiveActivityView: View {
                         StatValue(label: "Avg", value: avg)
                     }
                 }
-                if let zone = content.zone {
+                if !isStale, let zone = content.zone {
                     ZoneValue(zone: zone)
                 }
             }
@@ -205,5 +214,30 @@ private struct ZoneValue: View {
                 .minimumScaleFactor(0.6)
                 .allowsTightening(true)
         }
+    }
+}
+
+@available(iOSApplicationExtension 16.1, *)
+private struct WorkoutElapsedText: View {
+    let content: HeartRateActivityAttributes.ContentState
+    let elapsed: Int
+    let width: CGFloat
+    var alignment: Alignment = .leading
+
+    var body: some View {
+        Group {
+            if let reference = content.timerReferenceDate {
+                // System-rendered time keeps moving while the app is suspended and
+                // stops at the planned end of a preset or cooldown.
+                Text(timerInterval: reference...max(reference, content.timerEndDate ?? .distantFuture), countsDown: false)
+                    .monospacedDigit()
+            } else {
+                Text(formatDuration(elapsed))
+            }
+        }
+        // Widget timers are horizontally flexible. An explicit width keeps the
+        // island compact and gives the fixed-size stats row a finite ideal width.
+        // Reserve room for hours so suspension and pause do not change the layout.
+        .frame(width: width, alignment: alignment)
     }
 }

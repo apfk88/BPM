@@ -49,6 +49,13 @@ struct ActiveWorkoutSessionSnapshot: Codable, Equatable {
     let presetStartCountdownRemainingOnPause: TimeInterval
     let presetStartCountdownEndTime: Date?
 
+    var clockDate: Date? = nil
+    var clockTicks: TimeInterval? = nil
+    var clockBootSessionID: String? = nil
+    var pauses: [WorkoutPause]? = nil
+    var workoutStartedAt: Date? = nil
+    var workoutEndedAt: Date? = nil
+
     var hasSession: Bool {
         startTime != nil || !sets.isEmpty || activePreset != nil || isPresetPrestartCountdownActive
     }
@@ -70,7 +77,7 @@ final class ActiveWorkoutSessionStore {
             let directory = fileURL.deletingLastPathComponent()
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             let data = try encoder.encode(snapshot)
-            try data.write(to: fileURL, options: .atomic)
+            try data.write(to: fileURL, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
         } catch {
             print("⚠️ Failed to persist active workout session: \(error.localizedDescription)")
         }
@@ -83,12 +90,10 @@ final class ActiveWorkoutSessionStore {
             let data = try Data(contentsOf: fileURL)
             let snapshot = try decoder.decode(ActiveWorkoutSessionSnapshot.self, from: data)
             guard snapshot.schemaVersion == ActiveWorkoutSessionSnapshot.currentSchemaVersion else {
-                clear()
                 return nil
             }
             return snapshot
         } catch {
-            clear()
             print("⚠️ Failed to load active workout session: \(error.localizedDescription)")
             return nil
         }
