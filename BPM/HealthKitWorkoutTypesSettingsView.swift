@@ -60,7 +60,7 @@ struct HealthKitWorkoutTypesSettingsView: View {
 }
 
 #Preview {
-    NavigationView {
+    NavigationStack {
         HealthKitWorkoutTypesSettingsView()
     }
 }

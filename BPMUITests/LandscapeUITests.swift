@@ -32,8 +32,7 @@ final class LandscapeUITests: XCTestCase {
         attachScreenshot("Workout landscape")
 
         for page in ["bpm", "stats", "chart"] {
-            app.coordinate(withNormalizedOffset: CGVector(dx: 0.55, dy: 0.5))
-                .press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.15, dy: 0.5)))
+            app.collectionViews.firstMatch.swipeLeft(velocity: .fast)
             XCTAssertTrue(app.otherElements["Timer view page: \(page)"].waitForExistence(timeout: 3))
             attachScreenshot("Workout \(page) landscape")
         }
@@ -64,6 +63,9 @@ final class LandscapeUITests: XCTestCase {
         attachScreenshot("HRV landscape")
         rotate(.portrait, app: app)
         XCTAssertTrue(app.buttons["Measure HRV"].isHittable)
+        for label in ["Measure HRV", "Settings", "HRV History", "Device Picker"] {
+            XCTAssertLessThanOrEqual(app.buttons[label].frame.maxX, app.frame.maxX, "\(label) must not be clipped")
+        }
         attachScreenshot("HRV portrait")
     }
 

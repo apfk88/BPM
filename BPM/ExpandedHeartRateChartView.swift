@@ -52,103 +52,86 @@ struct ExpandedHeartRateChartView: View {
     }
 
     var body: some View {
-        GeometryReader { geometry in
-            landscapeContent
-                .frame(width: geometry.size.height, height: geometry.size.width)
-                .rotationEffect(.degrees(90))
-                .position(x: geometry.size.width / 2, y: geometry.size.height / 2)
-        }
-        .background(Color.black)
-        .ignoresSafeArea()
-        .statusBarHidden(true)
-    }
-
-    private var landscapeContent: some View {
-        VStack(spacing: 12) {
-            header
-
-            HeartRateTimelineChart(
-                dataPoints: record.chartDataPoints,
-                segments: record.chartSegments,
-                maxTime: viewport.totalDuration,
-                allowsHorizontalScrolling: true,
-                showsPeakLabels: showsPeakLabels,
-                selectedTime: $selectedTime,
-                isDragging: $isInspecting,
-                visibleDuration: $visibleDuration,
-                scrollPosition: $scrollPosition
-            )
-            .simultaneousGesture(magnifyGesture)
-            .accessibilityHint("Pinch to zoom, drag to pan, or tap to inspect heart rate")
-        }
-        .padding(.horizontal, 28)
-        .padding(.vertical, 18)
-        .background(Color.black)
-    }
-
-    private var header: some View {
-        HStack(spacing: 16) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(workoutTitle)
-                    .font(.headline)
-                    .lineLimit(1)
+        NavigationStack {
+            VStack(spacing: 8) {
                 Text(record.startAt.formatted(date: .abbreviated, time: .shortened))
                     .font(.caption)
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
+                HeartRateTimelineChart(
+                    dataPoints: record.chartDataPoints,
+                    segments: record.chartSegments,
+                    maxTime: viewport.totalDuration,
+                    allowsHorizontalScrolling: true,
+                    showsPeakLabels: showsPeakLabels,
+                    selectedTime: $selectedTime,
+                    isDragging: $isInspecting,
+                    visibleDuration: $visibleDuration,
+                    scrollPosition: $scrollPosition
+                )
+                .simultaneousGesture(magnifyGesture)
+                .accessibilityHint("Pinch to zoom, drag to pan, or tap to inspect heart rate")
+                .padding(.horizontal)
             }
-
-            Spacer(minLength: 12)
-
-            Button {
-                withAnimation(.easeInOut(duration: 0.15)) {
-                    showsPeakLabels.toggle()
-                }
-            } label: {
-                Label("Peak labels", systemImage: showsPeakLabels ? "tag.fill" : "tag")
-                    .font(.caption)
+            .padding(.vertical)
+            .background(Color.black)
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                chartControls
             }
-            .buttonStyle(.plain)
-            .foregroundColor(showsPeakLabels ? .white : .secondary)
-            .accessibilityValue(showsPeakLabels ? "On" : "Off")
-
-            Text(zoomLabel)
-                .font(.caption.monospacedDigit())
-                .foregroundColor(.secondary)
-                .frame(minWidth: 38, alignment: .trailing)
-
-            HStack(spacing: 10) {
-                chartControl(
-                    systemImage: "minus.magnifyingglass",
-                    accessibilityLabel: "Zoom out",
-                    isDisabled: visibleDuration >= viewport.totalDuration
-                ) {
-                    adjustZoom(by: 0.5)
-                }
-
-                chartControl(
-                    systemImage: "arrow.counterclockwise",
-                    accessibilityLabel: "Reset zoom",
-                    isDisabled: visibleDuration >= viewport.totalDuration && scrollPosition == 0
-                ) {
-                    resetViewport()
-                }
-
-                chartControl(
-                    systemImage: "plus.magnifyingglass",
-                    accessibilityLabel: "Zoom in",
-                    isDisabled: visibleDuration <= viewport.minimumVisibleDuration
-                ) {
-                    adjustZoom(by: 2)
-                }
-
-                chartControl(
-                    systemImage: "xmark.circle.fill",
-                    accessibilityLabel: "Close chart"
-                ) {
-                    dismiss()
+            .navigationTitle(workoutTitle)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                        .accessibilityLabel("Close chart")
                 }
             }
         }
+    }
+
+    private var chartControls: some View {
+        BPMGlassContainer {
+            HStack(spacing: 12) {
+                Button {
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        showsPeakLabels.toggle()
+                    }
+                } label: {
+                    Image(systemName: showsPeakLabels ? "tag.fill" : "tag")
+                        .frame(minWidth: 30, minHeight: 30)
+                }
+                .accessibilityLabel("Peak labels")
+                .accessibilityValue(showsPeakLabels ? "On" : "Off")
+
+                Text(zoomLabel)
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .accessibilityLabel("Zoom \(zoomLabel)")
+
+                Spacer(minLength: 0)
+
+                HStack(spacing: 8) {
+                    chartControl(
+                        systemImage: "minus.magnifyingglass",
+                        accessibilityLabel: "Zoom out",
+                        isDisabled: visibleDuration >= viewport.totalDuration
+                    ) { adjustZoom(by: 0.5) }
+                    chartControl(
+                        systemImage: "arrow.counterclockwise",
+                        accessibilityLabel: "Reset zoom",
+                        isDisabled: visibleDuration >= viewport.totalDuration && scrollPosition == 0
+                    ) { resetViewport() }
+                    chartControl(
+                        systemImage: "plus.magnifyingglass",
+                        accessibilityLabel: "Zoom in",
+                        isDisabled: visibleDuration <= viewport.minimumVisibleDuration
+                    ) { adjustZoom(by: 2) }
+                }
+            }
+            .bpmActionStyle()
+            .foregroundStyle(.primary)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
     }
 
     private func chartControl(
@@ -160,11 +143,9 @@ struct ExpandedHeartRateChartView: View {
         Button(action: action) {
             Image(systemName: systemImage)
                 .font(.system(size: 18, weight: .semibold))
-                .frame(width: 30, height: 30)
+                .frame(minWidth: 30, minHeight: 30)
                 .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
-        .foregroundColor(isDisabled ? .gray.opacity(0.45) : .white)
         .disabled(isDisabled)
         .accessibilityLabel(accessibilityLabel)
     }

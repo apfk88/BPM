@@ -6,7 +6,7 @@ struct SuccessHUDView: View {
     var body: some View {
         Label {
             Text(message)
-                .font(.system(size: 15, weight: .semibold))
+                .font(.subheadline.weight(.semibold))
                 .foregroundColor(.white)
         } icon: {
             Image(systemName: "checkmark.circle.fill")

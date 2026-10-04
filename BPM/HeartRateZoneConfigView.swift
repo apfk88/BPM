@@ -22,7 +22,7 @@ struct HeartRateZoneConfigView: View {
     @State private var zone5Max: String = ""
 
     var body: some View {
-        NavigationView {
+        NavigationStack {
             ZStack {
                 Color.black.ignoresSafeArea()
 
@@ -146,14 +146,14 @@ struct HeartRateZoneConfigView: View {
             .navigationTitle("Heart Rate Zones")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
+                ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") {
                         isPresented = false
                     }
                     .foregroundColor(.white)
                 }
 
-                ToolbarItem(placement: .navigationBarTrailing) {
+                ToolbarItem(placement: .confirmationAction) {
                     Button("Save") {
                         saveConfiguration()
                         isPresented = false
@@ -162,8 +162,6 @@ struct HeartRateZoneConfigView: View {
                     .disabled(!isValidConfiguration)
                 }
             }
-            .toolbarBackground(Color.black, for: .navigationBar)
-            .toolbarBackground(.visible, for: .navigationBar)
         }
         .preferredColorScheme(.dark)
         .onAppear {

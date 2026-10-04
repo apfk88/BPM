@@ -66,7 +66,7 @@ struct HRVMeasurementView: View {
     var body: some View {
         GeometryReader { geometry in
             let isLandscape = geometry.size.width > geometry.size.height
-            let primaryDisplayFontSize = min(geometry.size.width * 0.36, geometry.size.height * 0.27)
+            let primaryDisplayFontSize = min(geometry.size.width * 0.32, geometry.size.height * 0.27)
             ZStack {
                 Color.black.ignoresSafeArea()
 
@@ -88,7 +88,8 @@ struct HRVMeasurementView: View {
                                 onDismiss()
                             }
                         } label: {
-                            topBarCircleIcon(systemName: "xmark")
+                            topBarCircleIcon(systemName: "xmark", accessibilityLabel: "Close HRV measurement")
+                                .accessibilityIdentifier("xmark")
                         }
 
                         Spacer()
@@ -121,6 +122,7 @@ struct HRVMeasurementView: View {
                         }
                         .frame(width: TopBarLayout.trailingButtonGroupWidth, alignment: .trailing)
                     }
+                    .bpmGlassGroup()
                     .padding(.horizontal, TopBarLayout.horizontalPadding)
                     .padding(.top, TopBarLayout.topPadding)
                     .sheet(isPresented: $showDevicePicker) {
@@ -171,6 +173,7 @@ struct HRVMeasurementView: View {
                         VStack(spacing: 0) {
                             Spacer(minLength: 8)
                             measurementDisplay(primaryDisplayFontSize: primaryDisplayFontSize)
+                                .padding(.horizontal, 24)
                             Spacer(minLength: 8)
                         }
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -178,14 +181,14 @@ struct HRVMeasurementView: View {
                         if isLandscape {
                             GeometryReader { controlsGeometry in
                                 ScrollView {
-                                    measurementControls(isLandscape: true, bottomInset: 0)
+                                    measurementControls(isLandscape: true)
                                         .frame(minHeight: controlsGeometry.size.height, alignment: .center)
                                 }
                                 .scrollIndicators(.hidden)
                             }
                             .frame(width: min(200, max(150, geometry.size.width * 0.23)))
                         } else {
-                            measurementControls(isLandscape: false, bottomInset: geometry.safeAreaInsets.bottom)
+                            measurementControls(isLandscape: false)
                         }
                     }
                     .padding(.horizontal, isLandscape ? 20 : 0)
@@ -284,7 +287,6 @@ struct HRVMeasurementView: View {
                                 .font(.system(size: 16, weight: .medium))
                                 .foregroundColor(.white)
                                 .multilineTextAlignment(.center)
-                                .padding(.horizontal, 40)
                         }
                     }
                 } else if viewModel.isCompleted {
@@ -305,19 +307,19 @@ struct HRVMeasurementView: View {
                     Text(formatTime(viewModel.remainingTime))
                         .font(.system(size: primaryDisplayFontSize, weight: .bold, design: .monospaced))
                         .foregroundColor(.white)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.5)
                 }
 
                 // Stats bar - BPM, Min, Max (BPM becomes avg when completed)
                 // Only show stats if not in error state
                 if !viewModel.hasError {
-                    HStack(spacing: 20) {
+                    HStack(spacing: 12) {
                         statColumn(
                             title: viewModel.isCompleted ? "Avg" : "BPM",
                             value: viewModel.isCompleted ? viewModel.avgHeartRate : viewModel.currentBPM,
                             scaleFactor: 1.0
                         )
-
-                        Spacer()
 
                         statColumn(
                             title: "Min",
@@ -325,15 +327,12 @@ struct HRVMeasurementView: View {
                             scaleFactor: 1.0
                         )
 
-                        Spacer()
-
                         statColumn(
                             title: "Max",
                             value: viewModel.maxHeartRate,
                             scaleFactor: 1.0
                         )
                     }
-                    .padding(.horizontal, 40)
                 }
             }
         }
@@ -341,19 +340,18 @@ struct HRVMeasurementView: View {
     }
 
     @ViewBuilder
-    private func measurementControls(isLandscape: Bool, bottomInset: CGFloat) -> some View {
+    private func measurementControls(isLandscape: Bool) -> some View {
         if viewModel.isCompleted {
             (isLandscape ? AnyLayout(VStackLayout(spacing: 12)) : AnyLayout(HStackLayout(spacing: 16))) {
                 Button {
                     saveCurrentRecord()
                 } label: {
                     Text(hasSavedRecord ? "Saved" : "Save")
-                        .font(.system(size: 18, weight: .semibold))
+                        .font(.headline)
                         .foregroundColor(hasSavedRecord ? .gray : .white)
                         .frame(maxWidth: .infinity)
-                        .padding(.vertical, 16)
-                        .background(hasSavedRecord ? Color.gray.opacity(0.2) : Color.gray.opacity(0.5))
-                        .cornerRadius(12)
+                        .padding(.vertical, 6)
+                        .frame(minHeight: 30)
                 }
                 .disabled(hasSavedRecord || isSaving)
 
@@ -363,16 +361,17 @@ struct HRVMeasurementView: View {
                     savedRecordId = nil
                 } label: {
                     Text("Reset")
-                        .font(.system(size: 18, weight: .semibold))
+                        .font(.headline)
                         .foregroundColor(.white)
                         .frame(maxWidth: .infinity)
-                        .padding(.vertical, 16)
-                        .background(Color.gray.opacity(0.5))
-                        .cornerRadius(12)
+                        .padding(.vertical, 6)
+                        .frame(minHeight: 30)
                 }
             }
-            .padding(.horizontal, isLandscape ? 0 : 40)
-            .padding(.bottom, isLandscape ? 0 : bottomInset + 40)
+            .bpmActionStyle()
+            .bpmGlassGroup()
+            .padding(.horizontal, isLandscape ? 0 : 24)
+            .padding(.bottom, isLandscape ? 0 : 16)
         } else {
             // Measure HRV button
             Button {
@@ -394,16 +393,17 @@ struct HRVMeasurementView: View {
                 }
             } label: {
                 Text(buttonText)
-                    .font(.system(size: 18, weight: .semibold))
+                    .font(.headline)
                     .foregroundColor(.white)
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 16)
-                    .background(viewModel.state == .countingDown ? Color.gray.opacity(0.3) : Color.gray.opacity(0.5))
-                    .cornerRadius(12)
+                    .padding(.vertical, 6)
+                    .frame(minHeight: 30)
             }
             .disabled(viewModel.state == .countingDown)
-            .padding(.horizontal, isLandscape ? 0 : 40)
-            .padding(.bottom, isLandscape ? 0 : bottomInset + 40)
+            .bpmActionStyle()
+            .bpmGlassGroup()
+            .padding(.horizontal, isLandscape ? 0 : 24)
+            .padding(.bottom, isLandscape ? 0 : 16)
         }
     }
 
@@ -422,10 +422,9 @@ struct HRVMeasurementView: View {
             Text(customText ?? value.map(String.init) ?? "---")
                 .font(.system(size: 36 * scaleFactor, weight: .bold, design: .monospaced))
                 .foregroundColor((value == nil && customText == nil) ? .gray : .white)
-                .frame(minWidth: 80 * scaleFactor, alignment: .center) // Fixed minimum width for 3 digits
                 .fixedSize(horizontal: false, vertical: true)
         }
-        .frame(width: 80 * scaleFactor, alignment: .center) // Fixed width to prevent layout shifts
+        .frame(maxWidth: .infinity, alignment: .center)
     }
 
     private func topBarCircleIcon(systemName: String, color: Color = .white, accessibilityLabel: String? = nil) -> some View {
@@ -433,8 +432,7 @@ struct HRVMeasurementView: View {
             .font(.system(size: TopBarLayout.iconFontSize))
             .foregroundColor(color)
             .frame(width: TopBarLayout.iconSize, height: TopBarLayout.iconSize)
-            .background(Color.gray.opacity(TopBarLayout.iconBackgroundOpacity))
-            .clipShape(Circle())
+            .bpmCircleSurface()
             .accessibilityLabel(accessibilityLabel ?? systemName)
     }
 

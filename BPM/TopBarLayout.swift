@@ -13,6 +13,5 @@ enum TopBarLayout {
     static let buttonSpacing: CGFloat = 8
     static let iconSize: CGFloat = 44
     static let iconFontSize: CGFloat = 20
-    static let iconBackgroundOpacity: Double = 0.3
     static let trailingButtonGroupWidth: CGFloat = (iconSize * 3) + (buttonSpacing * 2)
 }

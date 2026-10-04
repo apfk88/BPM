@@ -321,7 +321,7 @@ private struct ConfidenceWhySheet: View {
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        NavigationView {
+        NavigationStack {
             List {
                 Section {
                     HStack {
@@ -346,7 +346,7 @@ private struct ConfidenceWhySheet: View {
             }
             .navigationTitle("Accuracy")
             .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
+                ToolbarItem(placement: .confirmationAction) {
                     Button("Done") {
                         dismiss()
                     }
@@ -357,7 +357,7 @@ private struct ConfidenceWhySheet: View {
 }
 
 #Preview {
-    NavigationView {
+    NavigationStack {
         CalorieSettingsView()
     }
 }

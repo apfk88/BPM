@@ -24,7 +24,7 @@ struct PresetConfigurationView: View {
     @State private var editingPreset: TimerPreset?
 
     var body: some View {
-        NavigationView {
+        NavigationStack {
             ZStack {
                 Color.black.ignoresSafeArea()
 
@@ -37,19 +37,18 @@ struct PresetConfigurationView: View {
             .navigationTitle("Presets")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
+                ToolbarItem(placement: .cancellationAction) {
                     Button(mode == .manage ? "Done" : "Cancel") {
                         isPresented = false
                     }
                     .foregroundColor(.white)
                 }
-                ToolbarItem(placement: .navigationBarTrailing) {
+                ToolbarItem(placement: .topBarTrailing) {
                     Button {
                         isCreatingNew = true
                         editingPreset = TimerPreset()
                     } label: {
-                        Image(systemName: "plus")
-                            .foregroundColor(.white)
+                        Label("New Preset", systemImage: "plus")
                     }
                 }
             }
@@ -95,10 +94,10 @@ struct PresetConfigurationView: View {
                     .font(.system(size: 18, weight: .semibold))
                     .foregroundColor(.black)
                     .padding(.horizontal, 32)
-                    .padding(.vertical, 14)
-                    .background(Color.white)
-                    .cornerRadius(12)
+                    .padding(.vertical, 6)
             }
+            .bpmActionStyle(prominent: true)
+            .tint(.white)
             .padding(.top, 12)
         }
     }
@@ -109,19 +108,7 @@ struct PresetConfigurationView: View {
                 ForEach(presetStorage.presets) { preset in
                     let isCurrentPreset = preset.id == currentPresetId
 
-                    HStack {
-                        PresetRowView(preset: preset)
-
-                        Spacer()
-
-                        if isCurrentPreset {
-                            Image(systemName: "xmark.circle.fill")
-                                .foregroundColor(.gray)
-                                .font(.system(size: 22))
-                        }
-                    }
-                    .contentShape(Rectangle())
-                    .onTapGesture {
+                    Button {
                         switch mode {
                         case .select:
                             if isCurrentPreset {
@@ -136,7 +123,21 @@ struct PresetConfigurationView: View {
                             isCreatingNew = false
                             editingPreset = preset
                         }
+                    } label: {
+                        HStack {
+                            PresetRowView(preset: preset)
+
+                            Spacer()
+
+                            if isCurrentPreset {
+                                Image(systemName: "xmark.circle.fill")
+                                    .foregroundColor(.gray)
+                                    .font(.system(size: 22))
+                            }
+                        }
+                        .contentShape(Rectangle())
                     }
+                    .buttonStyle(.plain)
                     .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                         Button(role: .destructive) {
                             presetStorage.deletePreset(preset)
@@ -245,7 +246,7 @@ struct PresetEditorView: View {
     }
 
     var body: some View {
-        NavigationView {
+        NavigationStack {
             ZStack {
                 Color.black.ignoresSafeArea()
 
@@ -416,13 +417,13 @@ struct PresetEditorView: View {
             .navigationTitle(isNew ? "New Preset" : "Edit Preset")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
+                ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") {
                         onCancel()
                     }
                     .foregroundColor(.white)
                 }
-                ToolbarItem(placement: .navigationBarTrailing) {
+                ToolbarItem(placement: .confirmationAction) {
                     Button("Save") {
                         onSave(calculatedPreset)
                     }

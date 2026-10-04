@@ -5,271 +5,114 @@ struct DevicePickerView: View {
     @EnvironmentObject private var bluetoothManager: HeartRateBluetoothManager
     @EnvironmentObject private var sharingService: SharingService
     @Environment(\.dismiss) private var dismiss
-    @State private var friendCodeInput: String = ""
+    @State private var friendCodeInput = ""
     @State private var isFriendSectionExpanded = false
     @FocusState private var isFriendCodeFieldFocused: Bool
 
     var body: some View {
-        NavigationView {
-            VStack(spacing: 0) {
-                deviceSection
-                friendCodeSection
-                actionButtons
+        NavigationStack {
+            List {
+                Section("Heart Rate Monitors") {
+                    deviceList
+                }
+                Section {
+                    DisclosureGroup(isExpanded: $isFriendSectionExpanded) {
+                        friendCodeControls
+                    } label: {
+                        Label(sharingService.isViewing ? "Viewing Friend's BPM" : "View a Friend's BPM", systemImage: "person.2")
+                    }
+                } footer: {
+                    Text("Connect a Bluetooth heart rate monitor or enter a friend's 6-digit share code.")
+                }
+                if bluetoothManager.connectedDevice != nil || bluetoothManager.isSimulatorConnected {
+                    Section {
+                        Button("Disconnect Monitor", role: .destructive) {
+                            bluetoothManager.disconnect()
+                        }
+                    }
+                }
             }
+            .scrollDismissesKeyboard(.interactively)
             .navigationTitle("Select Device")
             .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button {
+                        bluetoothManager.stopScanning()
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                            bluetoothManager.startScanning()
+                        }
+                    } label: {
+                        Label("Rescan", systemImage: "arrow.clockwise")
+                    }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
             .onAppear {
                 bluetoothManager.startScanning()
                 isFriendSectionExpanded = sharingService.isViewing
-                if let existingCode = sharingService.friendCode {
-                    friendCodeInput = existingCode
-                }
+                friendCodeInput = sharingService.friendCode ?? ""
             }
         }
     }
-    
-    private var friendCodeSection: some View {
-        VStack(spacing: 0) {
-            Divider()
 
-            DisclosureGroup(isExpanded: $isFriendSectionExpanded) {
-                VStack(spacing: 12) {
-                    NumericCodeInputField(
-                        code: Binding(
-                            get: { sharingService.friendCode ?? friendCodeInput },
-                            set: { newValue in
-                                if !sharingService.isViewing {
-                                    friendCodeInput = newValue
-                                }
-                            }
-                        ),
-                        length: 6,
-                        focusBinding: $isFriendCodeFieldFocused
-                    )
-                    .disabled(sharingService.isViewing)
+    @ViewBuilder
+    private var friendCodeControls: some View {
+        TextField("6-digit code", text: $friendCodeInput)
+            .font(.title3.monospaced())
+            .keyboardType(.numberPad)
+            .textContentType(.oneTimeCode)
+            .focused($isFriendCodeFieldFocused)
+            .disabled(sharingService.isViewing)
+            .accessibilityLabel("Friend code")
+            .onChange(of: friendCodeInput) { _, newValue in
+                friendCodeInput = String(newValue.filter { $0.isASCII && $0.isNumber }.prefix(6))
+            }
 
-                    if sharingService.isViewing {
-                        Button {
-                            sharingService.stopViewing()
-                            friendCodeInput = ""
-                        } label: {
-                            Text("Disconnect")
-                                .font(.system(size: 14, weight: .medium))
-                                .foregroundColor(.secondary)
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 6)
-                                .background(Color.gray.opacity(0.2))
-                                .cornerRadius(6)
-                        }
-                    } else {
-                        Button {
-                            let code = friendCodeInput
-                            if code.count == 6 {
-                                AppAnalytics.signal(.connectFriendsCode)
-                                sharingService.startViewing(code: code)
-                                isFriendCodeFieldFocused = false
-                                dismiss()
-                            }
-                        } label: {
-                            Text("Connect")
-                                .font(.system(size: 16, weight: .semibold))
-                                .foregroundColor(.white)
-                                .padding(.horizontal, 16)
-                                .padding(.vertical, 8)
-                                .background(friendCodeInput.count == 6 ? Color.blue : Color.gray)
-                                .cornerRadius(8)
-                        }
-                        .disabled(friendCodeInput.count != 6)
-                    }
-                }
-                .padding(.top, 12)
-            } label: {
-                HStack(spacing: 8) {
-                    Image(systemName: "person.2")
-                    Text(sharingService.isViewing ? "Viewing Friend's BPM" : "View a Friend's BPM")
-                    if sharingService.isViewing {
-                        Spacer()
-                        Circle()
-                            .fill(Color.green)
-                            .frame(width: 8, height: 8)
-                            .accessibilityHidden(true)
-                    }
-                }
-                .font(.subheadline.weight(.medium))
-                .foregroundColor(.secondary)
+        if sharingService.isViewing {
+            Button("Disconnect Friend", role: .destructive) {
+                sharingService.stopViewing()
+                friendCodeInput = ""
             }
-            .padding(.horizontal)
-            .padding(.vertical, 12)
-        }
-        .background(Color(.systemGroupedBackground))
-    }
-    
-    private var deviceSection: some View {
-        VStack(spacing: 0) {
-            VStack(spacing: 12) {
-                Text("Select Your Device")
-                    .font(.headline)
-                    .foregroundColor(.secondary)
-                    .textCase(.uppercase)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal)
-                    .padding(.top, 16)
-                
-                deviceList
+        } else {
+            Button("Connect") {
+                guard friendCodeInput.count == 6 else { return }
+                AppAnalytics.signal(.connectFriendsCode)
+                sharingService.startViewing(code: friendCodeInput)
+                isFriendCodeFieldFocused = false
+                dismiss()
             }
+            .disabled(friendCodeInput.count != 6)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     @ViewBuilder
     private var deviceList: some View {
-        // Check if we have any devices (real or simulator)
         let hasDevices = !bluetoothManager.availableDevices.isEmpty || bluetoothManager.simulatorDevice != nil
-
-        if bluetoothManager.isScanning && !hasDevices {
-            VStack(spacing: 20) {
-                ProgressView()
-                Text("Scanning for heart rate monitors…")
-                    .foregroundColor(.secondary)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else if !hasDevices {
-            VStack(spacing: 12) {
-                Image(systemName: "antenna.radiowaves.left.and.right")
-                    .font(.system(size: 60))
-                    .foregroundColor(.gray)
-                Text("No devices found")
-                    .font(.title2)
-                    .foregroundColor(.secondary)
-                Text("Make sure your chest strap is powered on and nearby.")
-                    .font(.body)
-                    .foregroundColor(.secondary)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else {
-            List {
-                // Show simulator device if available
-                if let simDevice = bluetoothManager.simulatorDevice {
-                    SimulatorDeviceRow(device: simDevice)
-                        .environmentObject(bluetoothManager)
-                        .environmentObject(sharingService)
+        if let simDevice = bluetoothManager.simulatorDevice {
+            SimulatorDeviceRow(device: simDevice)
+        }
+        ForEach(bluetoothManager.availableDevices) { device in
+            DeviceRow(device: device)
+        }
+        if !hasDevices {
+            if bluetoothManager.isScanning {
+                HStack(spacing: 12) {
+                    ProgressView()
+                    Text("Scanning for heart rate monitors…")
+                        .foregroundStyle(.secondary)
                 }
-                // Show real devices
-                ForEach(bluetoothManager.availableDevices) { device in
-                    DeviceRow(device: device)
-                        .environmentObject(bluetoothManager)
-                        .environmentObject(sharingService)
-                }
+                .padding(.vertical, 12)
+            } else {
+                ContentUnavailableView(
+                    "No Monitors Found",
+                    systemImage: "antenna.radiowaves.left.and.right",
+                    description: Text(bluetoothManager.connectionMessage ?? "Make sure your chest strap is powered on and nearby, then rescan.")
+                )
             }
         }
-    }
-
-    private var actionButtons: some View {
-        HStack {
-            Button("Rescan") {
-                bluetoothManager.stopScanning()
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-                    bluetoothManager.startScanning()
-                }
-            }
-            .buttonStyle(.bordered)
-
-            Spacer()
-
-            if bluetoothManager.connectedDevice != nil || bluetoothManager.isSimulatorConnected {
-                Button("Disconnect") {
-                    bluetoothManager.disconnect()
-                }
-                .buttonStyle(.bordered)
-            }
-
-            Spacer()
-
-            Button("Done") {
-                dismiss()
-            }
-            .buttonStyle(.bordered)
-        }
-        .padding()
-    }
-}
-
-private extension DevicePickerView {
-    func formattedCode(_ code: String) -> String {
-        code.map(String.init).joined(separator: " ")
-    }
-}
-
-private struct NumericCodeInputField: View {
-    @Binding var code: String
-    let length: Int
-    var focusBinding: FocusState<Bool>.Binding
-
-    var body: some View {
-        ZStack {
-            HStack(spacing: 12) {
-                ForEach(0..<length, id: \.self) { index in
-                    let character = character(at: index)
-                    ZStack {
-                        RoundedRectangle(cornerRadius: 8)
-                            .stroke(focusBinding.wrappedValue ? Color.accentColor : Color.gray.opacity(0.4), lineWidth: focusBinding.wrappedValue ? 2 : 1)
-                            .background(
-                                RoundedRectangle(cornerRadius: 8)
-                                    .fill(Color(.secondarySystemBackground))
-                            )
-                            .frame(width: 44, height: 56)
-
-                        Text(character)
-                            .font(.system(size: 24, weight: .semibold, design: .monospaced))
-                            .foregroundColor(character.isEmpty ? Color.secondary : Color.primary)
-                    }
-                }
-            }
-
-            TextField("Friend code", text: Binding(
-                get: { code },
-                set: { newValue in
-                    let digits = newValue.filter { $0.isNumber }
-                    if digits.count > length {
-                        code = String(digits.prefix(length))
-                    } else {
-                        code = digits
-                    }
-                }
-            ))
-            .keyboardType(.numberPad)
-            .textContentType(.oneTimeCode)
-            .focused(focusBinding)
-            .frame(width: 0, height: 0)
-            .opacity(0.01)
-            .labelsHidden()
-            .accessibilityHidden(true)
-        }
-        .padding(.vertical, 4)
-        .frame(maxWidth: .infinity)
-        .contentShape(Rectangle())
-        .onTapGesture {
-            focusBinding.wrappedValue = true
-        }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Friend code")
-        .accessibilityValue(accessibilityValue)
-        .accessibilityHint("Enter a 6-digit code")
-    }
-
-    private func character(at index: Int) -> String {
-        guard index < code.count else { return "" }
-        let stringIndex = code.index(code.startIndex, offsetBy: index)
-        return String(code[stringIndex])
-    }
-
-    private var accessibilityValue: String {
-        if code.isEmpty {
-            return "No digits entered"
-        }
-        return code.map(String.init).joined(separator: " ")
     }
 }
 
@@ -322,6 +165,7 @@ private struct DeviceRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .accessibilityValue(isConnected ? "Connected" : "Not connected")
     }
 }
 
@@ -369,5 +213,6 @@ private struct SimulatorDeviceRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .accessibilityValue(bluetoothManager.isSimulatorConnected ? "Connected" : "Not connected")
     }
 }

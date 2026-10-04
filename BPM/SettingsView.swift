@@ -24,7 +24,7 @@ struct SettingsView: View {
     @State private var showPresetSheet = false
     @State private var healthKitStatusMessage: String?
     var body: some View {
-        NavigationView {
+        NavigationStack {
             List {
                 Section {
                     NavigationLink {
@@ -93,7 +93,8 @@ struct SettingsView: View {
                     HStack {
                         Text("BPM Alert")
                         Spacer()
-                        TextField("", text: $heartRateAlertThresholdText)
+                        TextField("Threshold", text: $heartRateAlertThresholdText)
+                            .accessibilityLabel("BPM alert threshold")
                             .keyboardType(.numberPad)
                             .font(.system(size: 18, weight: .medium, design: .monospaced))
                             .multilineTextAlignment(.trailing)
@@ -169,10 +170,11 @@ struct SettingsView: View {
                     .listRowSeparator(.hidden)
                 }
             }
+            .scrollDismissesKeyboard(.interactively)
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
+                ToolbarItem(placement: .confirmationAction) {
                     Button("Done") {
                         commitHeartRateThreshold()
                         dismiss()
