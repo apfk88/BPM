@@ -14,7 +14,7 @@ struct HRVHistoryView: View {
                 ForEach(store.records) { record in
                     NavigationLink {
                         HRVDetailView(record: record, onShare: presentShare, onShareLogs: {
-                            presentLogs(json: record.jsonString(), prefix: "BPM-HRV", date: record.startAt)
+                            presentLogs(json: record.jsonString(), prefix: "BPM-HRV", date: record.startAt, source: .hrvDetail)
                         })
                     } label: {
                         HRVHistoryRow(record: record)
@@ -35,7 +35,7 @@ struct HRVHistoryView: View {
             ToolbarItem(placement: .navigationBarTrailing) {
                 Menu {
                     Button("Export Logs (for AI)") {
-                        presentLogs(json: store.exportAllJSON(), prefix: "BPM-HRV-history", date: Date())
+                        presentLogs(json: store.exportAllJSON(), prefix: "BPM-HRV-history", date: Date(), source: .hrvHistory)
                     }
                 } label: {
                     Image(systemName: "square.and.arrow.up")
@@ -43,7 +43,7 @@ struct HRVHistoryView: View {
             }
         }
         .sheet(item: $sharePayload) { payload in
-            ShareSheet(items: payload.items, subject: payload.subject)
+            ShareSheet(payload: payload)
         }
         .alert("Couldn’t Export Logs", isPresented: Binding(
             get: { shareError != nil }, set: { if !$0 { shareError = nil } }
@@ -54,17 +54,20 @@ struct HRVHistoryView: View {
         }
     }
 
-    private func presentLogs(json: String, prefix: String, date: Date) {
+    private func presentLogs(json: String, prefix: String, date: Date, source: ShareAnalyticsContext.Source) {
+        let analytics = ShareAnalyticsSession(context: ShareAnalyticsContext(source: source, format: .logs))
         do {
             let file = try JSONLogFile.create(json: json, prefix: prefix, date: date)
-            presentShare(items: [file], subject: "HRV Logs (JSON)")
+            sharePayload = SharePayload(items: [file], subject: "HRV Logs (JSON)", analytics: analytics)
         } catch {
+            analytics.finish(completed: false, failed: true)
             shareError = "The JSON file couldn’t be created. Please try again."
         }
     }
 
     private func presentShare(items: [Any], subject: String) {
-        sharePayload = SharePayload(items: items, subject: subject)
+        let analytics = ShareAnalyticsSession(context: ShareAnalyticsContext(source: .hrvDetail, format: .plainText))
+        sharePayload = SharePayload(items: items, subject: subject, analytics: analytics)
     }
 }
 

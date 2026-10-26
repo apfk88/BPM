@@ -53,7 +53,7 @@ private final class WorkoutSharePreviewCloud: ICloudKeyValueStore {
 }
 
 #Preview("Workout share card") {
-    WorkoutShareCardEditor(record: WorkoutSharePreviewFixture.record, style: .chart)
+    WorkoutShareCardEditor(record: WorkoutSharePreviewFixture.record, style: .chart, source: .workoutDetail)
         .preferredColorScheme(.dark)
 }
 #endif

@@ -60,7 +60,7 @@ struct WorkoutHistoryView: View {
             }
         }
         .sheet(item: $sharePayload) { payload in
-            ShareSheet(items: payload.items, subject: payload.subject)
+            ShareSheet(payload: payload)
         }
         .alert("Couldn’t Export Logs", isPresented: Binding(
             get: { shareError != nil }, set: { if !$0 { shareError = nil } }
@@ -72,17 +72,16 @@ struct WorkoutHistoryView: View {
     }
 
     private func presentLogs(json: String, prefix: String, date: Date, subject: String) {
+        let analytics = ShareAnalyticsSession(context: ShareAnalyticsContext(source: .workoutHistory, format: .logs))
         do {
             let file = try JSONLogFile.create(json: json, prefix: prefix, date: date)
-            presentShare(items: [file], subject: subject)
+            sharePayload = SharePayload(items: [file], subject: subject, analytics: analytics)
         } catch {
+            analytics.finish(completed: false, failed: true)
             shareError = "The JSON file couldn’t be created. Please try again."
         }
     }
 
-    private func presentShare(items: [Any], subject: String) {
-        sharePayload = SharePayload(items: items, subject: subject)
-    }
 }
 
 private struct WorkoutDetailView: View {
@@ -126,7 +125,7 @@ private struct WorkoutDetailView: View {
             WorkoutDetailsEditor(record: record, store: store)
         }
         .sheet(isPresented: $isSharingWorkout) {
-            WorkoutShareDrawer(record: record)
+            WorkoutShareDrawer(record: record, source: .workoutDetail)
         }
         .fullScreenCover(isPresented: $showExpandedHeartRateChart) {
             ExpandedHeartRateChartView(record: record)

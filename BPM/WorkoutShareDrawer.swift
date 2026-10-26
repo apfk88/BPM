@@ -9,16 +9,26 @@ struct SavedWorkoutShareRequest: Identifiable {
 /// One share picker for saved workouts and the end-of-workout flow.
 struct WorkoutShareDrawer: View {
     let record: WorkoutRecord
+    let source: ShareAnalyticsContext.Source
     @Environment(\.dismiss) private var dismiss
     @Environment(\.verticalSizeClass) private var verticalSizeClass
     @State private var selection: ShareFormat? = .chart
     @State private var selectedCard: WorkoutShareStyle?
     @State private var sharePayload: SharePayload?
     @State private var exportError: String?
+    @State private var didTrackOpen = false
 
     private enum ShareFormat: Int, CaseIterable, Identifiable {
         case chart, stats, text, logs
         var id: Int { rawValue }
+        var analyticsFormat: ShareAnalyticsContext.Format {
+            switch self {
+            case .chart: .chartCard
+            case .stats: .statsCard
+            case .text: .plainText
+            case .logs: .logs
+            }
+        }
         var title: String {
             switch self {
             case .chart: "Chart Card"
@@ -88,16 +98,24 @@ struct WorkoutShareDrawer: View {
                 }
             }
         }
+        .onAppear {
+            guard !didTrackOpen else { return }
+            didTrackOpen = true
+            analyticsContext(for: currentFormat).signal(.sharePickerOpened)
+        }
+        .onChange(of: selection) { _, format in
+            if let format { analyticsContext(for: format).signal(.shareFormatSelected) }
+        }
         .background(Color(uiColor: .secondarySystemBackground))
         .preferredColorScheme(.dark)
         .presentationDetents([.fraction(0.75), .large])
         .presentationDragIndicator(.visible)
         .presentationCornerRadius(30)
         .sheet(item: $selectedCard) { style in
-            WorkoutShareCardEditor(record: record, style: style)
+            WorkoutShareCardEditor(record: record, style: style, source: source)
         }
         .sheet(item: $sharePayload) { payload in
-            ShareSheet(items: payload.items, subject: payload.subject)
+            ShareSheet(payload: payload)
         }
         .alert("Couldn’t Export Logs", isPresented: Binding(
             get: { exportError != nil }, set: { if !$0 { exportError = nil } }
@@ -148,7 +166,10 @@ struct WorkoutShareDrawer: View {
     private func preview(_ format: ShareFormat) -> some View {
         switch format {
         case .chart, .stats:
-            Button { selectedCard = format == .chart ? .chart : .stats } label: {
+            Button {
+                selection = format
+                selectedCard = format == .chart ? .chart : .stats
+            } label: {
                 WorkoutShareCardPreview(snapshot: WorkoutShareSnapshot(record: record),
                                         style: format == .chart ? .chart : .stats)
             }
@@ -215,16 +236,24 @@ struct WorkoutShareDrawer: View {
         .accessibilityIdentifier("shareSelectedWorkoutFormat")
     }
 
+    private func analyticsContext(for format: ShareFormat) -> ShareAnalyticsContext {
+        ShareAnalyticsContext(source: source, format: format.analyticsFormat)
+    }
+
     private func shareSelectedFormat() {
         switch currentFormat {
         case .chart: selectedCard = .chart
         case .stats: selectedCard = .stats
-        case .text: sharePayload = SharePayload(items: [record.summaryText()], subject: "Workout Summary")
+        case .text:
+            let analytics = ShareAnalyticsSession(context: analyticsContext(for: .text))
+            sharePayload = SharePayload(items: [record.summaryText()], subject: "Workout Summary", analytics: analytics)
         case .logs:
+            let analytics = ShareAnalyticsSession(context: analyticsContext(for: .logs))
             do {
                 let file = try JSONLogFile.create(json: record.jsonString(), prefix: "BPM-workout", date: record.startAt)
-                sharePayload = SharePayload(items: [file], subject: "Workout Logs (JSON)")
+                sharePayload = SharePayload(items: [file], subject: "Workout Logs (JSON)", analytics: analytics)
             } catch {
+                analytics.finish(completed: false, failed: true)
                 exportError = "The JSON file couldn’t be created. Please try again."
             }
         }
@@ -233,6 +262,6 @@ struct WorkoutShareDrawer: View {
 
 #if DEBUG
 #Preview {
-    WorkoutShareDrawer(record: WorkoutSharePreviewFixture.record)
+    WorkoutShareDrawer(record: WorkoutSharePreviewFixture.record, source: .workoutDetail)
 }
 #endif

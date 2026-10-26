@@ -275,7 +275,7 @@ struct HeartRateDisplayView: View {
                 .presentationDragIndicator(.visible)
         }
         .sheet(item: $savedWorkoutShare) { request in
-            WorkoutShareDrawer(record: request.record)
+            WorkoutShareDrawer(record: request.record, source: .postSave)
         }
         .sheet(isPresented: $showWorkoutTypePicker, onDismiss: applyPendingHealthKitSelectionFromSheet) {
             workoutTypePickerSheet()

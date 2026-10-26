@@ -4,6 +4,7 @@ import SwiftUI
 struct WorkoutShareCardEditor: View {
     let record: WorkoutRecord
     let style: WorkoutShareStyle
+    let source: ShareAnalyticsContext.Source
     @State private var range: WorkoutShareRange
     @State private var cardTitle: String
     @State private var sharePayload: SharePayload?
@@ -17,9 +18,10 @@ struct WorkoutShareCardEditor: View {
         verticalSizeClass == .compact && dynamicTypeSize.isAccessibilitySize
     }
 
-    init(record: WorkoutRecord, style: WorkoutShareStyle) {
+    init(record: WorkoutRecord, style: WorkoutShareStyle, source: ShareAnalyticsContext.Source) {
         self.record = record
         self.style = style
+        self.source = source
         _range = State(initialValue: .full(record.durationSeconds))
         _cardTitle = State(initialValue: WorkoutShareSnapshot(record: record).title)
     }
@@ -102,7 +104,7 @@ struct WorkoutShareCardEditor: View {
                 }
             }
             .sheet(item: $sharePayload) { payload in
-                ShareSheet(items: payload.items, subject: payload.subject)
+                ShareSheet(payload: payload)
             }
             .alert("Couldn’t Create Image", isPresented: $renderFailed) {
                 Button("OK", role: .cancel) { }
@@ -115,14 +117,19 @@ struct WorkoutShareCardEditor: View {
     }
     private func shareButton(snapshot: WorkoutShareSnapshot) -> some View {
         Button {
+            let analytics = ShareAnalyticsSession(context: ShareAnalyticsContext(
+                source: source, format: style == .chart ? .chartCard : .statsCard
+            ))
             guard let image = WorkoutShareCardRenderer.image(snapshot: snapshot, style: style) else {
+                analytics.finish(completed: false, failed: true)
                 renderFailed = true
                 return
             }
             do {
                 let item = try WorkoutShareImageItem(image: image, title: snapshot.title)
-                sharePayload = SharePayload(items: [item], subject: snapshot.title)
+                sharePayload = SharePayload(items: [item], subject: snapshot.title, analytics: analytics)
             } catch {
+                analytics.finish(completed: false, failed: true)
                 renderFailed = true
             }
         } label: {

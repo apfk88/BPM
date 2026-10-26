@@ -11,6 +11,7 @@ struct SharePayload: Identifiable {
     let id = UUID()
     let items: [Any]
     let subject: String
+    let analytics: ShareAnalyticsSession
 }
 
 /// Share a file URL so receiving apps import an attachment instead of pasting the JSON.
@@ -46,10 +47,29 @@ enum JSONLogFile {
     }
 }
 
-struct ShareSheet: UIViewControllerRepresentable {
+struct ShareSheet: View {
+    let payload: SharePayload
+
+    static func appIconImage() -> UIImage? { NativeShareSheet.appIconImage() }
+
+    var body: some View {
+        NativeShareSheet(items: payload.items, subject: payload.subject, analytics: payload.analytics)
+            .onAppear { payload.analytics.presented() }
+    }
+}
+
+private struct NativeShareSheet: UIViewControllerRepresentable {
     let items: [Any]
     let subject: String?
+    let analytics: ShareAnalyticsSession
     @Environment(\.dismiss) private var dismiss
+
+    func makeCoordinator() -> ShareAnalyticsSession { analytics }
+
+    static func dismantleUIViewController(_ controller: UIActivityViewController, coordinator: ShareAnalyticsSession) {
+        // Covers swipe dismissal. A completed native callback has already finished the session.
+        coordinator.finish(completed: false)
+    }
 
     func makeUIViewController(context: Context) -> UIActivityViewController {
         let icon = Self.appIconImage()
@@ -65,7 +85,8 @@ struct ShareSheet: UIViewControllerRepresentable {
         if let subject = subject {
             controller.setValue(subject, forKey: "subject")
         }
-        controller.completionWithItemsHandler = { _, _, _, _ in
+        controller.completionWithItemsHandler = { _, completed, _, error in
+            analytics.finish(completed: completed, failed: error != nil)
             dismiss()
         }
         return controller
