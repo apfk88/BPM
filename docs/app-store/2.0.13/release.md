@@ -1,8 +1,24 @@
-# BPM 2.0.13 (15)
+# BPM 2.0.13 (16)
 
 Prepared October 26, 2026 for App Store Connect app 6754830191, bundle `kvamme.BPM`.
 
-## State
+## Build 16 sharing analytics
+
+Build 16 adds TelemetryDeck instrumentation for workout and HRV sharing. It covers picker opens, format selection, export requests, sheet presentation, completion, cancellation, and failure. Events contain fixed source/format labels only. See [sharing analytics](../../sharing-analytics.md) for the event contract and completion semantics. Existing live-sharing signals and SDK privacy behavior are unchanged.
+
+- Archive and upload succeeded; bundled version is 2.0.13 (16).
+- Archive: `build/BPM-2.0.13-16.xcarchive`; upload log: `/private/tmp/BPM-Release16-Upload.log`.
+- The broader test run passed 142 tests, with zero failures/skips: `/private/tmp/BPM-Release16-Tests.xcresult`.
+- After the final native-sheet teardown refinement, all eight focused tests passed: seven analytics tests and the native chart/stats/text/JSON export UI test. Result: `/private/tmp/BPM-Release16-FinalShareTests.xcresult`. Source hashes match the archived build.
+- Apple processing completed. Build ID: `096b4424-d243-4449-b500-bdbfce883a1f`. Build 16 replaced build 15 in the saved version, verified after reload.
+- Code and analytics documentation were committed and pushed as `55cc4e5`.
+- Submitted October 26, 2026 at 1:41 PM PDT. App Store Connect confirmed **Waiting for Review** for **2.0.13 (16)**. Existing automatic release after approval is retained.
+- Submission ID: `73866250-6c2e-4964-af23-11ce16a4d123`. Review page: https://appstoreconnect.apple.com/apps/6754830191/distribution/reviewsubmissions/details/73866250-6c2e-4964-af23-11ce16a4d123
+- Internal Dev group has build 16 in **Testing** status, with one existing tester. What to Test notes were saved. External TestFlight distribution was explicitly declined and not changed.
+- Proof: ignored `build/privacy-release-proof/build-16-waiting-review.jpg` and `build/privacy-release-proof/build-16-testflight.jpg`.
+- TelemetryDeck Test Mode received build-16 picker, selection, requested, presented, and completed events. Inspected a completed stats-card export: `format=stats_card`, `source=workout_detail`, version 2.0.13, build 16, simulator/debug/test mode. Production ingestion awaits real use. Proof: ignored `build/privacy-release-proof/build-16-telemetry-test-event.jpg`.
+
+## Earlier build 15 state
 
 Build 15 supersedes the previously uploaded build 14 and includes all current workout recovery, share-card, chart, layout, and AI voice changes. The user authorized committing/pushing all changes and submitting this new build for review on October 26, 2026.
 
