@@ -4,6 +4,133 @@ import Testing
 
 @Suite(.serialized)
 struct WorkoutStoreTests {
+    @MainActor @Test func editingDetailsPersistsAndKeepsLatestMeasurementsAndSync() async throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("workout-edit-\(UUID()).json")
+        let defaults = UserDefaults(suiteName: "workout-edit-\(UUID())")!
+        let cloud = resetICloudStore()
+        let store = WorkoutStore(storeURL: url, userDefaults: defaults, iCloudStore: cloud)
+        let original = sampleWorkout(startOffset: -120, duration: 60, hrSampleCount: 120, notes: "Original description")
+        store.saveWorkout(original)
+        // A sync result arrives after the edit screen opened. Editing must retain that newer result.
+        let synced = original.updatingHealthKitSync(workoutUUID: UUID(), syncedAt: Date(), lastError: nil)
+        store.saveWorkout(synced)
+        try await edit(store, id: original.id, title: "  Tempo workout  ", description: "  Steady effort.\n")
+
+        let saved = try #require(store.workouts.first)
+        #expect(saved.title == "Tempo workout")
+        #expect(saved.notes == "Steady effort.")
+        #expect(saved.healthKitWorkoutUUID == synced.healthKitWorkoutUUID)
+        #expect(saved.updatedAt >= original.updatedAt)
+        func measurementFields(_ record: WorkoutRecord) throws -> NSDictionary {
+            var json = try #require(JSONSerialization.jsonObject(with: Data(record.jsonString().utf8)) as? [String: Any])
+            for key in ["title", "notes", "createdAt", "updatedAt"] { json.removeValue(forKey: key) }
+            return json as NSDictionary
+        }
+        #expect(try measurementFields(saved) == measurementFields(synced))
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let disk = try decoder.decode([WorkoutRecord].self, from: Data(contentsOf: url))
+        let remote = try decoder.decode([WorkoutRecord].self, from: #require(cloud.data(forKey: WorkoutICloudKey.data)))
+        #expect(disk.first?.title == saved.title)
+        #expect(disk.first?.notes == saved.notes)
+        #expect(remote.first?.title == saved.title)
+        #expect(remote.first?.notes == saved.notes)
+
+        // Reload without a cloud copy to prove the edit was saved locally.
+        let reloaded = WorkoutStore(storeURL: url, userDefaults: defaults, iCloudStore: resetICloudStore())
+        for _ in 0..<100 where reloaded.workouts.isEmpty { try await Task.sleep(nanoseconds: 20_000_000) }
+        #expect(reloaded.workouts.first?.title == saved.title)
+        #expect(reloaded.workouts.first?.notes == saved.notes)
+        let delayedSyncID = UUID()
+        reloaded.updateHealthKitSync(for: original.id, workoutUUID: delayedSyncID, syncedAt: Date(), lastError: nil)
+        for _ in 0..<100 where reloaded.workouts.first?.healthKitWorkoutUUID != delayedSyncID {
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        #expect(reloaded.workouts.first?.healthKitWorkoutUUID == delayedSyncID)
+        #expect(reloaded.workouts.first?.title == saved.title)
+        #expect(reloaded.workouts.first?.notes == saved.notes)
+        try await edit(reloaded, id: original.id, title: " \n", description: " \t")
+        #expect(reloaded.workouts.first?.title == nil)
+        #expect(reloaded.workouts.first?.notes == nil)
+    }
+
+    @MainActor @Test func editingDeletedWorkoutDoesNotRecreateIt() async throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("workout-edit-\(UUID()).json")
+        let store = WorkoutStore(storeURL: url, userDefaults: UserDefaults(suiteName: "workout-edit-\(UUID())")!,
+                                 iCloudStore: resetICloudStore())
+        let original = sampleWorkout(startOffset: -120, duration: 60)
+        store.saveWorkout(original)
+        store.deleteWorkout(original)
+        store.updateHealthKitSync(for: original.id, workoutUUID: UUID(), syncedAt: Date(), lastError: nil)
+        do {
+            try await edit(store, id: original.id, title: "Deleted workout", description: "")
+            Issue.record("Editing a deleted workout must fail")
+        } catch {
+            #expect(error as? WorkoutStore.DetailEditError == .workoutNotFound)
+        }
+        #expect(store.workouts.isEmpty)
+    }
+
+    @MainActor @Test func failedDetailSaveRetainsPublishedAndCloudRecord() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("workout-edit-\(UUID())")
+        let cloud = resetICloudStore()
+        let store = WorkoutStore(storeURL: directory.appendingPathComponent("workouts.json"),
+                                 userDefaults: UserDefaults(suiteName: "workout-edit-\(UUID())")!, iCloudStore: cloud)
+        let original = sampleWorkout(startOffset: -120, duration: 60)
+        store.saveWorkout(original)
+        try await edit(store, id: original.id, title: "Saved title", description: "Saved description")
+        let previousJSON = store.workouts.first?.jsonString()
+        let previousCloud = cloud.data(forKey: WorkoutICloudKey.data)
+        // Replace this test's own directory with a file to produce a real write failure.
+        try FileManager.default.removeItem(at: directory)
+        try Data("Not a directory".utf8).write(to: directory)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        do {
+            try await edit(store, id: original.id, title: "Unsaved title", description: "Unsaved description")
+            Issue.record("A failed disk write must report failure")
+        } catch {
+            #expect(error as? WorkoutStore.DetailEditError == .saveFailed)
+        }
+        #expect(store.workouts.first?.jsonString() == previousJSON)
+        #expect(cloud.data(forKey: WorkoutICloudKey.data) == previousCloud)
+    }
+
+    @MainActor @Test func saveCompletionReportsActualDiskSuccessOrFailure() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("workout-save-\(UUID())")
+        let url = directory.appendingPathComponent("workouts.json")
+        let cloud = resetICloudStore()
+        let store = WorkoutStore(storeURL: url, userDefaults: UserDefaults(suiteName: "workout-save-\(UUID())")!,
+                                 iCloudStore: cloud)
+        let original = sampleWorkout(startOffset: -120, duration: 60)
+        let saved = try await withCheckedThrowingContinuation { continuation in
+            store.saveWorkout(original) { continuation.resume(with: $0) }
+        }
+        #expect(saved.id == original.id)
+        #expect(store.workouts.contains { $0.id == saved.id })
+        #expect(FileManager.default.fileExists(atPath: url.path))
+        let previousCloud = cloud.data(forKey: WorkoutICloudKey.data)
+        try FileManager.default.removeItem(at: directory)
+        try Data("Not a directory".utf8).write(to: directory)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let unsaved = sampleWorkout(startOffset: -90, duration: 40)
+        do {
+            _ = try await withCheckedThrowingContinuation { continuation in
+                store.saveWorkout(unsaved) { continuation.resume(with: $0) }
+            }
+            Issue.record("A failed write must not report a saved workout")
+        } catch {
+            #expect(error == .saveFailed)
+        }
+        #expect(!store.workouts.contains { $0.id == unsaved.id })
+        #expect(cloud.data(forKey: WorkoutICloudKey.data) == previousCloud)
+    }
+
+    @MainActor private func edit(_ store: WorkoutStore, id: UUID, title: String, description: String) async throws {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            store.updateDetails(for: id, title: title, description: description) { continuation.resume(with: $0) }
+        }
+    }
+
     @Test func savesAndLoadsWorkouts() async throws {
         let tempURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("workouts-\(UUID().uuidString).json")
@@ -20,6 +147,7 @@ struct WorkoutStoreTests {
         try await Task.sleep(nanoseconds: 1_000_000_000)
         #expect(reloaded.workouts.contains(where: { $0.id == record.id }))
         #expect(reloaded.workouts.first(where: { $0.id == record.id })?.hrr == record.hrr)
+        #expect(reloaded.workouts.first(where: { $0.id == record.id })?.zoneConfig?.maxHeartRate == 190)
     }
 
     @Test func retentionPrunesOldWorkouts() async throws {
@@ -88,6 +216,7 @@ struct WorkoutStoreTests {
         #expect(decoded.healthKitSyncedAt == nil)
         #expect(decoded.healthKitLastError == nil)
         #expect(decoded.hrr == nil)
+        #expect(decoded.zoneConfig == nil)
     }
 
     @Test func saveWorkoutUpdatesHealthKitFieldsOnExistingRecord() async {
@@ -114,6 +243,7 @@ struct WorkoutStoreTests {
         #expect(store.workouts.count == 1)
         #expect(store.workouts.first?.healthKitWorkoutUUID == workoutUUID)
         #expect(store.workouts.first?.healthKitLastError == nil)
+        #expect(store.workouts.first?.zoneConfig?.maxHeartRate == 190)
     }
 
     @Test func saveWorkoutPersistsNotesAcrossReload() async throws {
@@ -154,6 +284,7 @@ struct WorkoutStoreTests {
             )
         )
         #expect(trimmedRecord.notes == "Focused threshold work.")
+        #expect(trimmedRecord.zoneConfig?.maxHeartRate == zoneConfig.maxHeartRate)
 
         let emptyRecord = try #require(
             viewModel.workoutRecord(
@@ -318,6 +449,7 @@ struct WorkoutStoreTests {
         #expect(!syncedRecords.isEmpty)
         #expect(syncedRecords.count <= workoutCount)
         #expect(syncedRecords.allSatisfy { $0.hrSamples.count <= 1_200 })
+        #expect(syncedRecords.allSatisfy { $0.zoneConfig?.maxHeartRate == 190 })
     }
 
     private func sampleWorkout(
@@ -368,7 +500,8 @@ struct WorkoutStoreTests {
             healthKitSyncedAt: nil,
             healthKitLastError: nil,
             createdAt: Date(),
-            updatedAt: Date()
+            updatedAt: Date(),
+            zoneConfig: HeartRateZoneConfig(maxHeartRate: 190)
         )
     }
 

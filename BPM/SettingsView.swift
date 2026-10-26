@@ -9,6 +9,7 @@ import SwiftUI
 struct SettingsView: View {
     private let feedbackEmail = "vibecodeinc@proton.me"
     @Environment(\.dismiss) private var dismiss
+    @AppStorage(WorkoutVoiceConsent.defaultsKey) private var hasVoiceConsent = false
     @AppStorage(HeartRateAlertDefaultsKey.heartRateEnabled) private var isHeartRateAlertEnabled = false
     @AppStorage(HeartRateAlertDefaultsKey.heartRateThreshold) private var heartRateAlertThreshold = 160
     @AppStorage(HeartRateAlertDefaultsKey.zoneEnabled) private var isZoneAlertEnabled = false
@@ -131,6 +132,19 @@ struct SettingsView: View {
                                 .foregroundColor(healthKitStatusColor)
                         }
                     }
+                }
+                Section {
+                    Button("Reset AI voice permission") {
+                        hasVoiceConsent = false
+                    }
+                    .disabled(!hasVoiceConsent)
+                    Link("Voice privacy and retention", destination: URL(string: "https://bpmtracker.app/privacy.html#ai-voice")!)
+                } header: {
+                    Text("AI Voice Privacy")
+                } footer: {
+                    Text(hasVoiceConsent
+                         ? "Only recordings you choose to send go to OpenAI. Reset permission to be asked again before sending. This does not delete requests already processed."
+                         : "Permission will be requested before a recording is sent to OpenAI. You can always enter workout notes manually.")
                 }
                 Section(header: Text("Support")) {
                     Link(destination: appStoreReviewURL) {

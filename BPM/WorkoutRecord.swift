@@ -92,7 +92,7 @@ struct WorkoutRecord: Codable, Identifiable {
 
     let id: UUID
     let schemaVersion: Int
-    let title: String?
+    private(set) var title: String?
     let startAt: Date
     let endAt: Date
     let durationSeconds: TimeInterval
@@ -106,18 +106,29 @@ struct WorkoutRecord: Codable, Identifiable {
     let hrSamples: [WorkoutHeartRateSample]
     let zones: [WorkoutZoneSummary]
     let sets: [WorkoutSetSummary]
-    let notes: String?
+    private(set) var notes: String?
     let source: String
     let appVersion: String
     let healthKitWorkoutUUID: UUID?
     let healthKitSyncedAt: Date?
     let healthKitLastError: String?
     let createdAt: Date
-    let updatedAt: Date
+    private(set) var updatedAt: Date
     var pauses: [WorkoutPause]? = nil
+    var zoneConfig: HeartRateZoneConfig? = nil
 }
 
 extension WorkoutRecord {
+    func updatingDetails(title: String, description: String) -> WorkoutRecord {
+        var updated = self
+        let title = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let description = description.trimmingCharacters(in: .whitespacesAndNewlines)
+        updated.title = title.isEmpty ? nil : title
+        updated.notes = description.isEmpty ? nil : description
+        updated.updatedAt = Date()
+        return updated
+    }
+
     func summaryText() -> String {
         var lines: [String] = []
         lines.append("🏁 Workout Summary")
@@ -125,6 +136,7 @@ extension WorkoutRecord {
         if let title, !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             lines.append("🏷 \(title)")
         }
+        lines.append("📅 \(startAt.formatted(date: .abbreviated, time: .shortened))")
         lines.append("⏱ Total time: \(formatDuration(durationSeconds))")
         if let avgHr {
             lines.append("❤️ Avg BPM: \(avgHr)")
@@ -136,8 +148,7 @@ extension WorkoutRecord {
             lines.append("🧊 HRR (2 min): \(hrr)")
         }
         if let total = caloriesTotal {
-            let activeText = caloriesActive.map { String(Int(round($0))) } ?? "n/a"
-            lines.append("🔥 Calories: \(Int(round(total))) (active \(activeText))")
+            lines.append("🔥 Calories: \(Int(round(total)))")
         }
         if !zones.isEmpty {
             let zoneText = zones.map { zone in
@@ -145,6 +156,8 @@ extension WorkoutRecord {
             }.joined(separator: ", ")
             lines.append("🗺 Zones: \(zoneText)")
         }
+        lines.append("")
+        lines.append("https://bpmtracker.app")
         return lines.joined(separator: "\n")
     }
 
@@ -198,7 +211,8 @@ extension WorkoutRecord {
             healthKitLastError: lastError,
             createdAt: createdAt,
             updatedAt: Date(),
-            pauses: pauses
+            pauses: pauses,
+            zoneConfig: zoneConfig
         )
     }
 }

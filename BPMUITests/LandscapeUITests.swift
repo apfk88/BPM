@@ -50,7 +50,7 @@ final class LandscapeUITests: XCTestCase {
         rotate(.landscapeLeft, app: app)
         app.buttons["End"].tap()
         XCTAssertTrue(app.buttons["Save Workout"].waitForExistence(timeout: 5))
-        assertRightColumn(["Save Workout", "Reset", "Share"], app: app)
+        assertRightColumn(["Save Workout", "Reset", "Resume"], app: app)
         attachScreenshot("Completed workout landscape")
 
         // Clear only the workout created by this test.

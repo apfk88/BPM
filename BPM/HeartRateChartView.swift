@@ -138,6 +138,7 @@ struct HeartRateTimelineChart: View {
     let maxTime: TimeInterval
     let allowsHorizontalScrolling: Bool
     let showsPeakLabels: Bool
+    @ScaledMetric(relativeTo: .caption2) private var axisLabelSpacing: CGFloat = 64
     @Binding var selectedTime: TimeInterval?
     @Binding var isDragging: Bool
     @Binding var visibleDuration: TimeInterval
@@ -170,6 +171,15 @@ struct HeartRateTimelineChart: View {
     }
 
     var body: some View {
+        GeometryReader { geometry in
+            // Reserve room for the leading BPM axis and chart padding.
+            let plotWidth = Double(max(0, geometry.size.width - 56))
+            chartContent(plotWidth: plotWidth)
+        }
+    }
+
+    @ViewBuilder
+    private func chartContent(plotWidth: Double) -> some View {
         if dataPoints.isEmpty {
             Chart(dataPoints) { point in
                 LineMark(
@@ -182,13 +192,19 @@ struct HeartRateTimelineChart: View {
                 .chartXAxis {
                     AxisMarks(
                         position: .bottom,
-                        values: HeartRateChartXAxis.tickValues(through: 60)
+                        values: HeartRateChartXAxis.tickValues(
+                            through: 60,
+                            plotWidth: plotWidth,
+                            minimumLabelSpacing: Double(axisLabelSpacing)
+                        )
                     ) { value in
                         AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5))
                             .foregroundStyle(.gray.opacity(0.3))
                         AxisValueLabel {
                             if let time = value.as(Double.self) {
                                 Text(HeartRateChartXAxis.label(for: time))
+                                    .font(.caption2.monospacedDigit())
+                                    .lineLimit(1)
                             }
                         }
                             .foregroundStyle(.gray)
@@ -278,13 +294,21 @@ struct HeartRateTimelineChart: View {
                 .chartXAxis {
                     AxisMarks(
                         position: .bottom,
-                        values: HeartRateChartXAxis.tickValues(through: maxTime)
+                        values: HeartRateChartXAxis.tickValues(
+                            through: maxTime,
+                            plotWidth: plotWidth,
+                            visibleDuration: allowsHorizontalScrolling ? visibleDuration : nil,
+                            scrollPosition: allowsHorizontalScrolling ? scrollPosition : 0,
+                            minimumLabelSpacing: Double(axisLabelSpacing)
+                        )
                     ) { value in
                         AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5))
                             .foregroundStyle(.gray.opacity(0.3))
                         AxisValueLabel {
                             if let time = value.as(Double.self) {
                                 Text(HeartRateChartXAxis.label(for: time))
+                                    .font(.caption2.monospacedDigit())
+                                    .lineLimit(1)
                             }
                         }
                             .foregroundStyle(.gray)

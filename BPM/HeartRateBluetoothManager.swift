@@ -89,6 +89,8 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
     @Published var currentHeartRate: Int?
     @Published private(set) var sensorContactStatus: HeartRateSensorContactStatus = .unsupported
     @Published private(set) var heartRateSamples: [HeartRateSample] = []
+    private(set) var heartRateSessionID = UUID()
+    private(set) var heartRateSessionStartedAt = Date.distantPast
     @Published var debugMessages: [String] = []
     @Published var connectionStatus: String = "Not connected"
     @Published var connectionMessage: String?
@@ -274,6 +276,7 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
         sensorContactStatus = .unsupported
         currentHeartRate = nil
         heartRateSamples.removeAll()
+        heartRateSessionID = UUID()
         rrIntervals.removeAll()
         rrStreamID = UUID()
 #if canImport(ActivityKit)
@@ -367,6 +370,10 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
     }
 
     private func prepareForConnection(to device: CBPeripheral) {
+        if lastConnectedPeripheralIdentifier != device.identifier {
+            heartRateSessionID = UUID()
+            heartRateSessionStartedAt = measurementClock.now()
+        }
         connectionStatus = "Connecting..."
         connectionMessage = nil
         preserveConnectionMessageOnDisconnect = false
@@ -455,6 +462,7 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
         connectedDevice = nil
         currentHeartRate = nil
         heartRateSamples.removeAll()
+        heartRateSessionID = UUID()
         rrIntervals.removeAll()
         rrStreamID = UUID()
         supportsRRIntervals = false
@@ -947,6 +955,7 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
         connectedDevice = nil
         currentHeartRate = nil
         heartRateSamples.removeAll()
+        heartRateSessionID = UUID()
         rrIntervals.removeAll()
         rrStreamID = UUID()
         supportsRRIntervals = false
@@ -1444,6 +1453,7 @@ extension HeartRateBluetoothManager: CBPeripheralDelegate {
             // Reset fake data state
             self.fakeHeartRateBase = 100
             self.heartRateSamples.removeAll()
+            self.heartRateSessionID = UUID()
             self.rrIntervals.removeAll()
             self.rrStreamID = UUID()
             self.supportsRRIntervals = true // Simulator supports RR intervals for testing

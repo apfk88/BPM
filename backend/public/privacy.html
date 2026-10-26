@@ -37,7 +37,7 @@
       <section class="section policy-section">
         <div class="container policy-wrap">
           <h1 class="policy-title">Privacy Policy</h1>
-          <p class="policy-date">Effective date: August 28, 2026</p>
+          <p class="policy-date">Effective date: October 26, 2026</p>
 
           <div class="policy-card">
             <p>
@@ -47,8 +47,9 @@
 
             <h2>Summary</h2>
             <ul>
-              <li>We do not collect personal information.</li>
-              <li>Heart rate data stays on your device unless you explicitly choose to share it.</li>
+              <li>BPM does not require an account. Optional voice notes may contain personal information you choose to record.</li>
+              <li>Measured heart rate data stays on your device unless you explicitly choose to share it.</li>
+              <li>With your permission, AI voice capture sends your recording to OpenAI to create editable workout notes. This content is not used to train OpenAI models.</li>
               <li>If you enable sharing, your heart rate is sent to your backend and retained briefly so others with your code can view it.</li>
               <li>We collect limited, non-personal app usage and device information through TelemetryDeck to understand app reliability and usage.</li>
             </ul>
@@ -71,9 +72,21 @@
               </li>
               <li><strong>When sharing is OFF</strong>:
                 <ul>
-                  <li>No heart rate data is transmitted off-device.</li>
+                  <li>BPM does not transmit measured heart rate samples through live sharing.</li>
                 </ul>
               </li>
+            </ul>
+
+            <h2 id="ai-voice">Optional AI Voice Capture</h2>
+            <ul>
+              <li>BPM records up to 60 seconds on your device. Before the first upload on each device, BPM explains the processing and asks you to choose “Send recording to OpenAI” or “Cancel.” After permission is granted, only recordings you explicitly send go through the BPM backend to OpenAI.</li>
+              <li>OpenAI transcribes the recording and creates a title and detailed description. Review and edit the result before saving.</li>
+              <li>Only the recording and its transcript are used for this request. BPM does not attach measured heart rate samples, HealthKit records, existing notes, or workout history.</li>
+              <li>BPM does not persist recordings, transcripts, or generated text on its backend or include them in application logs. Temporary device recordings are removed after successful generation, when discarded, or when the capture form closes. Failed requests retain the recording while the form remains open so you can retry.</li>
+              <li>Your recording and transcript may contain fitness or health information you choose to mention, such as exercises, weights, effort, or discomfort. They may also contain identifying information if you say it. BPM does not anonymize the words you record.</li>
+              <li>Model-improvement sharing is disabled for the OpenAI project used by BPM. OpenAI does not use these requests to train or improve its models. Under OpenAI's current <a href="https://developers.openai.com/api/docs/guides/your-data">API data controls</a>, the transcription endpoint does not retain audio as application state or in abuse-monitoring logs. The text-generation endpoint may retain transcripts and generated notes in abuse-monitoring logs for up to 30 days, or longer when required by law or necessary for safety. BPM disables stored response state; that does not disable these safety logs.</li>
+              <li>The backend temporarily stores daily request counts and hashed IP-derived identifiers to limit abuse. These counters expire after approximately 25 hours. Hosting providers may retain operational request metadata.</li>
+              <li>You can always enter the title and description manually without using AI voice capture.</li>
             </ul>
 
             <h2>Analytics</h2>
@@ -93,6 +106,7 @@
             <h2>Device Permissions</h2>
             <ul>
               <li><strong>Bluetooth</strong>: Used to discover and connect to your heart rate strap.</li>
+              <li><strong>Microphone</strong>: Used only when you record workout voice notes.</li>
             </ul>
 
             <h2>Security</h2>
@@ -101,10 +115,13 @@
               <li>The backend stores minimal, ephemeral data needed for sharing functionality.</li>
             </ul>
 
-            <h2>Your Choices</h2>
+            <h2 id="privacy-choices">Your Choices</h2>
             <ul>
-              <li>Do not enable sharing if you don't want any data transmitted.</li>
+              <li>Keep heart-rate sharing off and enter workout notes manually if you do not want workout content transmitted.</li>
               <li>You can stop sharing at any time in the app.</li>
+              <li>In Settings → AI Voice Privacy, choose “Reset AI voice permission” to withdraw the saved permission. BPM will ask again before any further voice upload. This permission is stored on your device and is not synced through iCloud.</li>
+              <li>You can deny or revoke microphone access in iOS Settings. Recording and AI processing are optional; manual workout entry remains available.</li>
+              <li>Closing the capture form deletes its temporary recording. Deleting a saved workout removes it from BPM's workout history. Resetting permission or deleting a workout does not erase content already processed by OpenAI or subject to its retention rules. For privacy or deletion requests, contact us at <a href="mailto:vibecodeinc@proton.me">vibecodeinc@proton.me</a>; we will explain what data we hold and what we can identify or delete.</li>
             </ul>
 
             <h2>Contact</h2>

@@ -54,7 +54,8 @@ final class WorkoutStore: ObservableObject {
         retentionDays <= 0
     }
 
-    func saveWorkout(_ record: WorkoutRecord) {
+    func saveWorkout(_ record: WorkoutRecord,
+                     completion: @escaping (Result<WorkoutRecord, DetailEditError>) -> Void = { _ in }) {
         queue.async {
             var updated = record
             let now = Date()
@@ -89,7 +90,8 @@ final class WorkoutStore: ObservableObject {
                     healthKitLastError: record.healthKitLastError,
                     createdAt: records[existingIndex].createdAt,
                     updatedAt: now,
-                    pauses: record.pauses
+                    pauses: record.pauses,
+                    zoneConfig: record.zoneConfig
                 )
                 records[existingIndex] = updated
             } else {
@@ -118,13 +120,68 @@ final class WorkoutStore: ObservableObject {
                     healthKitLastError: record.healthKitLastError,
                     createdAt: now,
                     updatedAt: now,
-                    pauses: record.pauses
+                    pauses: record.pauses,
+                    zoneConfig: record.zoneConfig
                 )
                 records.insert(updated, at: 0)
             }
 
             records = self.pruneRetentionInternal(records: records, now: now)
-            self.persist(records: records)
+            guard self.persist(records: records) else {
+                DispatchQueue.main.async { completion(.failure(.saveFailed)) }
+                return
+            }
+            DispatchQueue.main.async {
+                self.lastError = nil
+                self.workouts = self.sorted(records)
+                completion(.success(updated))
+            }
+        }
+    }
+
+    enum DetailEditError: LocalizedError {
+        case workoutNotFound
+        case saveFailed
+
+        var errorDescription: String? {
+            switch self {
+            case .workoutNotFound: return "This workout is no longer in your history."
+            case .saveFailed: return "Your changes couldn’t be saved. Please try again."
+            }
+        }
+    }
+
+    /// Edit the latest saved record so measurement and sync updates are never replaced by an old screen snapshot.
+    func updateDetails(for id: UUID, title: String, description: String,
+                       completion: @escaping (Result<Void, DetailEditError>) -> Void) {
+        queue.async {
+            var records = self.cachedRecords
+            guard let index = records.firstIndex(where: { $0.id == id }) else {
+                DispatchQueue.main.async { completion(.failure(.workoutNotFound)) }
+                return
+            }
+            records[index] = records[index].updatingDetails(title: title, description: description)
+            guard self.persist(records: records) else {
+                DispatchQueue.main.async { completion(.failure(.saveFailed)) }
+                return
+            }
+            DispatchQueue.main.async {
+                self.lastError = nil
+                self.workouts = self.sorted(records)
+                completion(.success(()))
+            }
+        }
+    }
+
+    /// HealthKit can finish after the user edits or deletes a workout.
+    func updateHealthKitSync(for id: UUID, workoutUUID: UUID?, syncedAt: Date?, lastError: String?) {
+        queue.async {
+            var records = self.cachedRecords
+            guard let index = records.firstIndex(where: { $0.id == id }) else { return }
+            records[index] = records[index].updatingHealthKitSync(
+                workoutUUID: workoutUUID, syncedAt: syncedAt, lastError: lastError
+            )
+            guard self.persist(records: records) else { return }
             DispatchQueue.main.async {
                 self.lastError = nil
                 self.workouts = self.sorted(records)
@@ -191,7 +248,8 @@ final class WorkoutStore: ObservableObject {
         }
     }
 
-    private func persist(records: [WorkoutRecord], updatedAt: Date = Date()) {
+    @discardableResult
+    private func persist(records: [WorkoutRecord], updatedAt: Date = Date()) -> Bool {
         do {
             try ensureDirectoryExists()
             let encoder = JSONEncoder()
@@ -201,10 +259,12 @@ final class WorkoutStore: ObservableObject {
             try data.write(to: storeURL, options: [.atomic])
             persistToICloud(data: data, records: records, updatedAt: updatedAt)
             cachedRecords = records
+            return true
         } catch {
             DispatchQueue.main.async {
                 self.lastError = "Failed to save workouts"
             }
+            return false
         }
     }
 
@@ -384,7 +444,8 @@ final class WorkoutStore: ObservableObject {
             healthKitLastError: record.healthKitLastError,
             createdAt: record.createdAt,
             updatedAt: record.updatedAt,
-            pauses: record.pauses
+            pauses: record.pauses,
+            zoneConfig: record.zoneConfig
         )
     }
 

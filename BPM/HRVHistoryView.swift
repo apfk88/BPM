@@ -2,9 +2,8 @@ import SwiftUI
 
 struct HRVHistoryView: View {
     @ObservedObject var store: HRVStore
-    @State private var shareItems: [Any] = []
-    @State private var shareSubject: String = ""
-    @State private var showShareSheet = false
+    @State private var sharePayload: SharePayload?
+    @State private var shareError: String?
 
     var body: some View {
         List {
@@ -14,7 +13,9 @@ struct HRVHistoryView: View {
             } else {
                 ForEach(store.records) { record in
                     NavigationLink {
-                        HRVDetailView(record: record, onShare: presentShare)
+                        HRVDetailView(record: record, onShare: presentShare, onShareLogs: {
+                            presentLogs(json: record.jsonString(), prefix: "BPM-HRV", date: record.startAt)
+                        })
                     } label: {
                         HRVHistoryRow(record: record)
                     }
@@ -34,22 +35,36 @@ struct HRVHistoryView: View {
             ToolbarItem(placement: .navigationBarTrailing) {
                 Menu {
                     Button("Export Logs (for AI)") {
-                        presentShare(items: [store.exportAllJSON()], subject: "HRV Logs (for AI)")
+                        presentLogs(json: store.exportAllJSON(), prefix: "BPM-HRV-history", date: Date())
                     }
                 } label: {
                     Image(systemName: "square.and.arrow.up")
                 }
             }
         }
-        .sheet(isPresented: $showShareSheet) {
-            ShareSheet(items: shareItems, subject: shareSubject)
+        .sheet(item: $sharePayload) { payload in
+            ShareSheet(items: payload.items, subject: payload.subject)
+        }
+        .alert("Couldn’t Export Logs", isPresented: Binding(
+            get: { shareError != nil }, set: { if !$0 { shareError = nil } }
+        )) {
+            Button("OK", role: .cancel) { shareError = nil }
+        } message: {
+            Text(shareError ?? "Please try again.")
+        }
+    }
+
+    private func presentLogs(json: String, prefix: String, date: Date) {
+        do {
+            let file = try JSONLogFile.create(json: json, prefix: prefix, date: date)
+            presentShare(items: [file], subject: "HRV Logs (JSON)")
+        } catch {
+            shareError = "The JSON file couldn’t be created. Please try again."
         }
     }
 
     private func presentShare(items: [Any], subject: String) {
-        shareItems = items
-        shareSubject = subject
-        showShareSheet = true
+        sharePayload = SharePayload(items: items, subject: subject)
     }
 }
 
@@ -95,6 +110,7 @@ private struct HRVHistoryRow: View {
 private struct HRVDetailView: View {
     let record: HRVRecord
     let onShare: ([Any], String) -> Void
+    let onShareLogs: () -> Void
 
     var body: some View {
         List {
@@ -115,7 +131,7 @@ private struct HRVDetailView: View {
                     onShare([record.summaryText()], "HRV Summary")
                 }
                 Button("Share Logs (for AI)") {
-                    onShare([record.jsonString()], "HRV Logs (for AI)")
+                    onShareLogs()
                 }
             }
         }

@@ -52,40 +52,70 @@ final class ModernInterfaceUITests: XCTestCase {
         let monitor = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Simulator HR Monitor")).firstMatch
         XCTAssertTrue(monitor.waitForExistence(timeout: 5))
         monitor.tap()
+        XCTAssertTrue(app.navigationBars["Select Device"].waitForNonExistence(timeout: 5))
+        sleep(1)
         XCTAssertTrue(app.buttons["Workout"].waitForExistence(timeout: 5))
         screenshot("Home with simulated heart rate")
         app.buttons["Workout"].tap()
         app.buttons["Start"].tap()
+        if app.alerts["Start Workout"].waitForExistence(timeout: 2) {
+            app.alerts["Start Workout"].buttons["Start from now"].tap()
+        }
         XCTAssertTrue(app.buttons["Work Set"].waitForExistence(timeout: 5))
         app.buttons["Work Set"].tap()
         app.buttons["Rest Set"].tap()
         // Record long enough for the chart to offer a meaningful zoom range.
         XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "0:12")).firstMatch.waitForExistence(timeout: 15))
         app.buttons["End"].tap()
+        XCTAssertTrue(app.buttons["resumeEndedWorkout"].waitForExistence(timeout: 5))
+        app.buttons["resumeEndedWorkout"].tap()
+        XCTAssertTrue(app.buttons["End"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["Save Workout"].exists)
+        app.buttons["End"].tap()
         app.buttons["Save Workout"].tap()
-        app.buttons["Functional Strength"].tap()
+        app.buttons["Functional Strength"].firstMatch.tap()
         XCTAssertTrue(app.navigationBars["Save Workout"].waitForExistence(timeout: 5))
         app.buttons["Cancel"].tap()
         XCTAssertTrue(app.buttons["Save Workout"].waitForExistence(timeout: 5))
 
         app.buttons["Save Workout"].tap()
-        app.buttons["Functional Strength"].tap()
+        app.buttons["Functional Strength"].firstMatch.tap()
         let title = "UI review \(UUID().uuidString.prefix(6))"
         let titleField = app.textFields["Title"]
         XCTAssertTrue(titleField.waitForExistence(timeout: 5))
         titleField.tap()
         titleField.typeText(title)
+        app.textViews["Workout description"].tap()
+        app.textViews["Workout description"].typeText("Steady effort after resuming.")
         app.buttons["Save"].tap()
         // Decline Apple Health access on the isolated simulator.
-        if app.buttons["UIA.Health.DoNotAllow.Button"].waitForExistence(timeout: 10) {
+        if app.navigationBars["Health Access"].waitForExistence(timeout: 10) {
+            for _ in 0..<4 where !app.buttons["UIA.Health.DoNotAllow.Button"].isHittable { app.swipeUp() }
             app.buttons["UIA.Health.DoNotAllow.Button"].tap()
-            XCTAssertTrue(app.buttons["UIA.Health.DoNotAllow.Button"].waitForNonExistence(timeout: 5))
+            XCTAssertTrue(app.navigationBars["Health Access"].waitForNonExistence(timeout: 5))
         }
+        if app.alerts["Health Access"].waitForExistence(timeout: 3) {
+            app.alerts["Health Access"].buttons["OK"].tap()
+        }
+        XCTAssertTrue(app.buttons["closeWorkoutShareDrawer"].waitForExistence(timeout: 5))
+        XCTAssertEqual(app.staticTexts["workoutShareFormat"].label, "Chart Card")
+        screenshot("Share drawer automatically after save")
+        app.buttons["shareSelectedWorkoutFormat"].tap()
+        XCTAssertTrue(app.navigationBars["Chart Card"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["shareWorkoutImage"].exists)
+        app.buttons["closeWorkoutCardEditor"].tap()
+        app.buttons["closeWorkoutShareDrawer"].tap()
         XCTAssertTrue(app.buttons["Workout"].waitForExistence(timeout: 5))
         app.buttons["Settings"].tap()
+        let healthDeny = app.buttons["UIA.Health.DoNotAllow.Button"]
+        if healthDeny.waitForExistence(timeout: 5) {
+            healthDeny.tap()
+            XCTAssertTrue(healthDeny.waitForNonExistence(timeout: 5))
+            app.buttons["Settings"].tap()
+        }
         app.swipeUp()
         app.buttons["Workout History"].tap()
-        let saved = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", title)).firstMatch
+        let saved = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", title)).firstMatch
         XCTAssertTrue(saved.waitForExistence(timeout: 5))
         saved.tap()
         let expand = app.buttons["Expand heart rate chart"]

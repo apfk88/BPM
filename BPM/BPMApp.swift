@@ -49,9 +49,19 @@ struct BPMApp: App {
 
     var body: some Scene {
         WindowGroup {
-            HeartRateDisplayView()
-                .environmentObject(bluetoothManager)
-                .preferredColorScheme(.dark)
+            Group {
+                #if DEBUG
+                if ProcessInfo.processInfo.arguments.contains("--workout-share-ui-test") {
+                    WorkoutSharePreviewScene()
+                } else {
+                    HeartRateDisplayView()
+                }
+                #else
+                HeartRateDisplayView()
+                #endif
+            }
+            .environmentObject(bluetoothManager)
+            .preferredColorScheme(.dark)
         }
         .onChange(of: scenePhase) { oldPhase, newPhase in
             switch newPhase {

@@ -25,14 +25,38 @@ struct HeartRateChartViewportTests {
         #expect(viewport.clampedScrollPosition(590, visibleDuration: 120) == 480)
     }
 
-    @Test func xAxisAlwaysUsesThirtySecondLabels() {
-        #expect(HeartRateChartXAxis.tickValues(through: 20) == [0])
-        #expect(HeartRateChartXAxis.tickValues(through: 175) == [0, 30, 60, 90, 120, 150])
-        #expect(HeartRateChartXAxis.tickValues(through: 180) == [0, 30, 60, 90, 120, 150, 180])
-        #expect(HeartRateChartXAxis.label(for: 30) == "30s")
-        #expect(HeartRateChartXAxis.label(for: 60) == "1m")
-        #expect(HeartRateChartXAxis.label(for: 90) == "1m30s")
-        #expect(HeartRateChartXAxis.label(for: 120) == "2m")
+    @Test func xAxisFitsPhoneWidthForNineteenMinuteWorkout() {
+        #expect(HeartRateChartXAxis.tickValues(through: 1152, plotWidth: 320) == [0, 300, 600, 900])
+        #expect(HeartRateChartXAxis.tickValues(through: 1152, plotWidth: 160) == [0, 600])
+        #expect(HeartRateChartXAxis.tickValues(through: 1152, plotWidth: 768).count > 4)
+    }
+
+    @Test func xAxisKeepsShortWorkoutsAndZoomedWindowsReadable() {
+        #expect(HeartRateChartXAxis.tickValues(through: 20, plotWidth: 320) == [0, 5, 10, 15, 20])
+        #expect(HeartRateChartXAxis.tickValues(through: 175, plotWidth: 320) == [0, 60, 120])
+        #expect(HeartRateChartXAxis.tickValues(
+            through: 3600, plotWidth: 320, visibleDuration: 60, scrollPosition: 123
+        ) == [135, 150, 165, 180])
+        #expect(HeartRateChartXAxis.tickValues(
+            through: 3600, plotWidth: 320, visibleDuration: 60, scrollPosition: 4000
+        ) == [3540, 3555, 3570, 3585, 3600])
+    }
+
+    @Test func xAxisScalesForLargerTextAndHandlesInvalidGeometry() {
+        #expect(HeartRateChartXAxis.tickValues(
+            through: 1152, plotWidth: 320, minimumLabelSpacing: 128
+        ) == [0, 600])
+        #expect(HeartRateChartXAxis.tickValues(through: 1152, plotWidth: 0) == [0])
+        #expect(HeartRateChartXAxis.tickValues(through: .infinity, plotWidth: 320) == [0])
+        #expect(HeartRateChartXAxis.tickValues(through: 0, plotWidth: 320) == [0])
+    }
+
+    @Test func xAxisUsesCompactElapsedTimeLabels() {
+        #expect(HeartRateChartXAxis.label(for: 0) == "0:00")
+        #expect(HeartRateChartXAxis.label(for: 30) == "0:30")
+        #expect(HeartRateChartXAxis.label(for: 90) == "1:30")
+        #expect(HeartRateChartXAxis.label(for: 900) == "15:00")
+        #expect(HeartRateChartXAxis.label(for: 3660) == "1:01:00")
     }
 
     @Test func peakLabelsSelectMajorLocalMaximumPerVisibleBucket() {

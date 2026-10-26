@@ -16,6 +16,23 @@ struct PersistedHeartRateSample: Codable, Equatable {
     let workoutTime: TimeInterval?
 }
 
+/// The active set and preset state immediately before a manual End action.
+/// Measurements remain in the session; only the end action's bookkeeping is undone.
+struct WorkoutEndRecovery: Codable, Equatable {
+    let state: TimerState
+    let stoppedAt: Date
+    let sets: [PersistedSetRecord]
+    let currentSetTime: TimeInterval
+    let frozenElapsedTime: TimeInterval
+    let isTimingRestSet: Bool
+    let setCounter: Int
+    let restSetCounter: Int
+    let lastSetEndTime: TimeInterval
+    let currentRestAssociatedWorkSetNumber: Int?
+    let activePreset: TimerPreset?
+    let presetPhaseTimeRemaining: TimeInterval
+}
+
 struct ActiveWorkoutSessionSnapshot: Codable, Equatable {
     static let currentSchemaVersion = 1
 
@@ -55,6 +72,7 @@ struct ActiveWorkoutSessionSnapshot: Codable, Equatable {
     var pauses: [WorkoutPause]? = nil
     var workoutStartedAt: Date? = nil
     var workoutEndedAt: Date? = nil
+    var endRecovery: WorkoutEndRecovery? = nil
 
     var hasSession: Bool {
         startTime != nil || !sets.isEmpty || activePreset != nil || isPresetPrestartCountdownActive

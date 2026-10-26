@@ -35,15 +35,7 @@ struct HeartRateLiveActivity: Widget {
                     .allowsTightening(true)
                 .foregroundColor(textColor)
             } compactTrailing: {
-                if let elapsed = context.state.elapsedSeconds {
-                    WorkoutElapsedText(content: context.state, elapsed: elapsed, width: 80, alignment: .trailing)
-                        .font(.system(size: 16, weight: .semibold, design: .monospaced))
-                        .multilineTextAlignment(.trailing)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.7)
-                        .allowsTightening(true)
-                }
+                EmptyView()
             } minimal: {
                 let textColor: Color = {
                     if context.state.hasError {
@@ -235,8 +227,8 @@ private struct WorkoutElapsedText: View {
                 Text(formatDuration(elapsed))
             }
         }
-        // Widget timers are horizontally flexible. An explicit width keeps the
-        // island compact and gives the fixed-size stats row a finite ideal width.
+        // Widget timers are horizontally flexible. An explicit width gives the
+        // expanded and Lock Screen stats row a finite ideal width.
         // Reserve room for hours so suspension and pause do not change the layout.
         .frame(width: width, alignment: alignment)
     }

@@ -20,6 +20,10 @@ final class AlertSoundPlayer {
         engine.connect(player, to: engine.mainMixerNode, format: format)
     }
 
+    func suspendForRecording() {
+        queue.sync { player.stop(); engine.stop() }
+    }
+
     func playBpmAscending() {
         playSequence(frequencies: [660, 880], toneDuration: 0.12, gap: 0.06)
     }
@@ -36,13 +40,14 @@ final class AlertSoundPlayer {
 
     private func playSequence(frequencies: [Double], toneDuration: TimeInterval, gap: TimeInterval) {
         queue.async { [weak self] in
-            guard let self = self else { return }
+            guard let self = self, !WorkoutRecordingAudio.shared.isRecording else { return }
             self.ensureEngineRunning()
 
             var delay: TimeInterval = 0
             for frequency in frequencies {
                 let buffer = self.makeBuffer(frequency: frequency, duration: toneDuration)
                 self.queue.asyncAfter(deadline: .now() + delay) { [weak self] in
+                    guard !WorkoutRecordingAudio.shared.isRecording else { return }
                     self?.player.scheduleBuffer(buffer, at: nil, options: .interrupts, completionHandler: nil)
                 }
                 delay += toneDuration + gap

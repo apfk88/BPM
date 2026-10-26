@@ -2,7 +2,9 @@ import SwiftUI
 
 struct WorkoutHistoryView: View {
     @ObservedObject var store: WorkoutStore
+    @State private var selectedWorkoutID: UUID?
     @State private var sharePayload: SharePayload?
+    @State private var shareError: String?
 
     var body: some View {
         List {
@@ -11,17 +13,17 @@ struct WorkoutHistoryView: View {
                     .foregroundColor(.secondary)
             } else {
                 ForEach(store.workouts) { workout in
-                    NavigationLink {
-                        WorkoutDetailView(
-                            record: workout,
-                            onShare: presentShare,
-                            onDelete: {
-                                store.deleteWorkout(workout)
-                            }
-                        )
+                    Button {
+                        selectedWorkoutID = workout.id
                     } label: {
-                        WorkoutHistoryRow(record: workout)
+                        WorkoutShareCardPreview(snapshot: WorkoutShareSnapshot(record: workout), style: .chart, compact: true)
+                            .contentShape(Rectangle())
                     }
+                    .buttonStyle(.plain)
+                    .accessibilityHint("Opens workout details")
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
+                    .listRowInsets(EdgeInsets(top: 6, leading: 0, bottom: 6, trailing: 0))
                     .swipeActions(edge: .trailing) {
                         Button(role: .destructive) {
                             store.deleteWorkout(workout)
@@ -34,11 +36,23 @@ struct WorkoutHistoryView: View {
         }
         .navigationTitle("Workout History")
         .navigationBarTitleDisplayMode(.inline)
+        .navigationDestination(item: $selectedWorkoutID) { workoutID in
+            if let workout = store.workouts.first(where: { $0.id == workoutID }) {
+                WorkoutDetailView(
+                    initialRecord: workout,
+                    store: store,
+                    onDelete: {
+                        store.deleteWorkout(workout)
+                    }
+                )
+            }
+        }
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
                 Menu {
                     Button("Export Logs (for AI)") {
-                        presentShare(items: [store.exportAllJSON()], subject: "Workout History Logs (for AI)")
+                        presentLogs(json: store.exportAllJSON(), prefix: "BPM-workout-history", date: Date(),
+                                    subject: "Workout History Logs (JSON)")
                     }
                 } label: {
                     Image(systemName: "square.and.arrow.up")
@@ -48,6 +62,22 @@ struct WorkoutHistoryView: View {
         .sheet(item: $sharePayload) { payload in
             ShareSheet(items: payload.items, subject: payload.subject)
         }
+        .alert("Couldn’t Export Logs", isPresented: Binding(
+            get: { shareError != nil }, set: { if !$0 { shareError = nil } }
+        )) {
+            Button("OK", role: .cancel) { shareError = nil }
+        } message: {
+            Text(shareError ?? "Please try again.")
+        }
+    }
+
+    private func presentLogs(json: String, prefix: String, date: Date, subject: String) {
+        do {
+            let file = try JSONLogFile.create(json: json, prefix: prefix, date: date)
+            presentShare(items: [file], subject: subject)
+        } catch {
+            shareError = "The JSON file couldn’t be created. Please try again."
+        }
     }
 
     private func presentShare(items: [Any], subject: String) {
@@ -55,95 +85,64 @@ struct WorkoutHistoryView: View {
     }
 }
 
-private struct SharePayload: Identifiable {
-    let id = UUID()
-    let items: [Any]
-    let subject: String
-}
-
-private struct WorkoutHistoryRow: View {
-    let record: WorkoutRecord
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                if let title = record.title, !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    Text(title)
-                        .font(.headline)
-                } else {
-                    Text(dateString(record.startAt))
-                        .font(.headline)
-                }
-                Spacer()
-                Text(formatDuration(record.durationSeconds))
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-            }
-            if let title = record.title, !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                Text(dateString(record.startAt))
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-            }
-
-            HStack(spacing: 12) {
-                statChip(label: "Avg", value: record.avgHr)
-                statChip(label: "Max", value: record.maxHr)
-                if let hrr = record.hrr {
-                    statChip(label: "HRR", value: hrr)
-                }
-            }
-            if let caloriesSummaryText {
-                Text(caloriesSummaryText)
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-            }
-        }
-        .padding(.vertical, 4)
-    }
-
-    private func statChip(label: String, value: Int?) -> some View {
-        Text("\(label) \(value.map(String.init) ?? "---")")
-            .font(.subheadline)
-            .foregroundColor(.secondary)
-    }
-
-    private var caloriesSummaryText: String? {
-        guard let total = record.caloriesTotal else { return nil }
-        let totalText = "Total \(Int(round(total)))"
-        if let active = record.caloriesActive {
-            return "Calories: \(totalText) • Active \(Int(round(active)))"
-        }
-        return "Calories: \(totalText)"
-    }
-
-    private func dateString(_ date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.dateStyle = .medium
-        formatter.timeStyle = .short
-        return formatter.string(from: date)
-    }
-
-    private func formatDuration(_ time: TimeInterval) -> String {
-        let totalSeconds = Int(time)
-        let hours = totalSeconds / 3600
-        let minutes = (totalSeconds % 3600) / 60
-        let seconds = totalSeconds % 60
-        if hours > 0 {
-            return String(format: "%d:%02d:%02d", hours, minutes, seconds)
-        }
-        return String(format: "%d:%02d", minutes, seconds)
-    }
-}
-
 private struct WorkoutDetailView: View {
-    let record: WorkoutRecord
-    let onShare: ([Any], String) -> Void
+    let initialRecord: WorkoutRecord
+    @ObservedObject var store: WorkoutStore
     let onDelete: () -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var showDeleteAlert = false
     @State private var showExpandedHeartRateChart = false
+    @State private var isEditingWorkout = false
+    @State private var isSharingWorkout = false
+
+    private var record: WorkoutRecord {
+        store.workouts.first(where: { $0.id == initialRecord.id }) ?? initialRecord
+    }
 
     var body: some View {
+        workoutLog
+        .navigationTitle("Workout")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button { isEditingWorkout = true } label: {
+                    Image(systemName: "pencil")
+                }
+                .accessibilityLabel("Edit workout")
+                .accessibilityIdentifier("editSavedWorkout")
+            }
+            if #available(iOS 26.0, *) {
+                ToolbarSpacer(.fixed, placement: .topBarTrailing)
+            }
+            ToolbarItem(placement: .topBarTrailing) {
+                Button { isSharingWorkout = true } label: {
+                    Image(systemName: "square.and.arrow.up")
+                }
+                .accessibilityLabel("Share workout")
+                .accessibilityIdentifier("openWorkoutShareDrawer")
+            }
+        }
+        .sheet(isPresented: $isEditingWorkout) {
+            WorkoutDetailsEditor(record: record, store: store)
+        }
+        .sheet(isPresented: $isSharingWorkout) {
+            WorkoutShareDrawer(record: record)
+        }
+        .fullScreenCover(isPresented: $showExpandedHeartRateChart) {
+            ExpandedHeartRateChartView(record: record)
+        }
+        .alert("Delete Workout?", isPresented: $showDeleteAlert) {
+            Button("Cancel", role: .cancel) { }
+            Button("Delete", role: .destructive) {
+                onDelete()
+                dismiss()
+            }
+        } message: {
+            Text("This will permanently remove the workout from history.")
+        }
+    }
+
+    private var workoutLog: some View {
         List {
             Section(header: Text("Heart Rate")) {
                 if record.hrSamples.isEmpty {
@@ -180,7 +179,7 @@ private struct WorkoutDetailView: View {
                 }
                 if let notes = normalizedNotes {
                     VStack(alignment: .leading, spacing: 6) {
-                        Text("Notes")
+                        Text("Description")
                         Text(notes)
                             .foregroundColor(.secondary)
                             .multilineTextAlignment(.leading)
@@ -238,34 +237,13 @@ private struct WorkoutDetailView: View {
                 }
             }
 
-            Section(header: Text("Share")) {
-                Button("Share Summary") {
-                    onShare([record.summaryText()], "Workout Summary")
-                }
-                Button("Share Logs (for AI)") {
-                    onShare([record.jsonString()], "Workout Logs (for AI)")
-                }
-            }
-
             Section {
                 Button("Delete Workout", role: .destructive) {
                     showDeleteAlert = true
                 }
             }
         }
-        .navigationTitle("Workout")
-        .fullScreenCover(isPresented: $showExpandedHeartRateChart) {
-            ExpandedHeartRateChartView(record: record)
-        }
-        .alert("Delete Workout?", isPresented: $showDeleteAlert) {
-            Button("Cancel", role: .cancel) { }
-            Button("Delete", role: .destructive) {
-                onDelete()
-                dismiss()
-            }
-        } message: {
-            Text("This will permanently remove the workout from history.")
-        }
+        .accessibilityIdentifier("workoutLogTab")
     }
 
     private func detailRow(label: String, value: String?) -> some View {
