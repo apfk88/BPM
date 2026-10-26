@@ -2,6 +2,16 @@
 
 Prepared October 26, 2026 for App Store Connect app 6754830191, bundle `kvamme.BPM`.
 
+## Review follow-up, October 26
+
+- Apple rejected build 16 at 3:15 PM PDT under Guideline 2.5.4 because `UIBackgroundModes` declares `audio` and the reviewer could not locate a feature requiring persistent background audio.
+- The audio declaration dates to the February 4 background-alerts change (`1143624`). Current code plays heart-rate/zone tones and interval bells; AI recording stops on background entry. Removing audio without physical-device checks could affect background alerts.
+- Apple explicitly offered to approve the bug-fix update now and allow this issue to be addressed in the next update, without resubmitting.
+- With the user's explicit approval, sent this reply at 4:29 PM PDT: “This update includes workout recovery, timer, and layout fixes. Please proceed with approval under the bug-fix option described in your message. We will address the background-audio issue in our next update.”
+- Verified the posted reply in Messages (2). Status still **Rejected / Unresolved Issues**, awaiting Apple's decision. No new binary or resubmission was made.
+- Before the next update, resolve the background-audio requirement. Apple's alternatives are physical-device video evidence of qualifying background audio, or removal of the audio mode. Validate locked-phone heart-rate and interval alerts before changing it.
+- Proof: ignored `build/privacy-release-proof/build-16-bugfix-request-sent.jpg`.
+
 ## Build 16 sharing analytics
 
 Build 16 adds TelemetryDeck instrumentation for workout and HRV sharing. It covers picker opens, format selection, export requests, sheet presentation, completion, cancellation, and failure. Events contain fixed source/format labels only. See [sharing analytics](../../sharing-analytics.md) for the event contract and completion semantics. Existing live-sharing signals and SDK privacy behavior are unchanged.
