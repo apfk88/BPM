@@ -13,7 +13,12 @@ Build 15 supersedes the previously uploaded build 14 and includes all current wo
 - Build 15 replaced build 14 in the saved version draft. Existing automatic release after approval is retained.
 - All 140 iOS tests passed with zero failures/skips, including seven affected UI tests; all eight backend tests and production build passed.
 - Source hashes were checked against the validated/archived snapshot before commit. Secrets and generated build artifacts remain ignored.
-- Review submission is the next step after committing and pushing this release.
+- All 53 changed files were committed and pushed to `origin/master` as `e74f10b354dbea6fb2faa8925dc5914616b5c012`.
+- App Store Connect required new Social Media and Social Media Disabled for Users Under 13 age-rating answers. Both are No: BPM has no social feed and does not implement the Declared Age Range API. Existing Health or Wellness Topics = Yes and other existing content responses were preserved; calculated rating remains 9+ with regional exceptions.
+- Submitted October 26, 2026 at 12:59 PM PDT. App Store Connect confirmed **Waiting for Review** for **2.0.13 (15)**.
+- Submission ID: `1593f402-d8d8-4950-a23c-5b32ec301984`.
+- Review page: https://appstoreconnect.apple.com/apps/6754830191/distribution/reviewsubmissions/details/1593f402-d8d8-4950-a23c-5b32ec301984
+- Screenshot: ignored `build/privacy-release-proof/build-15-waiting-review.jpg`.
 
 ## Privacy configuration
 
