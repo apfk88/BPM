@@ -44,7 +44,7 @@ h1 > span { color: var(--accent); }
 .phone-stage { display: flex; justify-content: center; }
 .phone-frame { width: 258px; padding: 5px; border: 1px solid #3c3c3c; border-radius: 38px; background: #191919; overflow: hidden; }
 .phone-frame img { width: 100%; border-radius: 32px; background: #000; aspect-ratio: 1284 / 2778; }
-.screen-controls { display: flex; justify-content: center; gap: 3px; margin-top: 18px; }
+.screen-controls { display: grid; grid-template-columns: repeat(3, 1fr); max-width: 280px; margin: 18px auto 0; gap: 3px; }
 .screen-controls[hidden] { display: none; }
 .screen-controls button { background: transparent; color: var(--muted); border: 0; border-bottom: 1px solid transparent; padding: 10px 12px; min-height: 44px; cursor: pointer; font-size: 12px; white-space: nowrap; }
 .screen-controls button[aria-pressed='true'] { color: var(--accent); border-bottom-color: var(--accent); }
