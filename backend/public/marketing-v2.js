@@ -6,7 +6,7 @@
 
   const screens = {
     live: { src: '/screens/live.png', alt: 'BPM live display with a large 122 BPM reading, heart rate statistics, and zone 2 indicator' },
-    workout: { src: '/screens/workout-table.png', alt: 'BPM workout stats table showing set times, average heart rate, total time, and work and rest controls' },
+    workout: { src: '/screens/workout-stats.png', alt: 'BPM workout stats showing heart rate, total time, set number, set time, average and maximum heart rate, zone, and calories' },
     hrv: { src: '/screens/hrv.png', alt: 'BPM HRV result showing 22 milliseconds with average, minimum, and maximum readings' },
     stream: { src: '/screens/sharing.png', alt: 'BPM live sharing screen with a temporary six-digit code above the heart rate display' },
     share: { src: '/screens/share.png', alt: 'BPM Share drawer with the workout chart card and Share Chart button' },
