@@ -2,14 +2,13 @@
   const screen = document.getElementById('app-screen');
   const controls = document.querySelector('.screen-controls');
   const error = document.getElementById('screen-error');
-  const index = document.querySelector('.screen-index');
-  if (!screen || !controls || !error || !index) return;
+  if (!screen || !controls || !error) return;
 
   const screens = {
-    live: { src: '/screens/live.png', alt: 'BPM live display with a large 122 BPM reading, heart rate statistics, and zone 2 indicator', index: '01' },
-    workout: { src: '/screens/workout.png', alt: 'BPM workout timer showing set times, average heart rate, and work and rest controls', index: '02' },
-    hrv: { src: '/screens/hrv.png', alt: 'BPM HRV result showing 22 milliseconds with average, minimum, and maximum readings', index: '03' },
-    sharing: { src: '/screens/sharing.png', alt: 'BPM live sharing screen with a temporary six-digit code above the heart rate display', index: '04' }
+    live: { src: '/screens/live.png', alt: 'BPM live display with a large 122 BPM reading, heart rate statistics, and zone 2 indicator' },
+    workout: { src: '/screens/workout.png', alt: 'BPM workout timer showing set times, average heart rate, and work and rest controls' },
+    hrv: { src: '/screens/hrv.png', alt: 'BPM HRV result showing 22 milliseconds with average, minimum, and maximum readings' },
+    sharing: { src: '/screens/sharing.png', alt: 'BPM live sharing screen with a temporary six-digit code above the heart rate display' }
   };
   let request = 0;
   controls.hidden = false;
@@ -28,7 +27,6 @@
       screen.alt = next.alt;
       error.hidden = true;
       error.textContent = '';
-      index.textContent = `${next.index} / 04`;
       controls.querySelectorAll('button').forEach((control) => {
         control.setAttribute('aria-pressed', String(control === button));
       });
