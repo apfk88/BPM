@@ -21,7 +21,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="/marketing-v2.css?v=5" />
+    <link rel="stylesheet" href="/marketing-v2.css?v=7" />
     <link rel="icon" type="image/png" sizes="32x32" href="/favicon-light-32x32.png" />
     <link rel="icon" type="image/png" sizes="32x32" href="/favicon-dark-32x32.png" media="(prefers-color-scheme: dark)" />
     <link rel="apple-touch-icon" href="/apple-icon.png" />
@@ -73,6 +73,19 @@
         </div>
       </section>
 
+      <section class="reviews-section container section" id="reviews" aria-label="App Store reviews">
+        <!-- Add one review-card per verified review. The grid adapts to the number of cards. -->
+        <div class="review-grid">
+          <figure class="review-card" id="app-store-review-14675064289">
+            <div class="review-stars" role="img" aria-label="5 out of 5 stars"><span aria-hidden="true">★★★★★</span></div>
+            <blockquote cite="https://apps.apple.com/us/app/6754830191?see-all=reviews&amp;platform=iphone">
+              <p>“Perfect HRM for me. Its my Fav of the 6 or so I’ve tried. Highly recommended. It pairs quickly every time w my Garmin chest strap. Good selection of screens and layouts. Lets me adjust what I want such as HR ranges for my zones. It gives my HR without averaging it over time so the HR reading is very responsive, which I like when doing HIIT. No need for cloud or login. It just works every time. GREAT APP!!!”</p>
+            </blockquote>
+            <figcaption><span class="review-author">Loren Crow</span><a href="https://apps.apple.com/us/app/6754830191?see-all=reviews&amp;platform=iphone">Read on the App Store <span aria-hidden="true">↗</span></a></figcaption>
+          </figure>
+        </div>
+      </section>
+
       <section class="features container section" id="features" aria-labelledby="features-title">
         <h2 id="features-title">In the app</h2>
         <div class="feature-list">
@@ -91,7 +104,7 @@
             <details><summary>Is live sharing free?</summary><div class="faq-answer"><p>Yes. Share a code to let someone follow your live heart rate. Sessions expire after 90 minutes.</p></div></details>
             <details><summary>What does the HRV test measure?</summary><div class="faq-answer"><p>BPM calculates RMSSD from your monitor’s RR intervals over two minutes. Results are calculated on your device and saved to your history.</p></div></details>
             <details><summary>How are calories calculated?</summary><div class="faq-answer"><p>From your heart rate and profile, with resting heart rate and VO₂ max when available. Active calories exclude resting energy use. These are estimates.</p></div></details>
-            <details><summary>Where does my data go?</summary><div class="faq-answer"><p>Heart rate data stays on your device unless you choose to share or sync it. Optional voice notes are processed by OpenAI. BPM uses limited usage analytics.</p><p>See the <a href="/privacy.html">privacy policy</a>.</p></div></details>
+            <details><summary>Where does my data go?</summary><div class="faq-answer"><p>Heart rate data stays on your device unless you choose to share or sync it. Optional voice notes use a third-party service with your permission. BPM uses limited usage analytics.</p><p>See the <a href="/privacy.html">privacy policy</a>.</p></div></details>
           </div>
         </div>
       </section>
