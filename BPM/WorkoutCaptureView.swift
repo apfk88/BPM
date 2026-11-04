@@ -63,14 +63,12 @@ struct WorkoutCaptureView: View {
                         }.disabled(isBusy)
                     }
                 } footer: {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("Send shares your recording with OpenAI to create editable workout notes. Your content is not used to train its models. Review and edit before saving.")
-                        Link("Voice privacy and retention", destination: URL(string: "https://bpmtracker.app/privacy.html#ai-voice")!)
-                    }
+                    Link("Voice privacy", destination: URL(string: "https://bpmtracker.app/privacy.html#ai-voice")!)
                 }
             }
             .scrollDismissesKeyboard(.interactively)
             .navigationTitle("Save Workout")
+            .analyticsScreen(.workoutSave)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -94,17 +92,19 @@ struct WorkoutCaptureView: View {
             }
         }
         .interactiveDismissDisabled(isSaving)
-        .alert("Send recording to OpenAI?", isPresented: $showVoiceConsent) {
+        .alert("Send recording?", isPresented: $showVoiceConsent) {
             Button("Cancel", role: .cancel) {}
-            Button("Send recording to OpenAI") {
+            Button("Allow & Send") {
                 hasVoiceConsent = true
                 sendRecording()
             }
         } message: {
-            Text("Your recording, including any workout or health details you mention, goes through BPM's server to OpenAI to create your title and description.\n\nYour content is not used for model training. OpenAI may retain the transcript and generated notes for up to 30 days for abuse monitoring, with legal or safety exceptions.\n\nBPM does not attach heart-rate measurements or Apple Health records. You can reset this permission in Settings or type your notes instead.")
+            Text("BPM sends your recording, including any health details you mention, to \(WorkoutVoiceConsent.providerName) for AI transcription and workout notes. Review the result before saving.")
         }
         .onDisappear {
             recordingTask?.cancel()
+            if isGenerating { AppAnalytics.signal(.voiceRecapCancelled) }
+            isGenerating = false
             generationTask?.cancel()
             recorder.discardRecording()
         }
@@ -117,6 +117,7 @@ struct WorkoutCaptureView: View {
                 Text("Loading title and description…")
             }.accessibilityIdentifier("voiceCaptureLoading")
             Button("Cancel request") {
+                AppAnalytics.signal(.voiceRecapCancelled)
                 generationTask?.cancel()
                 generationTask = nil
                 isGenerating = false
@@ -174,10 +175,12 @@ struct WorkoutCaptureView: View {
         focusedField = nil
         errorMessage = nil
         isGenerating = true
+        AppAnalytics.signal(.voiceRecapRequested)
         generationTask = Task {
             do {
                 let result = try await generate(url)
                 guard !Task.isCancelled else { return }
+                AppAnalytics.signal(.voiceRecapCompleted)
                 previousFields = WorkoutRecap(title: title, description: notes)
                 title = result.title
                 notes = result.description
@@ -185,6 +188,7 @@ struct WorkoutCaptureView: View {
                 isGenerating = false
             } catch {
                 guard !Task.isCancelled else { return }
+                AppAnalytics.signal(.voiceRecapFailed)
                 errorMessage = (error as? URLError)?.code == .notConnectedToInternet
                     ? "You’re offline. Your recording is ready to send when you reconnect."
                     : error.localizedDescription

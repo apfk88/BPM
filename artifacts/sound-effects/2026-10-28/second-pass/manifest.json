@@ -1,0 +1,334 @@
+{
+  "status": "Second-pass audition candidates, not installed in app",
+  "provider": "ElevenLabs",
+  "sample_rate_hz": 44100,
+  "channels": 1,
+  "format": "16-bit PCM WAV",
+  "brief": {
+    "exercise": "All cues except HRV must be immediately recognizable during potentially intense exercise, with music and heavy breathing.",
+    "hrv": "Richer, longer end-of-meditation completion.",
+    "zones": "Audition spoken zone numbers; plain one-to-five plus a Zone three alternative.",
+    "interval": "Replace subtle knock with clear gym bell or athletic electronic timer pattern."
+  },
+  "generation_sources": [
+    {
+      "id": "hrv-meditation-complete",
+      "provider": "ElevenLabs",
+      "kind": "sound-effect",
+      "text": "A rich peaceful end-of-meditation sound: one softly struck bronze singing bowl with warm deep resonance, layered shimmering upper harmonics and a gentle resolving glass chime. A satisfying sense of completion and release. Full spacious organic body, slowly decaying naturally into silence over five seconds. Calm, beautiful and enveloping. No voice, no music bed, no ambience, no harsh attack, no repeated rhythm.",
+      "duration_seconds": 5.5,
+      "prompt_influence": 0.7,
+      "model_id": "eleven_text_to_sound_v2",
+      "loop": false,
+      "output_format": "mp3_44100_128",
+      "response": {
+        "status": 200,
+        "bytes": 88650,
+        "character_cost": "30"
+      }
+    },
+    {
+      "id": "interval-boxing-bell",
+      "provider": "ElevenLabs",
+      "kind": "sound-effect",
+      "text": "An unmistakable athletic interval timer cue: two firm bright strikes on a small boxing gym round bell, DING DING, with a short gap. Punchy clear attack, strong metallic midrange that cuts through workout music and heavy breathing, controlled short ringing tail. Energetic and decisive, not delicate or decorative. Dry close microphone studio recording. No crowd, no background noise, no voice, no music.",
+      "duration_seconds": 1.3,
+      "prompt_influence": 0.7,
+      "model_id": "eleven_text_to_sound_v2",
+      "loop": false,
+      "output_format": "mp3_44100_128",
+      "response": {
+        "status": 200,
+        "bytes": 21358,
+        "character_cost": "7"
+      }
+    },
+    {
+      "id": "interval-electronic",
+      "provider": "ElevenLabs",
+      "kind": "sound-effect",
+      "text": "A bold gym interval timer signal: three very clear punchy electronic beeps, BEEP BEEP BEEEP, the last held slightly longer. Bright focused midrange with a rounded body, immediate attack, obvious rhythmic separation. Designed to be unmistakable during hard exercise with music playing. Assertive professional sports timer, not a phone notification. No siren, no melody, no voice, no music, no ambience or echo.",
+      "duration_seconds": 1.2,
+      "prompt_influence": 0.7,
+      "model_id": "eleven_text_to_sound_v2",
+      "loop": false,
+      "output_format": "mp3_44100_128",
+      "response": {
+        "status": 200,
+        "bytes": 20105,
+        "character_cost": "7"
+      }
+    },
+    {
+      "id": "zone-label-3",
+      "provider": "ElevenLabs",
+      "kind": "text-to-speech",
+      "voice_id": "JBFqnCBsd6RMkjVDRZzb",
+      "text": "Zone three.",
+      "model_id": "eleven_multilingual_v2",
+      "seed": 2135,
+      "voice_settings": {
+        "stability": 0.7,
+        "similarity_boost": 0.8,
+        "style": 0.0,
+        "use_speaker_boost": true,
+        "speed": 1.05
+      },
+      "output_format": "mp3_44100_128",
+      "response": {
+        "status": 200,
+        "bytes": 18015,
+        "character_cost": "2"
+      }
+    },
+    {
+      "id": "zone-spoken-1",
+      "provider": "ElevenLabs",
+      "kind": "text-to-speech",
+      "voice_id": "JBFqnCBsd6RMkjVDRZzb",
+      "text": "One.",
+      "model_id": "eleven_multilingual_v2",
+      "seed": 2135,
+      "voice_settings": {
+        "stability": 0.7,
+        "similarity_boost": 0.8,
+        "style": 0.0,
+        "use_speaker_boost": true,
+        "speed": 1.05
+      },
+      "output_format": "mp3_44100_128",
+      "response": {
+        "status": 200,
+        "bytes": 10910,
+        "character_cost": "1"
+      }
+    },
+    {
+      "id": "zone-spoken-2",
+      "provider": "ElevenLabs",
+      "kind": "text-to-speech",
+      "voice_id": "JBFqnCBsd6RMkjVDRZzb",
+      "text": "Two.",
+      "model_id": "eleven_multilingual_v2",
+      "seed": 2135,
+      "voice_settings": {
+        "stability": 0.7,
+        "similarity_boost": 0.8,
+        "style": 0.0,
+        "use_speaker_boost": true,
+        "speed": 1.05
+      },
+      "output_format": "mp3_44100_128",
+      "response": {
+        "status": 200,
+        "bytes": 12163,
+        "character_cost": "1"
+      }
+    },
+    {
+      "id": "zone-spoken-3",
+      "provider": "ElevenLabs",
+      "kind": "text-to-speech",
+      "voice_id": "JBFqnCBsd6RMkjVDRZzb",
+      "text": "Three.",
+      "model_id": "eleven_multilingual_v2",
+      "seed": 2135,
+      "voice_settings": {
+        "stability": 0.7,
+        "similarity_boost": 0.8,
+        "style": 0.0,
+        "use_speaker_boost": true,
+        "speed": 1.05
+      },
+      "output_format": "mp3_44100_128",
+      "response": {
+        "status": 200,
+        "bytes": 12999,
+        "character_cost": "1"
+      }
+    },
+    {
+      "id": "zone-spoken-4",
+      "provider": "ElevenLabs",
+      "kind": "text-to-speech",
+      "voice_id": "JBFqnCBsd6RMkjVDRZzb",
+      "text": "Four.",
+      "model_id": "eleven_multilingual_v2",
+      "seed": 2135,
+      "voice_settings": {
+        "stability": 0.7,
+        "similarity_boost": 0.8,
+        "style": 0.0,
+        "use_speaker_boost": true,
+        "speed": 1.05
+      },
+      "output_format": "mp3_44100_128",
+      "response": {
+        "status": 200,
+        "bytes": 12163,
+        "character_cost": "1"
+      }
+    },
+    {
+      "id": "zone-spoken-5",
+      "provider": "ElevenLabs",
+      "kind": "text-to-speech",
+      "voice_id": "JBFqnCBsd6RMkjVDRZzb",
+      "text": "Five.",
+      "model_id": "eleven_multilingual_v2",
+      "seed": 2135,
+      "voice_settings": {
+        "stability": 0.7,
+        "similarity_boost": 0.8,
+        "style": 0.0,
+        "use_speaker_boost": true,
+        "speed": 1.05
+      },
+      "output_format": "mp3_44100_128",
+      "response": {
+        "status": 200,
+        "bytes": 12163,
+        "character_cost": "1"
+      }
+    }
+  ],
+  "reported_character_cost": 51,
+  "processing": {
+    "hrv": "5.35sec source with 12ms attack and 300ms end fade, -7dBFS peak.",
+    "bell": "Two copies of450ms generated bell strike with100ms gap. Tiny edge fades and -4dBFS peak.",
+    "electronic": "Generated steady tone edited into160ms,160ms,320ms beeps with120ms gaps; fades and -7dBFS peak.",
+    "speech": [
+      {
+        "id": "zone-spoken-1",
+        "source_trim_start_seconds": 0.0,
+        "source_trim_end_seconds": 0.4092,
+        "gain_db": 6.64
+      },
+      {
+        "id": "zone-spoken-2",
+        "source_trim_start_seconds": 0.0598,
+        "source_trim_end_seconds": 0.4491,
+        "gain_db": 1.51
+      },
+      {
+        "id": "zone-spoken-3",
+        "source_trim_start_seconds": 0.0,
+        "source_trim_end_seconds": 0.5039,
+        "gain_db": 0.35
+      },
+      {
+        "id": "zone-spoken-4",
+        "source_trim_start_seconds": 0.0,
+        "source_trim_end_seconds": 0.474,
+        "gain_db": 0.18
+      },
+      {
+        "id": "zone-spoken-5",
+        "source_trim_start_seconds": 0.0099,
+        "source_trim_end_seconds": 0.464,
+        "gain_db": 0.09
+      },
+      {
+        "id": "zone-label-3",
+        "source_trim_start_seconds": 0.0149,
+        "source_trim_end_seconds": 0.8282,
+        "gain_db": 1.09
+      }
+    ],
+    "bpm": "First-pass generated matched pair, raised6dB. Direction and300ms timing preserved."
+  },
+  "files": [
+    {
+      "file": "hrv-meditation-complete.wav",
+      "duration_seconds": 5.35,
+      "peak_dbfs": -7.0,
+      "rms_dbfs": -23.0,
+      "full_scale_samples": 0
+    },
+    {
+      "file": "interval-boxing-bell.wav",
+      "duration_seconds": 1.0,
+      "peak_dbfs": -4.0,
+      "rms_dbfs": -20.11,
+      "full_scale_samples": 0
+    },
+    {
+      "file": "interval-electronic.wav",
+      "duration_seconds": 0.88,
+      "peak_dbfs": -7.0,
+      "rms_dbfs": -12.94,
+      "full_scale_samples": 0
+    },
+    {
+      "file": "zone-spoken-1.wav",
+      "duration_seconds": 0.409161,
+      "peak_dbfs": -3.0,
+      "rms_dbfs": -18.63,
+      "full_scale_samples": 0
+    },
+    {
+      "file": "zone-spoken-2.wav",
+      "duration_seconds": 0.389252,
+      "peak_dbfs": -3.0,
+      "rms_dbfs": -18.06,
+      "full_scale_samples": 0
+    },
+    {
+      "file": "zone-spoken-3.wav",
+      "duration_seconds": 0.503946,
+      "peak_dbfs": -3.0,
+      "rms_dbfs": -20.61,
+      "full_scale_samples": 0
+    },
+    {
+      "file": "zone-spoken-4.wav",
+      "duration_seconds": 0.474014,
+      "peak_dbfs": -4.09,
+      "rms_dbfs": -18.0,
+      "full_scale_samples": 0
+    },
+    {
+      "file": "zone-spoken-5.wav",
+      "duration_seconds": 0.454104,
+      "peak_dbfs": -3.0,
+      "rms_dbfs": -22.85,
+      "full_scale_samples": 0
+    },
+    {
+      "file": "zone-label-3.wav",
+      "duration_seconds": 0.813288,
+      "peak_dbfs": -3.0,
+      "rms_dbfs": -19.54,
+      "full_scale_samples": 0
+    },
+    {
+      "file": "zones-spoken-1-to-5.wav",
+      "duration_seconds": 5.180476,
+      "peak_dbfs": -3.0,
+      "rms_dbfs": -23.01,
+      "full_scale_samples": 0
+    },
+    {
+      "file": "bpm-threshold-up.wav",
+      "duration_seconds": 0.3,
+      "peak_dbfs": -4.93,
+      "rms_dbfs": -19.48,
+      "full_scale_samples": 0
+    },
+    {
+      "file": "bpm-threshold-down.wav",
+      "duration_seconds": 0.3,
+      "peak_dbfs": -4.93,
+      "rms_dbfs": -19.48,
+      "full_scale_samples": 0
+    },
+    {
+      "file": "bpm-up-down-comparison.wav",
+      "duration_seconds": 1.6,
+      "peak_dbfs": -4.93,
+      "rms_dbfs": -23.74,
+      "full_scale_samples": 0
+    }
+  ],
+  "verification": "PCM format, duration, boundaries, non-silence and peak level verified. Listener and physical-device review remain."
+}

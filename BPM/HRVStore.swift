@@ -101,7 +101,7 @@ final class HRVStore: ObservableObject {
     func exportAllJSON() -> String {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        encoder.dateEncodingStrategy = .iso8601
+        encoder.dateEncodingStrategy = MeasurementDateCoding.encodingStrategy
         guard let data = try? encoder.encode(records) else { return "[]" }
         return String(data: data, encoding: .utf8) ?? "[]"
     }
@@ -111,7 +111,7 @@ final class HRVStore: ObservableObject {
             do {
                 let data = try Data(contentsOf: self.storeURL)
                 let decoder = JSONDecoder()
-                decoder.dateDecodingStrategy = .iso8601
+                decoder.dateDecodingStrategy = MeasurementDateCoding.decodingStrategy
                 var records = try decoder.decode([HRVRecord].self, from: data)
                 records = self.pruneRetentionInternal(records: records, now: Date())
                 guard self.persist(records: records) else { return }
@@ -134,7 +134,7 @@ final class HRVStore: ObservableObject {
             try ensureDirectoryExists()
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-            encoder.dateEncodingStrategy = .iso8601
+            encoder.dateEncodingStrategy = MeasurementDateCoding.encodingStrategy
             let data = try encoder.encode(records)
             try data.write(to: storeURL, options: [.atomic])
             cachedRecords = records

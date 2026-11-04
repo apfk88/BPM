@@ -53,10 +53,11 @@ enum HeartRateChartPeaks {
         guard dataPoints.count >= 3 else { return [] }
 
         let sortedPoints = dataPoints.sorted { $0.time < $1.time }
-        let localPeaks = sortedPoints.indices.dropFirst().dropLast().compactMap { index in
+        let localPeaks = sortedPoints.indices.dropFirst().dropLast().compactMap { index -> HeartRateChartDataPoint? in
             let previous = sortedPoints[index - 1]
             let current = sortedPoints[index]
             let next = sortedPoints[index + 1]
+            guard previous.segment == current.segment, current.segment == next.segment else { return nil }
             let isPeak = current.bpm >= previous.bpm && current.bpm > next.bpm
             return isPeak ? current : nil
         }
@@ -77,5 +78,14 @@ enum HeartRateChartPeaks {
         }
 
         return peaksByBucket.values.sorted { $0.time < $1.time }
+    }
+}
+
+enum HeartRateChartSelection {
+    static func dataPoint(at time: TimeInterval, in points: [HeartRateChartDataPoint]) -> HeartRateChartDataPoint? {
+        guard time.isFinite,
+              let preceding = points.last(where: { $0.time <= time }),
+              time == preceding.time || time < preceding.validUntil else { return nil }
+        return preceding
     }
 }

@@ -60,6 +60,19 @@ final class WorkoutShareSnapshotTests: XCTestCase {
         XCTAssertNotEqual(snapshot.points[0].segment, snapshot.points[1].segment)
     }
 
+    func testPauseExpiresReadingBeforeResumeAndTrimDoesNotReviveIt() {
+        let start = Date(timeIntervalSince1970: 1_000_000)
+        let workout = record(samples: [(9, 100), (71, 160)], duration: 20,
+                             pauses: [.init(start: start.addingTimeInterval(10), end: start.addingTimeInterval(70))],
+                             usesWorkoutTime: false)
+        let snapshot = WorkoutShareSnapshot(record: workout, range: .init(start: 9, end: 12, duration: 20))
+        XCTAssertEqual(snapshot.average, 130) // 1s at 100 before pause; 1s at 160 after resume.
+        let missing = WorkoutShareSnapshot(record: workout, range: .init(start: 10, end: 10.5, duration: 20))
+        XCTAssertTrue(missing.points.isEmpty)
+        XCTAssertNil(missing.average)
+        XCTAssertNil(missing.maximum)
+    }
+
     func testEmptySelectionAndSingleSample() {
         let workout = record(samples: [(10, 110)])
         let empty = WorkoutShareSnapshot(record: workout, range: .init(start: 20, end: 30, duration: 600))

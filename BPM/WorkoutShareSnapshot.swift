@@ -23,6 +23,7 @@ struct WorkoutSharePoint: Identifiable {
     let time: TimeInterval
     let bpm: Int
     let segment: Int
+    let validUntil: TimeInterval
 }
 
 struct WorkoutShareSnapshot {
@@ -54,8 +55,9 @@ struct WorkoutShareSnapshot {
         var visible = selected
         if selected.first?.time != range.start,
            let preceding = allPoints.last(where: { $0.time < range.start }),
-           range.start - preceding.time < Self.freshnessInterval {
-            visible.insert(WorkoutSharePoint(id: preceding.id, time: range.start, bpm: preceding.bpm, segment: preceding.segment), at: 0)
+           range.start < preceding.validUntil {
+            visible.insert(WorkoutSharePoint(id: preceding.id, time: range.start, bpm: preceding.bpm,
+                                            segment: preceding.segment, validUntil: preceding.validUntil), at: 0)
         }
         points = visible
 
@@ -65,7 +67,7 @@ struct WorkoutShareSnapshot {
         var coveredDuration = 0.0
         for (index, point) in allPoints.enumerated() {
             let next = index + 1 < allPoints.count ? allPoints[index + 1].time : range.end
-            let stop = min(range.end, next, point.time + Self.freshnessInterval)
+            let stop = min(range.end, next, point.validUntil)
             let weight = max(0, stop - max(range.start, point.time))
             guard weight > 0 else { continue }
             weightedTotal += Double(point.bpm) * weight
@@ -114,7 +116,7 @@ struct WorkoutShareSnapshot {
                 merged.append(pause)
             }
         }
-        let samples: [(time: TimeInterval, bpm: Int, timestamp: Date)] = record.hrSamples.compactMap { sample in
+        let samples: [(time: TimeInterval, bpm: Int, timestamp: Date, invalidatedAt: Date?)] = record.hrSamples.compactMap { sample in
             guard sample.bpm > 0, sample.timestamp >= record.startAt, sample.timestamp <= record.endAt,
                   !merged.contains(where: { sample.timestamp >= $0.start && sample.timestamp < $0.end }) else { return nil }
             let paused = merged.reduce(0.0) { total, pause in
@@ -122,7 +124,7 @@ struct WorkoutShareSnapshot {
             }
             let time = sample.workoutTime ?? (sample.timestamp.timeIntervalSince(record.startAt) - paused)
             guard time.isFinite, time >= 0, time <= record.durationSeconds else { return nil }
-            return (time, sample.bpm, sample.timestamp)
+            return (time, sample.bpm, sample.timestamp, sample.invalidatedAt)
         }.sorted { $0.time == $1.time ? $0.timestamp < $1.timestamp : $0.time < $1.time }
         var result: [WorkoutSharePoint] = []
         var segment = 0
@@ -130,11 +132,19 @@ struct WorkoutShareSnapshot {
             if index > 0 {
                 let previous = samples[index - 1]
                 if sample.time - previous.time > freshnessInterval ||
-                    sample.timestamp.timeIntervalSince(previous.timestamp) > freshnessInterval {
+                    sample.timestamp.timeIntervalSince(previous.timestamp) > freshnessInterval ||
+                    previous.invalidatedAt.map({ $0 <= sample.timestamp }) == true ||
+                    merged.contains(where: { $0.start >= previous.timestamp && $0.end <= sample.timestamp }) {
                     segment += 1
                 }
             }
-            result.append(WorkoutSharePoint(id: index, time: sample.time, bpm: sample.bpm, segment: segment))
+            let pauseStart = merged.first(where: { $0.start >= sample.timestamp })?.start
+            let pauseLimit = pauseStart.map { sample.time + $0.timeIntervalSince(sample.timestamp) } ?? record.durationSeconds
+            let invalidLimit = sample.invalidatedAt.map { sample.time + max(0, $0.timeIntervalSince(sample.timestamp)) }
+                ?? record.durationSeconds
+            let validUntil = min(record.durationSeconds, sample.time + freshnessInterval, pauseLimit, invalidLimit)
+            result.append(WorkoutSharePoint(id: index, time: sample.time, bpm: sample.bpm,
+                                           segment: segment, validUntil: validUntil))
         }
         return result
     }

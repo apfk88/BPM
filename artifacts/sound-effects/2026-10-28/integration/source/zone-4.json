@@ -1,0 +1,21 @@
+{
+  "id": "zone-4",
+  "provider": "ElevenLabs",
+  "voice_id": "JBFqnCBsd6RMkjVDRZzb",
+  "model_id": "eleven_multilingual_v2",
+  "seed": 2135,
+  "voice_settings": {
+    "stability": 0.7,
+    "similarity_boost": 0.8,
+    "style": 0.0,
+    "use_speaker_boost": true,
+    "speed": 1.05
+  },
+  "text": "Zone four.",
+  "output_format": "mp3_44100_128",
+  "response": {
+    "status": 200,
+    "bytes": 18015,
+    "character_cost": "2"
+  }
+}

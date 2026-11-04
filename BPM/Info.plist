@@ -2,6 +2,15 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>kvamme.BPM.join</string>
+			<key>CFBundleURLSchemes</key>
+			<array><string>bpm</string></array>
+		</dict>
+	</array>
 	<key>BPM_API_BASE_URL</key>
 	<string>https://bpmtracker.app</string>
 	<key>NSBluetoothAlwaysUsageDescription</key>
@@ -11,7 +20,7 @@
 	<key>NSHealthUpdateUsageDescription</key>
 	<string>Write workout and heart rate data to Apple Health.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Record up to 60 seconds of workout notes. With your permission, tap Send to process the recording with OpenAI.</string>
+	<string>Record up to 60 seconds of spoken workout notes to create a title and description when you send them.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>Save workout cards to your photo library when you choose Save Image.</string>
 	<key>UIBackgroundModes</key>

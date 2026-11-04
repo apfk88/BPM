@@ -1,0 +1,103 @@
+{
+  "status": "Work/rest pair audition; not integrated into app",
+  "provider": "ElevenLabs",
+  "model_id": "eleven_text_to_sound_v3",
+  "sample_rate_hz": 44100,
+  "channels": 1,
+  "format": "16-bit PCM WAV",
+  "reported_character_cost": 15,
+  "processing": "Both finished cues use the same earlier ElevenLabs tubular-bell source. Resampling ratios1.3 and0.65 establish an octave contrast and durations0.85 and1.70seconds. Tiny attack and end fades. Balanced max100ms RMS target -14dBFS with -3dBFS peak ceiling. No repeat strikes or synthetic tone replacement.",
+  "mapping": {
+    "work-begins": "First work set after preparation countdown, then each rest-to-work transition.",
+    "rest-begins": "Each work-to-rest transition.",
+    "workout_complete": "Separate cue choice not selected; do not substitute HRV completion."
+  },
+  "files": [
+    {
+      "file": "work-begins.wav",
+      "duration_seconds": 0.85,
+      "source": "../third-pass/source/interval-tubular-bell.wav",
+      "resampling_ratio": 1.3,
+      "gain_db": 1.45,
+      "peak_dbfs": -4.31,
+      "max100ms_rms_dbfs": -14.0,
+      "dominant_hz_20_to_160ms": 2806.4,
+      "clipped_samples": 0
+    },
+    {
+      "file": "rest-begins.wav",
+      "duration_seconds": 1.7,
+      "source": "../third-pass/source/interval-tubular-bell.wav",
+      "resampling_ratio": 0.65,
+      "gain_db": 0.9,
+      "peak_dbfs": -4.79,
+      "max100ms_rms_dbfs": -14.0,
+      "dominant_hz_20_to_160ms": 1401.7,
+      "clipped_samples": 0
+    },
+    {
+      "file": "work-then-rest.wav",
+      "duration_seconds": 3.7,
+      "order": [
+        "work-begins",
+        "rest-begins"
+      ],
+      "gap_seconds": 0.8
+    }
+  ],
+  "preferred_previous_candidates": {
+    "hrv": "../second-pass/hrv-meditation-complete.wav",
+    "zone_voice_and_phrase": "../second-pass/zone-label-3.wav"
+  },
+  "generation_sources_this_pass": [
+    {
+      "id": "rest-begins",
+      "provider": "ElevenLabs",
+      "kind": "sound-effect",
+      "text": "One firm strike on a beautifully tuned bronze bell, a deep rounded DONG in the middle register around 440Hz. Full warm metallic body, immediate clear attack and a smooth resonant decay over 1.5 seconds. A decisive RECOVER signal during hard exercise, clearly audible through music. Natural acoustic bell with rich harmonics, warm but assertive, not faint. Single strike only, dry studio recording. No voice, melody, buzz, ambience or repeated hits.",
+      "duration_seconds": 1.8,
+      "prompt_influence": 0.75,
+      "model_id": "eleven_text_to_sound_v3",
+      "loop": false,
+      "output_format": "mp3_44100_128",
+      "response": {
+        "status": 200,
+        "bytes": 29300,
+        "character_cost": "10"
+      }
+    },
+    {
+      "id": "work-begins",
+      "provider": "ElevenLabs",
+      "kind": "sound-effect",
+      "text": "One firm strike on a beautifully tuned bronze bell, a clear bright DING in the upper middle register around 900Hz. Full rounded metallic body, crisp immediate attack, compact clean decay under one second. A confident GO signal for beginning hard exercise, unmistakable through music. Natural acoustic bell with rich harmonics, not thin or shrill. Single strike only, dry studio recording. No voice, melody, buzz, ambience or repeated hits.",
+      "duration_seconds": 1.0,
+      "prompt_influence": 0.75,
+      "model_id": "eleven_text_to_sound_v3",
+      "loop": false,
+      "output_format": "mp3_44100_128",
+      "response": {
+        "status": 200,
+        "bytes": 17179,
+        "character_cost": "5"
+      }
+    }
+  ],
+  "discarded_generation_reason": "The two new generated candidates had dominant frequencies around4.56 and4.61kHz. Their pitch contrast did not satisfy the requested work/rest distinction.",
+  "selected_base_generation": {
+    "id": "interval-tubular-bell",
+    "provider": "ElevenLabs",
+    "kind": "sound-effect",
+    "text": "One decisive strike on a medium-register orchestral tubular bell with a hard felt mallet. A clear full-bodied DONG with rich tuned metallic harmonics and an elegant compact ringing decay. Strong immediate presence, an unmistakable interval completion signal. A real acoustic bell, warm and bright, never thin or piercing. Single strike only. Close dry studio sound. No melody, music, voice, room ambience or repeated hits.",
+    "duration_seconds": 2.0,
+    "prompt_influence": 0.65,
+    "model_id": "eleven_text_to_sound_v3",
+    "loop": false,
+    "output_format": "mp3_44100_128",
+    "response": {
+      "status": 200,
+      "bytes": 33061,
+      "character_cost": "11"
+    }
+  }
+}

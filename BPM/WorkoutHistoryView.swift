@@ -8,22 +8,21 @@ struct WorkoutHistoryView: View {
 
     var body: some View {
         List {
-            if store.workouts.isEmpty {
-                Text("No saved workouts yet.")
-                    .foregroundColor(.secondary)
-            } else {
+            if !store.workouts.isEmpty {
                 ForEach(store.workouts) { workout in
                     Button {
                         selectedWorkoutID = workout.id
                     } label: {
                         WorkoutShareCardPreview(snapshot: WorkoutShareSnapshot(record: workout), style: .chart, compact: true)
+                            .frame(maxWidth: 600)
+                            .frame(maxWidth: .infinity)
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                     .accessibilityHint("Opens workout details")
                     .listRowBackground(Color.clear)
                     .listRowSeparator(.hidden)
-                    .listRowInsets(EdgeInsets(top: 6, leading: 0, bottom: 6, trailing: 0))
+                    .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 8, trailing: 20))
                     .swipeActions(edge: .trailing) {
                         Button(role: .destructive) {
                             store.deleteWorkout(workout)
@@ -34,7 +33,17 @@ struct WorkoutHistoryView: View {
                 }
             }
         }
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden)
+        .background(Color.black)
+        .overlay {
+            if store.workouts.isEmpty {
+                ContentUnavailableView("No workouts yet", systemImage: "waveform.path.ecg",
+                                       description: Text("Saved workouts will appear here."))
+            }
+        }
         .navigationTitle("Workout History")
+        .analyticsScreen(.workoutHistory)
         .navigationBarTitleDisplayMode(.inline)
         .navigationDestination(item: $selectedWorkoutID) { workoutID in
             if let workout = store.workouts.first(where: { $0.id == workoutID }) {
@@ -57,6 +66,8 @@ struct WorkoutHistoryView: View {
                 } label: {
                     Image(systemName: "square.and.arrow.up")
                 }
+                .accessibilityLabel("Export workout history")
+                .disabled(store.workouts.isEmpty)
             }
         }
         .sheet(item: $sharePayload) { payload in
@@ -84,11 +95,12 @@ struct WorkoutHistoryView: View {
 
 }
 
-private struct WorkoutDetailView: View {
+struct WorkoutDetailView: View {
     let initialRecord: WorkoutRecord
     @ObservedObject var store: WorkoutStore
     let onDelete: () -> Void
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var showDeleteAlert = false
     @State private var showExpandedHeartRateChart = false
     @State private var isEditingWorkout = false
@@ -101,6 +113,7 @@ private struct WorkoutDetailView: View {
     var body: some View {
         workoutLog
         .navigationTitle("Workout")
+        .analyticsScreen(.workoutDetail)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
@@ -142,134 +155,264 @@ private struct WorkoutDetailView: View {
     }
 
     private var workoutLog: some View {
-        List {
-            Section(header: Text("Heart Rate")) {
-                if record.hrSamples.isEmpty {
-                    Text("No heart rate samples saved for this workout.")
-                        .foregroundColor(.secondary)
-                } else {
-                    Button {
-                        showExpandedHeartRateChart = true
-                    } label: {
-                        ZStack(alignment: .topTrailing) {
-                            WorkoutRecordHeartRateChartView(record: record)
-                                .allowsHitTesting(false)
+        let snapshot = WorkoutShareSnapshot(record: record)
+        return ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                overview(snapshot: snapshot)
 
-                            Image(systemName: "arrow.up.left.and.arrow.down.right")
-                                .font(.system(size: 13, weight: .semibold))
-                                .foregroundColor(.white)
-                                .padding(8)
-                                .background(.black.opacity(0.7), in: Circle())
-                                .padding(4)
-                        }
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .frame(height: 220)
-                    .padding(.vertical, 8)
-                    .accessibilityLabel("Expand heart rate chart")
-                    .accessibilityHint("Opens a full-screen chart with zoom and pan controls")
-                }
-            }
-
-            Section(header: Text("Summary")) {
-                if let title = record.title, !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    detailRow(label: "Title", value: title)
-                }
                 if let notes = normalizedNotes {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("Description")
+                    logSection("Description") {
                         Text(notes)
-                            .foregroundColor(.secondary)
-                            .multilineTextAlignment(.leading)
+                            .font(.body)
+                            .lineSpacing(4)
                             .fixedSize(horizontal: false, vertical: true)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .textSelection(.enabled)
                     }
                 }
-                detailRow(label: "Start", value: dateString(record.startAt))
-                detailRow(label: "End", value: dateString(record.endAt))
-                detailRow(label: "Duration", value: formatDuration(record.durationSeconds))
-                detailRow(label: "Avg BPM", value: record.avgHr.map(String.init))
-                detailRow(label: "Max BPM", value: record.maxHr.map(String.init))
-                detailRow(label: "Min BPM", value: record.minHr.map(String.init))
-                detailRow(label: "HRR (2 min)", value: record.hrr.map(String.init))
-                if let caloriesTotal = record.caloriesTotal {
-                    detailRow(label: "Calories (Total)", value: String(Int(round(caloriesTotal))))
-                }
-                if let caloriesActive = record.caloriesActive {
-                    detailRow(label: "Calories (Active)", value: String(Int(round(caloriesActive))))
-                }
-            }
 
-            if !record.zones.isEmpty {
-                Section(header: Text("Zones")) {
-                    ForEach(record.zones) { zone in
-                        HStack {
-                            Text("Z\(zone.zone)")
-                            Spacer()
-                            Text(formatDuration(zone.duration))
-                                .foregroundColor(.secondary)
-                        }
-                    }
+                if !record.zones.isEmpty {
+                    zonesSection
                 }
-            }
-
-            if !record.sets.isEmpty {
-                Section(header: Text("Sets")) {
-                    ForEach(record.sets) { set in
-                        let hrLabel = set.isRestSet ? "Min" : "Max"
-                        let hrValue = set.isRestSet ? set.minBpm : set.maxBpm
-
-                        HStack(alignment: .firstTextBaseline) {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(set.label)
-                                    .font(.subheadline)
-                                Text("\(hrLabel) BPM \(hrValue.map(String.init) ?? "—")")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                            }
-                            Spacer()
-                            Text(formatDuration(set.setTime))
-                                .font(.subheadline)
-                                .foregroundColor(.secondary)
-                        }
-                    }
+                if !record.sets.isEmpty {
+                    setsSection
                 }
-            }
+                detailsSection
 
-            Section {
-                Button("Delete Workout", role: .destructive) {
+                Button(role: .destructive) {
                     showDeleteAlert = true
+                } label: {
+                    Label("Delete Workout", systemImage: "trash")
+                        .font(.subheadline)
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                        .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
+                .foregroundStyle(.red)
+                .padding(.top, 4)
             }
+            .frame(maxWidth: 640)
+            .frame(maxWidth: .infinity)
+            .padding(20)
         }
+        .background(Color.black)
+        .foregroundStyle(.white)
         .accessibilityIdentifier("workoutLogTab")
     }
 
-    private func detailRow(label: String, value: String?) -> some View {
-        HStack {
+    private func overview(snapshot: WorkoutShareSnapshot) -> some View {
+        VStack(alignment: .leading, spacing: 24) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text(snapshot.title)
+                    .font(.title.weight(.semibold))
+                    .tracking(-0.6)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityAddTraits(.isHeader)
+                Text(record.startAt.formatted(date: .abbreviated, time: .shortened))
+                    .font(.subheadline)
+                    .foregroundStyle(WorkoutCardPalette.muted)
+            }
+
+            if snapshot.points.isEmpty {
+                Label("No heart rate samples saved", systemImage: "waveform.path.ecg")
+                    .font(.subheadline)
+                    .foregroundStyle(WorkoutCardPalette.muted)
+                    .frame(maxWidth: .infinity, minHeight: 100)
+            } else {
+                Button {
+                    showExpandedHeartRateChart = true
+                } label: {
+                    VStack(spacing: 18) {
+                        HStack {
+                            Text("Heart rate")
+                                .font(.subheadline.weight(.medium))
+                            Spacer()
+                            Image(systemName: "arrow.up.left.and.arrow.down.right")
+                                .font(.caption.weight(.semibold))
+                        }
+                        .foregroundStyle(WorkoutCardPalette.muted)
+                        WorkoutSharePlot(snapshot: snapshot)
+                            .frame(height: 180)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Expand heart rate chart")
+                .accessibilityHint("Opens a full-screen chart with zoom and pan controls")
+            }
+
+            VStack(spacing: 20) {
+                rule
+                headlineMetrics(snapshot: snapshot)
+            }
+        }
+        .padding(24)
+        .background {
+            ZStack(alignment: .topTrailing) {
+                WorkoutCardPalette.background
+                RadialGradient(colors: [.white.opacity(0.13), .clear], center: .topTrailing,
+                               startRadius: 0, endRadius: 320)
+            }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 24))
+        .overlay {
+            RoundedRectangle(cornerRadius: 24)
+                .strokeBorder(.white.opacity(0.09), lineWidth: 1)
+        }
+    }
+
+    private func headlineMetrics(snapshot: WorkoutShareSnapshot) -> some View {
+        let layout = dynamicTypeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 20))
+            : AnyLayout(HStackLayout(alignment: .top, spacing: 12))
+        return layout {
+            headlineMetric(WorkoutShareSnapshot.time(snapshot.duration), label: "TOTAL TIME")
+            headlineMetric(snapshot.average.map(String.init) ?? "—", label: "AVG BPM")
+            headlineMetric(snapshot.maximum.map(String.init) ?? "—", label: "MAX BPM")
+        }
+    }
+
+    private func headlineMetric(_ value: String, label: String) -> some View {
+        VStack(spacing: 6) {
+            Text(value)
+                .font(.system(.title, design: .rounded, weight: .medium))
+                .monospacedDigit()
+                .tracking(-0.6)
+                .lineLimit(1)
+                .minimumScaleFactor(0.65)
             Text(label)
-            Spacer()
-            Text(value ?? "—")
-                .foregroundColor(.secondary)
+                .font(.caption2.weight(.semibold))
+                .tracking(0.8)
+                .foregroundStyle(WorkoutCardPalette.muted)
+        }
+        .frame(maxWidth: .infinity)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(label), \(value)")
+    }
+
+    private var zonesSection: some View {
+        let trackedTime = record.zones.reduce(0) { $0 + max(0, $1.duration) }
+        return logSection("Time in zones") {
+            VStack(spacing: 18) {
+                ForEach(record.zones.sorted { $0.zone < $1.zone }) { zone in
+                    VStack(spacing: 8) {
+                        HStack {
+                            Text("Zone \(zone.zone)")
+                            Spacer()
+                            Text(WorkoutShareSnapshot.time(zone.duration))
+                                .monospacedDigit()
+                                .foregroundStyle(WorkoutCardPalette.muted)
+                        }
+                        .font(.subheadline)
+                        GeometryReader { geometry in
+                            Capsule().fill(.white.opacity(0.08))
+                            Capsule()
+                                .fill(HeartRateZone(rawValue: zone.zone)?.color ?? .white)
+                                .frame(width: geometry.size.width * (trackedTime > 0
+                                    ? min(1, max(0, zone.duration / trackedTime)) : 0))
+                        }
+                        .frame(height: 6)
+                        .accessibilityHidden(true)
+                    }
+                    .accessibilityElement(children: .combine)
+                }
+            }
         }
     }
 
-    private func dateString(_ date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.dateStyle = .medium
-        formatter.timeStyle = .short
-        return formatter.string(from: date)
+    private var setsSection: some View {
+        logSection("Sets") {
+            VStack(spacing: 16) {
+                ForEach(Array(record.sets.enumerated()), id: \.element.id) { index, set in
+                    if index > 0 { rule }
+                    setRow(set)
+                }
+            }
+        }
     }
 
-    private func formatDuration(_ time: TimeInterval) -> String {
-        let totalSeconds = Int(time)
-        let hours = totalSeconds / 3600
-        let minutes = (totalSeconds % 3600) / 60
-        let seconds = totalSeconds % 60
-        if hours > 0 {
-            return String(format: "%d:%02d:%02d", hours, minutes, seconds)
+    private func setRow(_ set: WorkoutSetSummary) -> some View {
+        let isRecovery = set.isRestSet || set.isCooldownSet
+        let hrLabel = isRecovery ? "Min" : "Max"
+        let hrValue = isRecovery ? set.minBpm : set.maxBpm
+        return HStack(alignment: .top, spacing: 12) {
+            Image(systemName: set.isCooldownSet ? "snowflake" : set.isRestSet ? "pause.fill" : "play.fill")
+                .font(.caption)
+                .foregroundStyle(isRecovery ? WorkoutCardPalette.muted : .green)
+                .frame(width: 28, height: 28)
+                .background(.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 8))
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 5) {
+                Text(set.label)
+                    .font(.subheadline.weight(.medium))
+                Text("\(hrLabel) BPM \(hrValue.map(String.init) ?? "—")")
+                    .font(.caption)
+                    .foregroundStyle(WorkoutCardPalette.muted)
+            }
+            Spacer(minLength: 8)
+            Text(WorkoutShareSnapshot.time(set.setTime))
+                .font(.system(.body, design: .rounded, weight: .medium))
+                .monospacedDigit()
         }
-        return String(format: "%d:%02d", minutes, seconds)
+        .accessibilityElement(children: .combine)
+    }
+
+    private var detailsSection: some View {
+        logSection("Details") {
+            VStack(spacing: 16) {
+                detailRow(label: "Min BPM", value: record.minHr.map(String.init))
+                detailRow(label: "HRR (2 min)", value: record.hrr.map(String.init))
+                if let calories = record.caloriesActive {
+                    detailRow(label: "Est. active calories", value: "\(Int(round(calories))) kcal")
+                }
+                if let calories = record.caloriesTotal {
+                    detailRow(label: "Est. total calories", value: "\(Int(round(calories))) kcal")
+                }
+                rule
+                detailRow(label: "Start", value: record.startAt.formatted(date: .abbreviated, time: .shortened))
+                detailRow(label: "End", value: record.endAt.formatted(date: .abbreviated, time: .shortened))
+            }
+        }
+    }
+
+    private func logSection<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 20) {
+            Text(title)
+                .font(.headline)
+                .accessibilityAddTraits(.isHeader)
+            content()
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(24)
+        .background(WorkoutCardPalette.background, in: RoundedRectangle(cornerRadius: 24))
+        .overlay {
+            RoundedRectangle(cornerRadius: 24)
+                .strokeBorder(.white.opacity(0.09), lineWidth: 1)
+        }
+    }
+
+    private var rule: some View {
+        Rectangle().fill(.white.opacity(0.12)).frame(height: 0.5)
+            .accessibilityHidden(true)
+    }
+
+    private func detailRow(label: String, value: String?) -> some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .firstTextBaseline, spacing: 16) {
+                Text(label).foregroundStyle(WorkoutCardPalette.muted)
+                    .fixedSize()
+                Spacer(minLength: 0)
+                Text(value ?? "—").monospacedDigit()
+                    .fixedSize()
+            }
+            VStack(alignment: .leading, spacing: 6) {
+                Text(label).foregroundStyle(WorkoutCardPalette.muted)
+                Text(value ?? "—").monospacedDigit()
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .font(.subheadline)
+        .accessibilityElement(children: .combine)
     }
 
     private var normalizedNotes: String? {

@@ -1,0 +1,16 @@
+{
+  "id": "interval-lap-bell",
+  "provider": "ElevenLabs",
+  "kind": "sound-effect",
+  "text": "One firm clean strike of a high-quality track-and-field lap bell. A crisp attention-getting metallic DING with a rich solid bronze body and a bright ringing tail. The sound of a real athletic bell signaling the end of a hard effort. One satisfying strike, immediate and clearly defined, ringing naturally into silence. Close dry recording. No crowds, no background, no repeated shaking, no clatter, no voice or music.",
+  "duration_seconds": 1.8,
+  "prompt_influence": 0.65,
+  "model_id": "eleven_text_to_sound_v3",
+  "loop": false,
+  "output_format": "mp3_44100_128",
+  "response": {
+    "status": 200,
+    "bytes": 29300,
+    "character_cost": "10"
+  }
+}

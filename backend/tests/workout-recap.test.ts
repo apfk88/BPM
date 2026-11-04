@@ -34,23 +34,27 @@ test('rejects empty, oversized and invalid generated fields', () => {
   for (const result of [null, {}, { title: '', entries }, { title: 'a'.repeat(81), entries },
     { title: 'Run', entries: [] }, { title: 'Run', entries: [null] },
     { title: 'Run', entries: [{ exercise: '', details: '10 minutes' }] },
-    { title: 'Run', entries: [{ exercise: 'Run', details: '' }] },
+    { title: 'Run', entries: [{ exercise: 'Run' }] },
+    { title: 'Run', entries: [{ exercise: 'Run', details: null }] },
     { title: 'Run', entries: [{ exercise: 'Run', details: 'x'.repeat(6000) }] }]) {
     assert.throws(() => parseRecap(result), RecapError);
   }
 });
 
-test('renders one bullet per exercise with all details and no embedded paragraphs', () => {
+test('renders compact bullets, grouped circuits, and exercises without stated details', () => {
   assert.deepEqual(parseRecap({
-    title: 'Snatches, Deadlifts, and Abs',
+    title: 'Snatches, Deadlifts, and Bodyweight Circuit',
     entries: [
-      { exercise: 'Snatches', details: '204 reps @ 24 kg in 10 min.' },
-      { exercise: 'Deadlifts', details: '3 sets @ 225 (unit unspecified).\nLast set felt heavy.' },
-      { exercise: 'Abs', details: 'Standard ab circuit.' },
+      { exercise: 'Snatches', details: '204 reps @ 24 kg; 10 min' },
+      { exercise: 'Deadlifts', details: '3 sets @ 225;\nlast set felt heavy' },
+      { exercise: 'Circuit', details: '10 rounds × (5 chin-ups, 10 push-ups, 15 squats)' },
+      { exercise: 'Hollow rocks', details: '4 sets' },
+      { exercise: 'Stretching', details: '' },
+      { exercise: 'Foam rolling', details: ' \n ' },
     ],
   }), {
-    title: 'Snatches, Deadlifts, and Abs',
-    description: '- Snatches: 204 reps @ 24 kg in 10 min.\n- Deadlifts: 3 sets @ 225 (unit unspecified). Last set felt heavy.\n- Abs: Standard ab circuit.',
+    title: 'Snatches, Deadlifts, and Bodyweight Circuit',
+    description: '- Snatches: 204 reps @ 24 kg; 10 min\n- Deadlifts: 3 sets @ 225; last set felt heavy\n- Circuit: 10 rounds × (5 chin-ups, 10 push-ups, 15 squats)\n- Hollow rocks: 4 sets\n- Stretching\n- Foam rolling',
   });
 });
 

@@ -349,22 +349,25 @@ final class HealthKitWorkoutSyncService: ObservableObject {
             let heartRateUnit = HKUnit.count().unitDivided(by: .minute())
             for sample in record.hrSamples where sample.bpm > 0 {
                 guard sample.timestamp >= start, sample.timestamp <= end else { continue }
-                let sampleEnd = min(end, sample.timestamp.addingTimeInterval(1))
+                guard !(record.pauses ?? []).contains(where: {
+                    sample.timestamp >= $0.start && sample.timestamp < $0.end
+                }) else { continue }
                 let quantity = HKQuantity(unit: heartRateUnit, doubleValue: Double(sample.bpm))
                 samples.append(
                     HKQuantitySample(
                         type: heartRateType,
                         quantity: quantity,
                         start: sample.timestamp,
-                        end: sampleEnd
+                        end: sample.timestamp
                     )
                 )
             }
         }
 
         if let activeEnergyType {
-            let caloriesValue = record.caloriesActive ?? record.caloriesTotal
-            if let caloriesValue, caloriesValue > 0 {
+            // Total energy includes resting metabolism and must never be written
+            // as active energy when an active estimate is unavailable.
+            if let caloriesValue = record.caloriesActive, caloriesValue.isFinite, caloriesValue > 0 {
                 let quantity = HKQuantity(unit: .kilocalorie(), doubleValue: caloriesValue)
                 samples.append(
                     HKQuantitySample(

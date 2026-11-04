@@ -1,7 +1,10 @@
 import Foundation
 
 enum WorkoutVoiceConsent {
-    static let defaultsKey = "workoutVoiceOpenAIConsentV1"
+    // Keep the provider and privacy policy aligned with the backend. Ship updated
+    // disclosure before switching providers; each provider needs fresh permission.
+    static let providerName = "OpenAI"
+    static let defaultsKey = "workoutVoice\(providerName)ConsentV1"
 }
 
 struct WorkoutRecap: Codable, Equatable {

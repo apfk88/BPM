@@ -1,0 +1,16 @@
+{
+  "id": "zone-pulse",
+  "provider": "ElevenLabs",
+  "output_format": "mp3_44100_128",
+  "text": "One single rounded electronic pulse at the very beginning, about 100 milliseconds long, then complete silence. Warm mid-pitched 520Hz sine-like tone with a gentle precise attack and very short clean decay. Minimalist fitness app zone indicator, instantly countable when repeated. Only one hit. Dry isolated sound. No echo, reverb, second attack, pitch flourish, voice, music or noise.",
+  "duration_seconds": 0.5,
+  "prompt_influence": 0.75,
+  "model_id": "eleven_text_to_sound_v2",
+  "loop": false,
+  "response": {
+    "status": 200,
+    "content_type": "audio/mpeg",
+    "bytes": 8820,
+    "character_cost": "3"
+  }
+}

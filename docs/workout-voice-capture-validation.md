@@ -1,5 +1,28 @@
 # Inline workout voice capture
 
+## October 28 disclosure simplification (local)
+
+Routine controls retain “AI voice,” “Undo AI changes,” “Reset AI voice
+permission,” and the AI log-sharing labels. The capture footer is one privacy link. A short “Send recording?”
+prompt still names the current provider, explains the audio and any spoken health
+details being shared for AI processing, and requires “Allow & Send” before the
+first upload. The privacy policy retains processing, retention, and deletion
+details. This follows Apple's disclosure and explicit-permission requirement in
+[Guideline 5.1.2(i)](https://developer.apple.com/app-store/review/guidelines/#data-use-and-sharing).
+
+The provider name is centralized with a provider-specific consent key; the
+existing OpenAI permission key is preserved. A provider switch must update the
+disclosure and policy and obtain permission before routing recordings to the new
+provider, including for older clients.
+
+The simulator build and 10 focused tests passed, including first-use cancel and
+approval, repeat use, permission reset, and edited-note persistence. Result:
+`/private/tmp/BPM-VoiceDisclosure.xcresult`. Exported screenshots in
+`build/voice-disclosure-validation/` were checked for clipping. Generation uses
+the simulator fixture. These copy changes have not been deployed or submitted.
+
+## October 26 implementation
+
 Implemented and checked on October 26, 2026. The backend and privacy update are
 deployed to production at https://bpmtracker.app. No commit, push, App Store
 submission, or physical-device installation was performed. Existing unrelated

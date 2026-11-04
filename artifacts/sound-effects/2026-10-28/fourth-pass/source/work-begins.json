@@ -1,0 +1,16 @@
+{
+  "id": "work-begins",
+  "provider": "ElevenLabs",
+  "kind": "sound-effect",
+  "text": "One firm strike on a beautifully tuned bronze bell, a clear bright DING in the upper middle register around 900Hz. Full rounded metallic body, crisp immediate attack, compact clean decay under one second. A confident GO signal for beginning hard exercise, unmistakable through music. Natural acoustic bell with rich harmonics, not thin or shrill. Single strike only, dry studio recording. No voice, melody, buzz, ambience or repeated hits.",
+  "duration_seconds": 1.0,
+  "prompt_influence": 0.75,
+  "model_id": "eleven_text_to_sound_v3",
+  "loop": false,
+  "output_format": "mp3_44100_128",
+  "response": {
+    "status": 200,
+    "bytes": 17179,
+    "character_cost": "5"
+  }
+}

@@ -7,12 +7,15 @@
 
 import SwiftUI
 import UIKit
+import Combine
 
 struct HRVMeasurementView: View {
     @ObservedObject var viewModel: HRVMeasurementViewModel
     @EnvironmentObject var bluetoothManager: HeartRateBluetoothManager
     @EnvironmentObject var sharingService: SharingService
     var onDismiss: () -> Void
+    var localWorkoutNeedsConfirmation = false
+    var onJoinFriend: ((String) -> Void)? = nil
     @State private var showClearAlert = false
     @State private var showStopAlert = false
     @State private var showDevicePicker = false
@@ -75,7 +78,7 @@ struct HRVMeasurementView: View {
                     HStack(spacing: TopBarLayout.buttonSpacing) {
                         Button {
                             if viewModel.isCompleted {
-                                if hasSavedRecord {
+                                if hasSavedRecord || viewModel.isRemoteMeasurement {
                                     viewModel.reset()
                                     onDismiss()
                                 } else {
@@ -98,12 +101,16 @@ struct HRVMeasurementView: View {
                             Button {
                                 showDevicePicker = true
                             } label: {
-                                topBarCircleIcon(
-                                    systemName: heartIconName,
-                                    color: heartButtonColor,
-                                    accessibilityLabel: "Device Picker"
-                                )
+                                SharedConnectionIcon(symbol: heartIconName, isShared: sharingService.isViewing,
+                                                     size: TopBarLayout.iconFontSize)
+                                    .foregroundStyle(heartButtonColor)
+                                    .frame(width: TopBarLayout.iconSize, height: TopBarLayout.iconSize)
+                                    .bpmCircleSurface()
                             }
+                            .accessibilityLabel("Device Picker")
+                            .accessibilityIdentifier("deviceConnectionMenu")
+                            .accessibilityValue(sharingService.isViewing ? "Viewing shared BPM" :
+                                                bluetoothManager.hasActiveDataSource ? "Monitor connected" : "Not connected")
 
                             Button {
                                 showHistory = true
@@ -126,7 +133,7 @@ struct HRVMeasurementView: View {
                     .padding(.horizontal, TopBarLayout.horizontalPadding)
                     .padding(.top, TopBarLayout.topPadding)
                     .sheet(isPresented: $showDevicePicker) {
-                        DevicePickerView()
+                        DevicePickerView(localWorkoutNeedsConfirmation: localWorkoutNeedsConfirmation, onJoinFriend: onJoinFriend)
                             .environmentObject(bluetoothManager)
                             .environmentObject(sharingService)
                     }
@@ -163,7 +170,9 @@ struct HRVMeasurementView: View {
                             }
                         }
                     } message: {
-                        Text("Lay down, close your eyes, and keep the app open.")
+                        Text(sharingService.isViewing
+                             ? "Ask the person wearing the monitor to lie still for two minutes. Keep this screen open."
+                             : "Lay down, close your eyes, and keep the app open.")
                     }
 
                     let contentLayout = isLandscape
@@ -213,6 +222,9 @@ struct HRVMeasurementView: View {
         .onAppear {
             // Reset first time alert flag for new session
             hasShownFirstTimeAlert = false
+            if viewModel.state != .idle && viewModel.isRemoteMeasurement != sharingService.isViewing {
+                viewModel.reset()
+            }
 
             let bluetoothManager = self.bluetoothManager
             let sharingService = self.sharingService
@@ -227,29 +239,39 @@ struct HRVMeasurementView: View {
             }
 
             // Set up RR intervals callback
-            viewModel.getRRIntervals = { [weak bluetoothManager] in
-                guard let bluetoothManager = bluetoothManager else { return [] }
-                // Only return RR intervals if not viewing shared data
-                if sharingService.isViewing {
-                    return []
+            viewModel.getRRIntervals = { [weak bluetoothManager, weak sharingService] in
+                if sharingService?.isViewing == true {
+                    return sharingService?.friendRRIntervals ?? []
                 }
-                return bluetoothManager.rrIntervals
+                return bluetoothManager?.rrIntervals ?? []
             }
 
             viewModel.currentRRStreamID = { [weak bluetoothManager, weak sharingService] in
-                guard sharingService?.isViewing != true else { return nil }
+                if sharingService?.isViewing == true { return sharingService?.friendRRStreamID }
                 return bluetoothManager?.rrStreamID
             }
 
             // Set up RR intervals support check callback
-            viewModel.supportsRRIntervals = { [weak bluetoothManager] in
-                guard let bluetoothManager = bluetoothManager else { return false }
-                // Only check support if not viewing shared data
-                if sharingService.isViewing {
-                    return false
+            viewModel.supportsRRIntervals = { [weak bluetoothManager, weak sharingService] in
+                if sharingService?.isViewing == true {
+                    return sharingService?.friendSupportsRRIntervals == true && sharingService?.friendRRAcquisitionTicks != nil
                 }
-                return bluetoothManager.supportsRRIntervals
+                return bluetoothManager?.supportsRRIntervals ?? false
             }
+            viewModel.isRemoteSource = { [weak sharingService] in sharingService?.isViewing == true }
+            viewModel.measurementTicks = { [weak sharingService] in
+                if sharingService?.isViewing == true { return sharingService?.friendRRAcquisitionTicks }
+                return MeasurementClock.ticks
+            }
+
+            // Keep acquisition with the measurement model if a sheet obscures this view.
+            let localMeasurements = bluetoothManager.heartRateMeasurements.filter { [weak sharingService] _ in
+                sharingService?.isViewing != true
+            }
+            let sharedMeasurements = sharingService.friendHeartRateMeasurements.filter { [weak sharingService] _ in
+                sharingService?.isViewing == true
+            }
+            viewModel.observeHeartRate(from: localMeasurements.merge(with: sharedMeasurements).eraseToAnyPublisher())
 
             // Start live heart rate updates
             viewModel.startLiveHeartRateUpdates()
@@ -258,6 +280,18 @@ struct HRVMeasurementView: View {
             // Stop live heart rate updates when view disappears
             viewModel.stopLiveHeartRateUpdates()
             saveFeedbackDismissTask?.cancel()
+        }
+        .onChange(of: sharingService.isViewing) { _, _ in
+            // A result from the previous person must not acquire the new source's
+            // label or controls when joining/leaving through the Device menu.
+            viewModel.reset()
+            viewModel.startLiveHeartRateUpdates()
+        }
+        .onChange(of: sharingService.friendCode) { oldCode, newCode in
+            if sharingService.isViewing && oldCode != newCode {
+                viewModel.reset()
+                viewModel.startLiveHeartRateUpdates()
+            }
         }
         .onChange(of: viewModel.state) { _, newValue in
             if case .countingDown = newValue {
@@ -275,6 +309,12 @@ struct HRVMeasurementView: View {
         VStack(spacing: 40) {
             // Timer/HRV display - fixed position
             VStack(spacing: 16) {
+                if sharingService.isViewing || viewModel.isRemoteMeasurement {
+                    Text("Shared HRV")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.green)
+                        .accessibilityIdentifier("sharedHRVMeasurement")
+                }
                 if viewModel.hasError {
                     // Show error message
                     VStack(spacing: 12) {
@@ -343,17 +383,19 @@ struct HRVMeasurementView: View {
     private func measurementControls(isLandscape: Bool) -> some View {
         if viewModel.isCompleted {
             (isLandscape ? AnyLayout(VStackLayout(spacing: 12)) : AnyLayout(HStackLayout(spacing: 16))) {
-                Button {
-                    saveCurrentRecord()
-                } label: {
-                    Text(hasSavedRecord ? "Saved" : "Save")
-                        .font(.headline)
-                        .foregroundColor(hasSavedRecord ? .gray : .white)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 6)
-                        .frame(minHeight: 30)
+                if viewModel.canSaveMeasurement && !sharingService.isViewing {
+                    Button {
+                        saveCurrentRecord()
+                    } label: {
+                        Text(hasSavedRecord ? "Saved" : "Save")
+                            .font(.headline)
+                            .foregroundColor(hasSavedRecord ? .gray : .white)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 6)
+                            .frame(minHeight: 30)
+                    }
+                    .disabled(hasSavedRecord || isSaving)
                 }
-                .disabled(hasSavedRecord || isSaving)
 
                 Button {
                     viewModel.reset()
@@ -451,6 +493,7 @@ struct HRVMeasurementView: View {
     }
 
     private func saveCurrentRecord() {
+        guard !sharingService.isViewing, viewModel.canSaveMeasurement else { return }
         guard let record = viewModel.hrvRecord(recordId: savedRecordId) else { return }
         guard !isSaving else { return }
         isSaving = true
@@ -460,6 +503,7 @@ struct HRVMeasurementView: View {
                 saveError = "Your measurement is still here. Please try saving again."
                 return
             }
+            AppAnalytics.signal(.hrvSave)
             showSaveFeedback("HRV saved")
             viewModel.reset()
             hasSavedRecord = false

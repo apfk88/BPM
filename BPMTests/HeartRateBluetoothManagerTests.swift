@@ -6,10 +6,129 @@
 //
 
 import Foundation
+import Combine
 import Testing
 @testable import BPM
 
 struct HeartRateBluetoothManagerTests {
+    @Test @MainActor func knownSignalLossPreservesBPMAndFirstInvalidationTime() {
+        let manager = HeartRateBluetoothManager()
+        manager.receiveHeartRateMeasurement(HeartRateBluetoothManager.parseHeartRateData(from: Data([0, 120])))
+        var invalidations: [Date] = []
+        let subscription = manager.heartRateInvalidations.sink { date in
+            #expect(manager.freshHeartRate == nil)
+            invalidations.append(date)
+        }
+
+        manager.receiveHeartRateMeasurement(HeartRateBluetoothManager.parseHeartRateData(from: Data([4, 120])))
+        manager.receiveHeartRateMeasurement(HeartRateBluetoothManager.parseHeartRateData(from: Data([4, 120])))
+
+        #expect(invalidations.count == 2)
+        #expect(manager.heartRateSamples.map(\.value) == [120])
+        #expect(manager.heartRateSamples.first?.invalidatedAt == invalidations.first)
+        manager.receiveHeartRateMeasurement(HeartRateBluetoothManager.parseHeartRateData(from: Data([0, 160])))
+        #expect(manager.heartRateSamples.last?.invalidatedAt == nil)
+        subscription.cancel()
+    }
+
+    @Test func liveAverageStopsAtKnownLossBeforeFreshnessExpires() {
+        let origin = Date(timeIntervalSince1970: 1_800_000_000)
+        let samples = [HeartRateSample(value: 100, timestamp: origin, workoutTime: nil,
+                                      invalidatedAt: origin.addingTimeInterval(1)),
+                       HeartRateSample(value: 200, timestamp: origin.addingTimeInterval(2), workoutTime: nil)]
+        #expect(HeartRateBluetoothManager.timeWeightedAverage(samples: samples, now: origin.addingTimeInterval(3)) == 150)
+    }
+
+    @Test @MainActor func switchingSensorsStartsIndependentMeasurementHistory() {
+        let manager = HeartRateBluetoothManager()
+        let firstDevice = UUID()
+        manager.beginMeasurementStream(for: firstDevice)
+        manager.receiveHeartRateMeasurement(HeartRateMeasurementData(
+            heartRate: 60, sensorContactStatus: .detected,
+            hasRRIntervals: true, rrIntervals: [1000]
+        ))
+        let oldHRSession = manager.heartRateSessionID
+        let oldRRStream = manager.rrStreamID
+        #expect(manager.supportsRRIntervals)
+        #expect(manager.currentHeartRate == 60)
+
+        manager.beginMeasurementStream(for: UUID())
+
+        #expect(manager.heartRateSessionID != oldHRSession)
+        #expect(manager.rrStreamID != oldRRStream)
+        #expect(manager.heartRateSamples.isEmpty)
+        #expect(manager.rrIntervals.isEmpty)
+        #expect(!manager.supportsRRIntervals)
+        #expect(manager.currentHeartRate == nil)
+        #expect(manager.freshHeartRate == nil)
+    }
+
+    @Test @MainActor func reconnectNeverSplicesRRButKeepsSameSensorHistory() {
+        let manager = HeartRateBluetoothManager()
+        let device = UUID()
+        manager.beginMeasurementStream(for: device)
+        manager.receiveHeartRateMeasurement(HeartRateMeasurementData(
+            heartRate: 60, sensorContactStatus: .detected,
+            hasRRIntervals: true, rrIntervals: [1000]
+        ))
+        let oldHRSession = manager.heartRateSessionID
+        let oldRRStream = manager.rrStreamID
+
+        manager.beginMeasurementStream(for: device)
+
+        #expect(manager.heartRateSessionID == oldHRSession)
+        #expect(manager.heartRateSamples.count == 1)
+        #expect(manager.rrStreamID != oldRRStream)
+        #expect(manager.rrIntervals.isEmpty)
+        #expect(!manager.supportsRRIntervals)
+        #expect(manager.freshHeartRate == nil)
+    }
+
+    @Test @MainActor func malformedPacketImmediatelyClearsPriorDisplayedReading() {
+        let manager = HeartRateBluetoothManager()
+        manager.receiveHeartRateMeasurement(HeartRateBluetoothManager.parseHeartRateData(from: Data([0, 120])))
+        let stream = manager.rrStreamID
+        #expect(manager.freshHeartRate == 120)
+
+        manager.receiveHeartRateMeasurement(HeartRateBluetoothManager.parseHeartRateData(from: Data([0x10, 120, 0])))
+
+        #expect(manager.currentHeartRate == nil)
+        #expect(manager.freshHeartRate == nil)
+        #expect(manager.rrStreamID != stream)
+        #expect(manager.heartRateSamples.count == 1)
+    }
+
+    @Test func liveAverageWeightsElapsedTimeRatherThanNotificationCount() {
+        let origin = Date(timeIntervalSince1970: 1_800_000_000)
+        let samples = [(0.0, 100), (1.0, 200), (1.1, 200), (2.0, 100)].map { time, bpm in
+            HeartRateSample(value: bpm, timestamp: origin.addingTimeInterval(time), workoutTime: nil)
+        }
+        #expect(HeartRateBluetoothManager.timeWeightedAverage(samples: samples, now: origin.addingTimeInterval(3)) == 133)
+    }
+
+    @Test func liveAverageDoesNotExtendLastReadingAcrossDropout() {
+        let origin = Date(timeIntervalSince1970: 1_800_000_000)
+        let samples = [
+            HeartRateSample(value: 100, timestamp: origin, workoutTime: nil),
+            HeartRateSample(value: 200, timestamp: origin.addingTimeInterval(100), workoutTime: nil)
+        ]
+        // 3 seconds at 100 plus 1 at 200; the 97-second gap is unknown.
+        #expect(HeartRateBluetoothManager.timeWeightedAverage(samples: samples, now: origin.addingTimeInterval(101)) == 125)
+    }
+
+    @Test func liveStatisticsExpireOldHistoryAndClipAtHourBoundary() {
+        let origin = Date(timeIntervalSince1970: 1_800_000_000)
+        let samples = [
+            HeartRateSample(value: 100, timestamp: origin, workoutTime: nil),
+            HeartRateSample(value: 200, timestamp: origin.addingTimeInterval(3600), workoutTime: nil)
+        ]
+        #expect(HeartRateBluetoothManager.timeWeightedAverage(samples: samples, now: origin.addingTimeInterval(3601)) == 133)
+        #expect(HeartRateBluetoothManager.recentHeartRateSamples(samples, now: origin.addingTimeInterval(3601)).map(\.value) == [200])
+        #expect(HeartRateBluetoothManager.timeWeightedAverage(samples: samples, now: origin.addingTimeInterval(8000)) == nil)
+        #expect(HeartRateBluetoothManager.recentHeartRateSamples(samples, now: origin.addingTimeInterval(8000)).isEmpty)
+        #expect(HeartRateBluetoothManager.timeWeightedAverage(samples: [samples[0]], now: origin) == 100)
+    }
+
     @Test func staleSampleHelperUsesTimeout() {
         let now = Date()
         #expect(HeartRateBluetoothManager.isStaleSample(lastSample: nil, now: now, timeout: 300) == false)
@@ -165,33 +284,10 @@ struct HeartRateBluetoothManagerTests {
         ) == false)
     }
 
-    @Test func liveActivityWaitsTenMinutesForHeartRateToReturn() {
-        let disconnectedAt = Date()
-        let missingHeartRateSince = HeartRateActivityLifecycle.missingHeartRateStart(
-            current: nil,
-            bpm: nil,
-            hasError: false,
-            now: disconnectedAt
-        )
-
-        #expect(HeartRateActivityLifecycle.missingHeartRateDismissalInterval == 600)
-        #expect(HeartRateActivityLifecycle.canStartActivity(bpm: 120, hasError: false))
-        #expect(HeartRateActivityLifecycle.canStartActivity(bpm: nil, hasError: false) == false)
-        #expect(missingHeartRateSince == disconnectedAt)
-        #expect(HeartRateActivityLifecycle.shouldDismiss(
-            missingHeartRateSince: missingHeartRateSince,
-            now: disconnectedAt.addingTimeInterval(599)
-        ) == false)
-        #expect(HeartRateActivityLifecycle.shouldDismiss(
-            missingHeartRateSince: missingHeartRateSince,
-            now: disconnectedAt.addingTimeInterval(600)
-        ))
-        #expect(HeartRateActivityLifecycle.missingHeartRateStart(
-            current: missingHeartRateSince,
-            bpm: 120,
-            hasError: false,
-            now: disconnectedAt.addingTimeInterval(30)
-        ) == nil)
-        #expect(HeartRateActivityLifecycle.canStartActivity(bpm: nil, hasError: true))
+    @Test func liveActivityRequiresAReadingOrAnActiveWorkoutTimer() {
+        #expect(HeartRateActivityLifecycle.shouldShowActivity(bpm: 120, hasActiveTimer: false))
+        #expect(!HeartRateActivityLifecycle.shouldShowActivity(bpm: nil, hasActiveTimer: false))
+        #expect(!HeartRateActivityLifecycle.shouldShowActivity(bpm: 0, hasActiveTimer: false))
+        #expect(HeartRateActivityLifecycle.shouldShowActivity(bpm: nil, hasActiveTimer: true))
     }
 }

@@ -12,6 +12,15 @@ struct HeartRateChartDataPoint: Identifiable, Equatable {
     let id = UUID()
     let time: TimeInterval
     let bpm: Int
+    let segment: Int
+    let validUntil: TimeInterval
+
+    init(time: TimeInterval, bpm: Int, segment: Int = 0, validUntil: TimeInterval? = nil) {
+        self.time = time
+        self.bpm = bpm
+        self.segment = segment
+        self.validUntil = validUntil ?? time + HeartRateBluetoothManager.defaultHeartRateFreshnessInterval
+    }
 }
 
 struct HeartRateChartSegment: Identifiable, Equatable {
@@ -29,7 +38,7 @@ struct HeartRateChartSegment: Identifiable, Equatable {
 
 extension HeartRateChartDataPoint {
     init(_ point: TimerViewModel.ChartDataPoint) {
-        self.init(time: point.time, bpm: point.bpm)
+        self.init(time: point.time, bpm: point.bpm, segment: point.segment, validUntil: point.validUntil)
     }
 }
 
@@ -58,12 +67,9 @@ extension HeartRateChartSegment.SegmentType {
 
 extension WorkoutRecord {
     var chartDataPoints: [HeartRateChartDataPoint] {
-        hrSamples.compactMap { sample in
-            let time = sample.workoutTime ?? sample.timestamp.timeIntervalSince(startAt)
-            guard time >= 0 else { return nil }
-            return HeartRateChartDataPoint(time: time, bpm: sample.bpm)
+        WorkoutShareSnapshot.timeline(self).map { point in
+            HeartRateChartDataPoint(time: point.time, bpm: point.bpm, segment: point.segment, validUntil: point.validUntil)
         }
-        .sorted { $0.time < $1.time }
     }
 
     var chartSegments: [HeartRateChartSegment] {
@@ -170,6 +176,12 @@ struct HeartRateTimelineChart: View {
         yAxisDomain(for: dataPoints)
     }
 
+    private var isolatedDataPoints: [HeartRateChartDataPoint] {
+        Dictionary(grouping: dataPoints, by: \.segment).values.compactMap {
+            $0.count == 1 ? $0.first : nil
+        }
+    }
+
     var body: some View {
         GeometryReader { geometry in
             // Reserve room for the leading BPM axis and chart padding.
@@ -246,10 +258,18 @@ struct HeartRateTimelineChart: View {
                     ForEach(dataPoints) { point in
                         LineMark(
                             x: .value("Time", point.time),
-                            y: .value("BPM", point.bpm)
+                            y: .value("BPM", point.bpm),
+                            series: .value("Sensor stream", point.segment)
                         )
+                        .interpolationMethod(.linear)
                         .foregroundStyle(.white)
                         .lineStyle(StrokeStyle(lineWidth: 2))
+                    }
+
+                    ForEach(isolatedDataPoints) { point in
+                        PointMark(x: .value("Time", point.time), y: .value("BPM", point.bpm))
+                            .foregroundStyle(.white)
+                            .symbolSize(8)
                     }
 
                     if showsPeakLabels {
@@ -380,7 +400,7 @@ struct HeartRateTimelineChart: View {
                 if let selectedTime,
                    let selectedPoint = dataPointAtTime(selectedTime, in: dataPoints) {
                     HStack {
-                        Text("Time: \(formatTime(selectedTime))")
+                        Text("Time: \(formatTime(selectedPoint.time))")
                             .font(.system(size: 12, design: .monospaced))
                             .foregroundColor(.gray)
                         Spacer()
@@ -424,7 +444,7 @@ struct HeartRateTimelineChart: View {
     }
 
     private func dataPointAtTime(_ time: TimeInterval, in dataPoints: [HeartRateChartDataPoint]) -> HeartRateChartDataPoint? {
-        return dataPoints.min(by: { abs($0.time - time) < abs($1.time - time) })
+        HeartRateChartSelection.dataPoint(at: time, in: dataPoints)
     }
 
     private func chartTime(

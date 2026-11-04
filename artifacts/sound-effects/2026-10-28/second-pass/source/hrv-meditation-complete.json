@@ -1,0 +1,16 @@
+{
+  "id": "hrv-meditation-complete",
+  "provider": "ElevenLabs",
+  "kind": "sound-effect",
+  "text": "A rich peaceful end-of-meditation sound: one softly struck bronze singing bowl with warm deep resonance, layered shimmering upper harmonics and a gentle resolving glass chime. A satisfying sense of completion and release. Full spacious organic body, slowly decaying naturally into silence over five seconds. Calm, beautiful and enveloping. No voice, no music bed, no ambience, no harsh attack, no repeated rhythm.",
+  "duration_seconds": 5.5,
+  "prompt_influence": 0.7,
+  "model_id": "eleven_text_to_sound_v2",
+  "loop": false,
+  "output_format": "mp3_44100_128",
+  "response": {
+    "status": 200,
+    "bytes": 88650,
+    "character_cost": "30"
+  }
+}

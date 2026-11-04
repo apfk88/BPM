@@ -5,6 +5,7 @@ struct WorkoutShareCardEditor: View {
     let record: WorkoutRecord
     let style: WorkoutShareStyle
     let source: ShareAnalyticsContext.Source
+    @Binding private var accent: WorkoutShareAccent
     @State private var range: WorkoutShareRange
     @State private var cardTitle: String
     @State private var sharePayload: SharePayload?
@@ -18,10 +19,12 @@ struct WorkoutShareCardEditor: View {
         verticalSizeClass == .compact && dynamicTypeSize.isAccessibilitySize
     }
 
-    init(record: WorkoutRecord, style: WorkoutShareStyle, source: ShareAnalyticsContext.Source) {
+    init(record: WorkoutRecord, style: WorkoutShareStyle, source: ShareAnalyticsContext.Source,
+         accent: Binding<WorkoutShareAccent>) {
         self.record = record
         self.style = style
         self.source = source
+        _accent = accent
         _range = State(initialValue: .full(record.durationSeconds))
         _cardTitle = State(initialValue: WorkoutShareSnapshot(record: record).title)
     }
@@ -36,11 +39,23 @@ struct WorkoutShareCardEditor: View {
                     let layout = landscape ? AnyLayout(HStackLayout(alignment: .top, spacing: 24))
                         : AnyLayout(VStackLayout(spacing: 18))
                     layout {
-                        WorkoutShareCardPreview(snapshot: snapshot, style: style)
-                            .frame(maxWidth: min(300, max(200, geometry.size.height * (landscape ? 0.95 : 0.58) / 1.25)))
+                        WorkoutShareCardPreview(snapshot: snapshot, style: style, accent: accent)
+                            .frame(maxWidth: min(300, max(200, geometry.size.height * (landscape ? 0.95 : 0.50) / 1.25)))
                             .accessibilityIdentifier("workoutSharePreview")
 
                         VStack(alignment: .leading, spacing: 18) {
+                            VStack(alignment: .leading, spacing: 8) {
+                                HStack {
+                                    Text("Accent")
+                                    Spacer()
+                                    Text(accent.rawValue)
+                                        .foregroundStyle(.secondary)
+                                        .accessibilityIdentifier("selectedWorkoutAccent")
+                                }
+                                .font(.subheadline)
+                                WorkoutShareAccentPicker(selection: $accent)
+                            }
+
                             VStack(alignment: .leading, spacing: 8) {
                                 Text("Card title").font(.subheadline)
                                 TextField("Workout", text: $cardTitle)
@@ -52,9 +67,10 @@ struct WorkoutShareCardEditor: View {
                             }
 
                             WorkoutRangeSelector(record: record, range: $range)
+                                .tint(accent.color)
                                 .disabled(record.durationSeconds <= 1)
 
-                            Text("Changes apply only to this share card.")
+                            Text("Title and range changes apply only to this card.")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                             if style == .stats && !snapshot.isFullWorkout && record.zoneConfig == nil {
@@ -91,8 +107,9 @@ struct WorkoutShareCardEditor: View {
                         isTitleFocused = false
                         range = .full(record.durationSeconds)
                         cardTitle = WorkoutShareSnapshot(record: record).title
+                        accent = .white
                     }
-                    .disabled(snapshot.isFullWorkout && cardTitle == WorkoutShareSnapshot(record: record).title)
+                    .disabled(snapshot.isFullWorkout && cardTitle == WorkoutShareSnapshot(record: record).title && accent == .white)
                     .accessibilityIdentifier("resetWorkoutCard")
                 }
                 ToolbarItem(placement: .confirmationAction) {
@@ -120,7 +137,7 @@ struct WorkoutShareCardEditor: View {
             let analytics = ShareAnalyticsSession(context: ShareAnalyticsContext(
                 source: source, format: style == .chart ? .chartCard : .statsCard
             ))
-            guard let image = WorkoutShareCardRenderer.image(snapshot: snapshot, style: style) else {
+            guard let image = WorkoutShareCardRenderer.image(snapshot: snapshot, style: style, accent: accent) else {
                 analytics.finish(completed: false, failed: true)
                 renderFailed = true
                 return
@@ -137,8 +154,8 @@ struct WorkoutShareCardEditor: View {
                 .frame(maxWidth: .infinity)
         }
         .buttonStyle(.borderedProminent)
-        .tint(Color(red: 1, green: 0.39, blue: 0.34))
-        .foregroundStyle(.black)
+        .tint(accent.color)
+        .foregroundStyle(accent.foregroundColor)
         .controlSize(.large)
         .accessibilityIdentifier("shareWorkoutImage")
     }
@@ -184,7 +201,6 @@ private struct WorkoutRangeSelector: View {
             // Round the selection without a step parameter, which adds a second tick track.
             Slider(value: Binding(get: { value.wrappedValue }, set: { value.wrappedValue = $0.rounded() }),
                    in: 0...total) { Text(title) }
-                .tint(Color(red: 1, green: 0.39, blue: 0.34))
                 .accessibilityValue(valueText)
                 .accessibilityIdentifier(identifier)
         }

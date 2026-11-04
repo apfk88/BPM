@@ -6,10 +6,7 @@ final class WorkoutRecapUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments = ["--workout-voice-ui-test"]
         app.launch()
-        if app.buttons["xmark"].waitForExistence(timeout: 2) {
-            app.buttons["xmark"].tap()
-            if app.alerts["Clear Workout"].waitForExistence(timeout: 1) { app.alerts.buttons["Clear"].tap() }
-        }
+        app.resetWorkoutAndReturnHome()
         app.buttons["Settings"].tap()
         let resetVoicePermission = app.buttons["Reset AI voice permission"]
         for _ in 0..<5 where !resetVoicePermission.isHittable { app.swipeUp() }
@@ -32,7 +29,10 @@ final class WorkoutRecapUITests: XCTestCase {
         start.buttons["Cancel"].tap()
         XCTAssertTrue(app.buttons["Start"].exists)
         app.buttons["Start"].tap()
-        start.buttons["Include previous measurements"].tap()
+        let includeHistory = start.buttons["includePreviousMeasurements"]
+        XCTAssertTrue(includeHistory.waitForExistence(timeout: 3))
+        XCTAssertTrue(includeHistory.label.hasPrefix("Include last "))
+        includeHistory.tap()
         XCTAssertTrue(app.buttons["End"].waitForExistence(timeout: 5))
         app.buttons["End"].tap()
         app.buttons["Save Workout"].tap()
@@ -73,11 +73,12 @@ final class WorkoutRecapUITests: XCTestCase {
         XCTAssertEqual(app.textViews["Workout description"].value as? String, "Existing note.")
         sleep(1)
         app.buttons["Send"].tap()
-        let voiceConsent = app.alerts["Send recording to OpenAI?"]
+        let voiceConsent = app.alerts["Send recording?"]
         XCTAssertTrue(voiceConsent.waitForExistence(timeout: 3))
+        XCTAssertTrue(voiceConsent.staticTexts.matching(NSPredicate(format: "label CONTAINS %@ AND label CONTAINS %@", "OpenAI", "health details")).firstMatch.exists)
         XCTAssertFalse(app.staticTexts["Loading title and description…"].exists)
         let consentScreenshot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
-        consentScreenshot.name = "Explicit OpenAI permission before upload"
+        consentScreenshot.name = "Voice permission before upload"
         consentScreenshot.lifetime = .keepAlways
         add(consentScreenshot)
         voiceConsent.buttons["Cancel"].tap()
@@ -87,7 +88,7 @@ final class WorkoutRecapUITests: XCTestCase {
         XCTAssertFalse(app.staticTexts["Loading title and description…"].exists)
         app.buttons["Send"].tap()
         XCTAssertTrue(voiceConsent.waitForExistence(timeout: 3))
-        voiceConsent.buttons["Send recording to OpenAI"].tap()
+        voiceConsent.buttons["Allow & Send"].tap()
         XCTAssertTrue(app.staticTexts["Loading title and description…"].waitForExistence(timeout: 2))
         XCTAssertFalse(app.buttons["Save"].isEnabled)
         app.buttons["Cancel request"].tap()
@@ -139,7 +140,6 @@ final class WorkoutRecapUITests: XCTestCase {
         XCTAssertTrue(resetVoicePermission.isEnabled)
         resetVoicePermission.tap()
         XCTAssertFalse(resetVoicePermission.isEnabled)
-        XCTAssertTrue(app.staticTexts["Permission will be requested before a recording is sent to OpenAI. You can always enter workout notes manually."].exists)
         for _ in 0..<5 where !app.buttons["Workout History"].isHittable { app.swipeDown() }
         app.swipeUp()
         app.buttons["Workout History"].tap()

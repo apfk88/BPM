@@ -98,6 +98,7 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
     @Published private(set) var rrIntervals: [RRInterval] = []
     private(set) var rrStreamID = UUID()
     let heartRateMeasurements = PassthroughSubject<HeartRateSample, Never>()
+    let heartRateInvalidations = PassthroughSubject<Date, Never>()
 
     // Simulator-specific properties
     @Published var simulatorDevice: SimulatorDevice?
@@ -123,7 +124,8 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
     private var noDataShareTimer: Timer?
     private var noDataReconnectTimer: Timer?
     private var heartRateFreshnessTimer: Timer?
-    private let noDataTimeoutInterval = HeartRateActivityLifecycle.missingHeartRateDismissalInterval
+    private var needsLocalActivityReset = false
+    private let noDataTimeoutInterval: TimeInterval = 10 * 60
     private let noDataWarningInterval: TimeInterval = 5.0
     private let noDataShareInterval: TimeInterval = 20.0
     private let noDataReconnectInterval: TimeInterval = 10.0
@@ -158,6 +160,7 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
 
     // Auto-reconnect properties
     private var lastConnectedPeripheralIdentifier: UUID?
+    private var measurementDeviceIdentifier: UUID?
     private var isUserInitiatedDisconnect = false
     private var reconnectTimer: Timer?
     private var reconnectAttempts = 0
@@ -261,6 +264,7 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
     /// Disconnect from the simulator fake device
     func disconnectSimulator() {
         guard isSimulator else { return }
+        invalidateLastHeartRateMeasurement()
         isSimulatorConnected = false
         connectionStatus = "Not connected"
         stopFakeDataGeneration()
@@ -279,13 +283,8 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
         heartRateSessionID = UUID()
         rrIntervals.removeAll()
         rrStreamID = UUID()
-#if canImport(ActivityKit)
-        if #available(iOS 16.1, *) {
-            Task { @MainActor in
-                await HeartRateActivityController.shared.endActivity()
-            }
-        }
-#endif
+        sharingService.updateHeartRate(nil, max: nil, avg: nil, min: nil)
+        updateLocalActivity()
     }
 
     func stopScanning() {
@@ -324,6 +323,7 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
 
     func enterForeground() {
         endBackgroundTask()
+        updateLocalActivity()
 
         if isStaleSample() {
             shouldResumeScanningAfterBackground = false
@@ -370,10 +370,10 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
     }
 
     private func prepareForConnection(to device: CBPeripheral) {
-        if lastConnectedPeripheralIdentifier != device.identifier {
-            heartRateSessionID = UUID()
-            heartRateSessionStartedAt = measurementClock.now()
+        if let previous = connectedDevice, previous.identifier != device.identifier {
+            centralManager.cancelPeripheralConnection(previous)
         }
+        beginMeasurementStream(for: device.identifier)
         connectionStatus = "Connecting..."
         connectionMessage = nil
         preserveConnectionMessageOnDisconnect = false
@@ -397,6 +397,28 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
         }
     }
 
+    /// A reconnect always starts a new RR sequence. A different sensor also starts
+    /// a new live-history session so its readings cannot inherit another person's data.
+    func beginMeasurementStream(for deviceID: UUID) {
+        invalidateLastHeartRateMeasurement()
+        if measurementDeviceIdentifier != deviceID {
+            heartRateSessionID = UUID()
+            heartRateSessionStartedAt = measurementClock.now()
+            heartRateSamples.removeAll()
+        }
+        measurementDeviceIdentifier = deviceID
+        rrStreamID = UUID()
+        rrIntervals.removeAll()
+        supportsRRIntervals = false
+        currentHeartRate = nil
+        sensorContactStatus = .unsupported
+        lastHeartRateSampleTime = nil
+        lastHeartRateSampleTicks = nil
+        lastUpdateTime = nil
+        invalidateHeartRateFreshnessTimer()
+        alertState.reset()
+    }
+
     private func handleConnectedPeripheral(_ peripheral: CBPeripheral) {
         reconnectAttempts = 0
         cancelReconnectTimer()
@@ -414,6 +436,7 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
         sensorContactStatus = .unsupported
         currentHeartRate = nil
         invalidateHeartRateFreshnessTimer()
+        updateLocalActivity()
         scheduleNoDataWarning()
         scheduleNoDataShareTimeout()
         scheduleNoDataReconnect()
@@ -442,6 +465,8 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
             return
         }
 
+        invalidateLastHeartRateMeasurement()
+
         isUserInitiatedDisconnect = true
         cancelReconnectTimer()
         lastConnectedPeripheralIdentifier = nil
@@ -467,13 +492,8 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
         rrStreamID = UUID()
         supportsRRIntervals = false
         startScanning()
-#if canImport(ActivityKit)
-        if #available(iOS 16.1, *) {
-            Task { @MainActor in
-                await HeartRateActivityController.shared.endActivity()
-            }
-        }
-#endif
+        sharingService.updateHeartRate(nil, max: nil, avg: nil, min: nil)
+        updateLocalActivity()
         if connectedDevice == nil && !sharingService.isSharing {
             endBackgroundTask()
         }
@@ -639,7 +659,8 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
             currentHeartRate = value
             heartRateMeasurements.send(sample)
 
-            let cutoff = now.addingTimeInterval(-3600)
+            // Retain the boundary sample whose valid span can cross into the hour.
+            let cutoff = now.addingTimeInterval(-3600 - Self.defaultHeartRateFreshnessInterval)
             heartRateSamples.removeAll { $0.timestamp < cutoff }
 
             currentHeartRate = value
@@ -662,22 +683,7 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
                 lastUpdateTime = now
             }
 
-#if canImport(ActivityKit)
-            if #available(iOS 16.1, *) {
-                Task { @MainActor in
-                    let zone = HeartRateZoneStorage.shared.currentZone(for: value)
-                    HeartRateActivityController.shared.updateActivity(
-                        bpm: value,
-                        average: avg,
-                        maximum: max,
-                        minimum: min,
-                        zone: zone?.zoneInfo,
-                        isSharing: sharingService.isSharing,
-                        isViewing: false
-                    )
-                }
-            }
-#endif
+            updateLocalActivity()
         } else {
             DispatchQueue.main.sync { [weak self] in
                 self?.addHeartRateSample(value, sensorContactStatus: sensorContactStatus)
@@ -696,6 +702,7 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
     }
 
     private func handlePoorSensorContactReading() {
+        invalidateLastHeartRateMeasurement()
         rrStreamID = UUID()
         let now = measurementClock.now()
         recordHeartRatePacketReceipt(at: now)
@@ -708,45 +715,71 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
         sharingService.updateHeartRate(nil, max: nil, avg: nil, min: nil)
         hasSentNoDataToSharing = true
 
-#if canImport(ActivityKit)
-        if #available(iOS 16.1, *) {
-            Task { @MainActor in
-                HeartRateActivityController.shared.updateActivity(
-                    bpm: nil,
-                    average: nil,
-                    maximum: nil,
-                    minimum: nil,
-                    zone: nil,
-                    isSharing: sharingService.isSharing,
-                    isViewing: false
-                )
-            }
-        }
-#endif
+        updateLocalActivity()
     }
 
     private func handleZeroHeartRateReading() {
+        invalidateLastHeartRateMeasurement()
         rrStreamID = UUID()
         invalidateHeartRateFreshnessTimer()
         currentHeartRate = nil
         handleHeartRateAlerts(for: nil)
         sharingService.updateHeartRate(nil, max: nil, avg: nil, min: nil)
 
-#if canImport(ActivityKit)
+        updateLocalActivity()
+    }
+
+    private func handleInvalidHeartRateMeasurement() {
+        handleZeroHeartRateReading()
+        connectionMessage = "Waiting for valid heart-rate data..."
+    }
+
+    private func invalidateLastHeartRateMeasurement() {
+        // Subscribers can reconcile a timer boundary synchronously from this event.
+        // They must not see the just-invalidated reading as current during that work.
+        currentHeartRate = nil
+        let now = measurementClock.now()
+        if let lastIndex = heartRateSamples.indices.last,
+           heartRateSamples[lastIndex].invalidatedAt == nil {
+            heartRateSamples[lastIndex].invalidatedAt = now
+        }
+        // A restored workout can retain a sample before this manager receives its
+        // first packet. Always notify it of known loss; consumers apply it idempotently.
+        heartRateInvalidations.send(now)
+        needsLocalActivityReset = true
+        updateLocalActivity()
+    }
+
+    /// Read the current source when the main-actor task runs. A queued packet
+    /// must not recreate an activity after disconnecting or switching sensors.
+    private func updateLocalActivity() {
+        #if canImport(ActivityKit)
         if #available(iOS 16.1, *) {
-            Task { @MainActor in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                if self.needsLocalActivityReset {
+                    HeartRateActivityController.shared.endLocalHeartRate()
+                    self.needsLocalActivityReset = false
+                }
+                guard self.hasActiveDataSource, let bpm = self.freshHeartRate else {
+                    HeartRateActivityController.shared.endLocalHeartRate()
+                    return
+                }
                 HeartRateActivityController.shared.updateActivity(
-                    bpm: nil,
-                    average: nil,
-                    maximum: nil,
-                    minimum: nil,
-                    zone: nil,
-                    isSharing: sharingService.isSharing,
-                    isViewing: false
+                    bpm: bpm,
+                    average: self.avgHeartRateLastHour,
+                    maximum: self.maxHeartRateLastHour,
+                    minimum: self.minHeartRateLastHour,
+                    zone: HeartRateZoneStorage.shared.currentZone(for: bpm)?.zoneInfo,
+                    isSharing: self.sharingService.isSharing,
+                    isViewing: false,
+                    heartRateExpiresAt: self.lastHeartRateSampleTicks.map {
+                        Date().addingTimeInterval(max(0, self.heartRateFreshnessInterval - (MeasurementClock.ticks - $0)))
+                    }
                 )
             }
         }
-#endif
+        #endif
     }
 
     private func scheduleHeartRateFreshnessTimeout(from sampleTime: Date) {
@@ -776,21 +809,7 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
             sharingService.updateHeartRate(nil, max: nil, avg: nil, min: nil)
         }
 
-#if canImport(ActivityKit)
-        if #available(iOS 16.1, *) {
-            Task { @MainActor in
-                HeartRateActivityController.shared.updateActivity(
-                    bpm: nil,
-                    average: nil,
-                    maximum: nil,
-                    minimum: nil,
-                    zone: nil,
-                    isSharing: sharingService.isSharing,
-                    isViewing: false
-                )
-            }
-        }
-#endif
+        updateLocalActivity()
     }
 
     private func scheduleNoDataTimeout() {
@@ -935,6 +954,7 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
     private func handleNoDataTimeout() {
         guard let lastSample = lastHeartRateSampleTime else { return }
         guard measurementClock.now().timeIntervalSince(lastSample) >= noDataTimeoutInterval else { return }
+        invalidateLastHeartRateMeasurement()
 
         if let device = connectedDevice {
             centralManager.cancelPeripheralConnection(device)
@@ -962,35 +982,53 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
         connectionStatus = "Disconnected - No data"
         sharingService.updateHeartRate(nil, max: nil, avg: nil, min: nil)
 
-#if canImport(ActivityKit)
-        if #available(iOS 16.1, *) {
-            Task { @MainActor in
-                await HeartRateActivityController.shared.endActivity()
-            }
-        }
-#endif
+        updateLocalActivity()
 
         startScanning()
     }
 }
 
 extension HeartRateBluetoothManager {
+    static func recentHeartRateSamples(_ samples: [HeartRateSample], now: Date) -> [HeartRateSample] {
+        let cutoff = now.addingTimeInterval(-3600)
+        return samples.filter {
+            $0.value > 0 && $0.sensorContactStatus != .notDetected &&
+            $0.timestamp >= cutoff && $0.timestamp <= now
+        }
+    }
+
+    /// Each received value represents only the following observed time, capped
+    /// at the freshness limit. Notification frequency must not weight the result.
+    static func timeWeightedAverage(samples: [HeartRateSample], now: Date) -> Int? {
+        let cutoff = now.addingTimeInterval(-3600)
+        var weightedTotal = 0.0
+        var observedDuration = 0.0
+        for (index, sample) in samples.enumerated() {
+            guard sample.value > 0, sample.sensorContactStatus != .notDetected else { continue }
+            let next = index + 1 < samples.count ? samples[index + 1].timestamp : now
+            let end = min(now, next, sample.invalidatedAt ?? now,
+                          sample.timestamp.addingTimeInterval(defaultHeartRateFreshnessInterval))
+            let start = max(cutoff, sample.timestamp)
+            let duration = max(0, end.timeIntervalSince(start))
+            weightedTotal += Double(sample.value) * duration
+            observedDuration += duration
+        }
+        guard observedDuration > 0 else {
+            return recentHeartRateSamples(samples, now: now).last?.value
+        }
+        return Int((weightedTotal / observedDuration).rounded())
+    }
+
     var maxHeartRateLastHour: Int? {
-        guard !heartRateSamples.isEmpty else { return nil }
-        return heartRateSamples.map { $0.value }.max()
+        Self.recentHeartRateSamples(heartRateSamples, now: measurementClock.now()).map(\.value).max()
     }
 
     var avgHeartRateLastHour: Int? {
-        guard !heartRateSamples.isEmpty else { return nil }
-        let nonZeroSamples = heartRateSamples.filter { $0.value > 0 }
-        guard !nonZeroSamples.isEmpty else { return nil }
-        let total = nonZeroSamples.reduce(0) { $0 + $1.value }
-        return Int((Double(total) / Double(nonZeroSamples.count)).rounded())
+        Self.timeWeightedAverage(samples: heartRateSamples, now: measurementClock.now())
     }
 
     var minHeartRateLastHour: Int? {
-        guard !heartRateSamples.isEmpty else { return nil }
-        return heartRateSamples.map { $0.value }.filter { $0 > 0 }.min()
+        Self.recentHeartRateSamples(heartRateSamples, now: measurementClock.now()).map(\.value).min()
     }
 
     func timeInZonesLastHour(config: HeartRateZoneConfig) -> [ZoneTimeData] {
@@ -1001,9 +1039,13 @@ extension HeartRateBluetoothManager {
         }
 
         let now = measurementClock.now()
+        let cutoff = now.addingTimeInterval(-3600)
         for (index, sample) in heartRateSamples.enumerated() {
+            guard sample.value > 0, sample.sensorContactStatus != .notDetected else { continue }
             let next = index + 1 < heartRateSamples.count ? heartRateSamples[index + 1].timestamp : now
-            let duration = max(0, min(Self.defaultHeartRateFreshnessInterval, next.timeIntervalSince(sample.timestamp)))
+            let end = min(now, next, sample.invalidatedAt ?? now,
+                          sample.timestamp.addingTimeInterval(Self.defaultHeartRateFreshnessInterval))
+            let duration = max(0, end.timeIntervalSince(max(cutoff, sample.timestamp)))
             if let zone = HeartRateZone.zone(for: sample.value, config: config) {
                 zoneDurations[zone, default: 0] += duration
             }
@@ -1022,6 +1064,7 @@ extension HeartRateBluetoothManager: CBCentralManagerDelegate {
                 peripheral.delegate = self
 
                 if connectedDevice == nil || connectedDevice?.identifier == peripheral.identifier {
+                    beginMeasurementStream(for: peripheral.identifier)
                     connectedDevice = peripheral
                     lastConnectedPeripheralIdentifier = peripheral.identifier
                     isUserInitiatedDisconnect = false
@@ -1051,6 +1094,9 @@ extension HeartRateBluetoothManager: CBCentralManagerDelegate {
                 startScanning()
             }
         case .unauthorized, .unsupported, .poweredOff, .resetting, .unknown:
+            if connectedDevice != nil || currentHeartRate != nil {
+                handleInvalidHeartRateMeasurement()
+            }
             stopScanning()
         @unknown default:
             stopScanning()
@@ -1103,11 +1149,19 @@ extension HeartRateBluetoothManager: CBCentralManagerDelegate {
     }
 
     func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
+        guard connectedDevice?.identifier == peripheral.identifier else {
+            central.cancelPeripheralConnection(peripheral)
+            return
+        }
         handleConnectedPeripheral(peripheral)
     }
 
     func centralManager(_ central: CBCentralManager, didDisconnectPeripheral peripheral: CBPeripheral, error: Error?) {
         let wasConnectedDevice = connectedDevice?.identifier == peripheral.identifier
+        // A cancelled old sensor can report its disconnection after a new sensor
+        // is selected. It must not end or otherwise change the active session.
+        guard wasConnectedDevice else { return }
+        invalidateLastHeartRateMeasurement()
         let willAttemptReconnect = HeartRateConnectionState.shouldAutoReconnectAfterDisconnect(
             isUserInitiatedDisconnect: isUserInitiatedDisconnect,
             lastConnectedDeviceID: lastConnectedPeripheralIdentifier,
@@ -1139,22 +1193,8 @@ extension HeartRateBluetoothManager: CBCentralManagerDelegate {
             // Clear heart rate for sharing viewers (show dashes)
             sharingService.updateHeartRate(nil, max: nil, avg: nil, min: nil)
 
-            // Update Live Activity to show disconnected state
-#if canImport(ActivityKit)
-            if #available(iOS 16.1, *) {
-                Task { @MainActor in
-                    HeartRateActivityController.shared.updateActivity(
-                        bpm: nil,
-                        average: nil,
-                        maximum: nil,
-                        minimum: nil,
-                        zone: nil,
-                        isSharing: sharingService.isSharing,
-                        isViewing: false
-                    )
-                }
-            }
-#endif
+            // Remove only the local reading; an active workout timer can continue.
+            updateLocalActivity()
 
             // Attempt auto-reconnect if this wasn't a user-initiated disconnect
             if willAttemptReconnect {
@@ -1167,19 +1207,14 @@ extension HeartRateBluetoothManager: CBCentralManagerDelegate {
         }
 
         startScanning()
-#if canImport(ActivityKit)
-        if #available(iOS 16.1, *) {
-            Task { @MainActor in
-                await HeartRateActivityController.shared.endActivity()
-            }
-        }
-#endif
+        updateLocalActivity()
         if connectedDevice == nil && !sharingService.isSharing {
             endBackgroundTask()
         }
     }
 
     func centralManager(_ central: CBCentralManager, didFailToConnect peripheral: CBPeripheral, error: Error?) {
+        guard connectedDevice?.identifier == peripheral.identifier else { return }
         let msg = HeartRateConnectionState.connectionFailureMessage(errorDescription: error?.localizedDescription)
 
         print(msg)
@@ -1212,6 +1247,7 @@ extension HeartRateBluetoothManager: CBCentralManagerDelegate {
 
 extension HeartRateBluetoothManager: CBPeripheralDelegate {
     func peripheral(_ peripheral: CBPeripheral, didDiscoverServices error: Error?) {
+        guard connectedDevice?.identifier == peripheral.identifier else { return }
         guard error == nil else {
             let msg = "Error discovering services: \(error?.localizedDescription ?? "unknown")"
             print(msg)
@@ -1247,6 +1283,8 @@ extension HeartRateBluetoothManager: CBPeripheralDelegate {
     }
 
     func peripheral(_ peripheral: CBPeripheral, didDiscoverCharacteristicsFor service: CBService, error: Error?) {
+        guard connectedDevice?.identifier == peripheral.identifier,
+              service.uuid == heartRateServiceUUID else { return }
         guard error == nil else {
             let msg = "Error discovering characteristics: \(error?.localizedDescription ?? "unknown")"
             print(msg)
@@ -1278,9 +1316,10 @@ extension HeartRateBluetoothManager: CBPeripheralDelegate {
         // CoreBluetooth is configured on the main queue. Process in callback order,
         // before another disconnect or device switch can change the active source.
         guard connectedDevice?.identifier == peripheral.identifier,
-              characteristic.uuid == heartRateMeasurementCharacteristicUUID else { return }
+              characteristic.uuid == heartRateMeasurementCharacteristicUUID,
+              characteristic.service?.uuid == heartRateServiceUUID else { return }
         guard error == nil, let data = characteristic.value else {
-            rrStreamID = UUID()
+            handleInvalidHeartRateMeasurement()
             return
         }
         receiveHeartRateMeasurement(Self.parseHeartRateData(from: data))
@@ -1288,7 +1327,7 @@ extension HeartRateBluetoothManager: CBPeripheralDelegate {
 
     func receiveHeartRateMeasurement(_ measurement: HeartRateMeasurementData) {
         guard let heartRate = measurement.heartRate else {
-            rrStreamID = UUID()
+            handleInvalidHeartRateMeasurement()
             return
         }
         if heartRate > 0 && measurement.sensorContactStatus != .notDetected && measurement.hasRRIntervals {
@@ -1307,7 +1346,11 @@ extension HeartRateBluetoothManager: CBPeripheralDelegate {
     }
 
     func peripheral(_ peripheral: CBPeripheral, didUpdateNotificationStateFor characteristic: CBCharacteristic, error: Error?) {
+        guard connectedDevice?.identifier == peripheral.identifier,
+              characteristic.uuid == heartRateMeasurementCharacteristicUUID,
+              characteristic.service?.uuid == heartRateServiceUUID else { return }
         if let error = error {
+            handleInvalidHeartRateMeasurement()
             let msg = "Error updating notification state: \(error.localizedDescription)"
             print(msg)
             addDebugMessage(msg)
@@ -1319,13 +1362,18 @@ extension HeartRateBluetoothManager: CBPeripheralDelegate {
                 connectionStatus = "Connected - Waiting for data"
                 connectionMessage = nil
                 lastHeartRateSampleTime = nil
+                currentHeartRate = nil
+                rrStreamID = UUID()
                 sensorContactStatus = .unsupported
                 invalidateHeartRateFreshnessTimer()
+                updateLocalActivity()
                 scheduleNoDataWarning()
                 scheduleNoDataShareTimeout()
                 scheduleNoDataReconnect()
                 hasSentNoDataToSharing = false
                 hasReceivedDataSinceConnect = false
+            } else {
+                handleInvalidHeartRateMeasurement()
             }
         }
     }
@@ -1431,6 +1479,7 @@ extension HeartRateBluetoothManager: CBPeripheralDelegate {
         connectionMessage = "Trying to reconnect..."
 
         // Store reference and attempt connection
+        beginMeasurementStream(for: peripheral.identifier)
         connectedDevice = peripheral
         centralManager.connect(peripheral, options: nil)
     }

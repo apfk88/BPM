@@ -9,6 +9,8 @@ struct WorkoutHeartRateSample: Codable {
     let timestamp: Date
     let bpm: Int
     let workoutTime: TimeInterval?
+    // Optional for older records. Known sensor loss truncates support for this real reading.
+    var invalidatedAt: Date? = nil
 }
 
 struct WorkoutZoneSummary: Codable, Identifiable {
@@ -148,7 +150,7 @@ extension WorkoutRecord {
             lines.append("🧊 HRR (2 min): \(hrr)")
         }
         if let total = caloriesTotal {
-            lines.append("🔥 Calories: \(Int(round(total)))")
+            lines.append("🔥 Est. total kcal: \(Int(round(total)))")
         }
         if !zones.isEmpty {
             let zoneText = zones.map { zone in
@@ -164,7 +166,7 @@ extension WorkoutRecord {
     func jsonString() -> String {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        encoder.dateEncodingStrategy = .iso8601
+        encoder.dateEncodingStrategy = MeasurementDateCoding.encodingStrategy
         guard let data = try? encoder.encode(self) else { return "{}" }
         return String(data: data, encoding: .utf8) ?? "{}"
     }

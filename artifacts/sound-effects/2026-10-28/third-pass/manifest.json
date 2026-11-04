@@ -1,0 +1,109 @@
+{
+  "status": "Third-pass interval-bell audition; no app integration",
+  "provider": "ElevenLabs",
+  "model_id": "eleven_text_to_sound_v3",
+  "sample_rate_hz": 44100,
+  "channels": 1,
+  "format": "16-bit PCM WAV",
+  "generation_sources": [
+    {
+      "id": "interval-brass-handbell",
+      "provider": "ElevenLabs",
+      "kind": "sound-effect",
+      "text": "A real solid brass handbell struck once firmly. One clear rounded DING with a full warm metallic body, bright upper harmonics and a smooth natural ringing decay. Strong and unmistakable as a workout interval marker, satisfying rather than shrill. Close dry studio recording, strike immediately, let the bell ring out. Only one strike. No rattle, buzz, clatter, voice, music, ambience or synthetic beep.",
+      "duration_seconds": 1.8,
+      "prompt_influence": 0.65,
+      "model_id": "eleven_text_to_sound_v3",
+      "loop": false,
+      "output_format": "mp3_44100_128",
+      "response": {
+        "status": 200,
+        "bytes": 29300,
+        "character_cost": "10"
+      }
+    },
+    {
+      "id": "interval-lap-bell",
+      "provider": "ElevenLabs",
+      "kind": "sound-effect",
+      "text": "One firm clean strike of a high-quality track-and-field lap bell. A crisp attention-getting metallic DING with a rich solid bronze body and a bright ringing tail. The sound of a real athletic bell signaling the end of a hard effort. One satisfying strike, immediate and clearly defined, ringing naturally into silence. Close dry recording. No crowds, no background, no repeated shaking, no clatter, no voice or music.",
+      "duration_seconds": 1.8,
+      "prompt_influence": 0.65,
+      "model_id": "eleven_text_to_sound_v3",
+      "loop": false,
+      "output_format": "mp3_44100_128",
+      "response": {
+        "status": 200,
+        "bytes": 29300,
+        "character_cost": "10"
+      }
+    },
+    {
+      "id": "interval-tubular-bell",
+      "provider": "ElevenLabs",
+      "kind": "sound-effect",
+      "text": "One decisive strike on a medium-register orchestral tubular bell with a hard felt mallet. A clear full-bodied DONG with rich tuned metallic harmonics and an elegant compact ringing decay. Strong immediate presence, an unmistakable interval completion signal. A real acoustic bell, warm and bright, never thin or piercing. Single strike only. Close dry studio sound. No melody, music, voice, room ambience or repeated hits.",
+      "duration_seconds": 2.0,
+      "prompt_influence": 0.65,
+      "model_id": "eleven_text_to_sound_v3",
+      "loop": false,
+      "output_format": "mp3_44100_128",
+      "response": {
+        "status": 200,
+        "bytes": 33061,
+        "character_cost": "11"
+      }
+    }
+  ],
+  "reported_character_cost": 31,
+  "processing": "Kept each generated single event and full tail. Trimmed leading silence, added 2ms attack and80ms end fade. Balanced maximum100ms RMS toward -15dBFS with -3dBFS peak ceiling. No looping, duplicated strikes, or pitch changes.",
+  "files": [
+    {
+      "file": "interval-brass-handbell.wav",
+      "duration_seconds": 1.76,
+      "source_duration_seconds": 1.76,
+      "source_trim_start_seconds": 0.0,
+      "source_peak": 0.737396,
+      "gain_db": -0.35,
+      "peak_dbfs": -3.0,
+      "max_100ms_rms_dbfs": -19.77,
+      "rms_dbfs": -28.58,
+      "energy_200_to_3000_hz_fraction_first_500ms": 0.025,
+      "clipped_samples": 0
+    },
+    {
+      "file": "interval-lap-bell.wav",
+      "duration_seconds": 1.698163,
+      "source_duration_seconds": 1.76,
+      "source_trim_start_seconds": 0.061837,
+      "source_peak": 0.455811,
+      "gain_db": 3.82,
+      "peak_dbfs": -3.0,
+      "max_100ms_rms_dbfs": -15.47,
+      "rms_dbfs": -26.31,
+      "energy_200_to_3000_hz_fraction_first_500ms": 0.047,
+      "clipped_samples": 0
+    },
+    {
+      "file": "interval-tubular-bell.wav",
+      "duration_seconds": 2.0,
+      "source_duration_seconds": 2.0,
+      "source_trim_start_seconds": 0.0,
+      "source_peak": 0.520599,
+      "gain_db": 0.07,
+      "peak_dbfs": -5.6,
+      "max_100ms_rms_dbfs": -15.0,
+      "rms_dbfs": -23.93,
+      "energy_200_to_3000_hz_fraction_first_500ms": 0.999,
+      "clipped_samples": 0
+    }
+  ],
+  "preferred_previous_candidates": {
+    "hrv": "../second-pass/hrv-meditation-complete.wav",
+    "zone_voice_and_phrase_example": "../second-pass/zone-label-3.wav"
+  },
+  "rejected_previous_interval_candidates": [
+    "../second-pass/interval-boxing-bell.wav",
+    "../second-pass/interval-electronic.wav"
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "id": "hrv-complete",
+  "provider": "ElevenLabs",
+  "output_format": "mp3_44100_128",
+  "text": "One calm resolved completion chime for a minimalist fitness app. A soft warm glass chord struck once, gently blooming and decaying fully within 800 milliseconds. Restful and reassuring, clearly audible with eyes closed. Start immediately. One simultaneous consonant chord, no ascending or descending melody. Dry clean studio sound, no voice, music bed, ambience, echo or long reverb.",
+  "duration_seconds": 0.9,
+  "prompt_influence": 0.75,
+  "model_id": "eleven_text_to_sound_v2",
+  "loop": false,
+  "response": {
+    "status": 200,
+    "content_type": "audio/mpeg",
+    "bytes": 15089,
+    "character_cost": "5"
+  }
+}

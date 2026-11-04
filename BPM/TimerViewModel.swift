@@ -7,8 +7,6 @@
 
 import Foundation
 import Combine
-import AudioToolbox
-import AVFoundation
 import UIKit
 
 enum TimerState: String, Codable {
@@ -25,6 +23,12 @@ enum PresetPhase: String, Codable {
     case cooldown
 }
 
+enum TimerSoundCue: Equatable {
+    case workBegins
+    case restBegins
+    case workoutComplete
+}
+
 struct SetRecord: Identifiable {
     let id = UUID()
     let setNumber: Int
@@ -39,19 +43,28 @@ struct SetRecord: Identifiable {
 final class TimerViewModel: ObservableObject {
     @Published var state: TimerState = .idle {
         didSet {
+            if state != oldValue { sharingControlGeneration &+= 1 }
             updateLiveActivityElapsed(force: true)
         }
     }
     @Published var elapsedTime: TimeInterval = 0
     @Published var currentSetTime: TimeInterval = 0
-    @Published var sets: [SetRecord] = []
+    @Published var sets: [SetRecord] = [] {
+        didSet { sharingControlGeneration &+= 1 }
+    }
     @Published var cooldownTime: TimeInterval = 0
     @Published var frozenElapsedTime: TimeInterval = 0 // Total time frozen at cooldown start
-    @Published var isTimingRestSet: Bool = false // True when currently timing a rest set
+    @Published var isTimingRestSet: Bool = false { // True when currently timing a rest set
+        didSet {
+            if isTimingRestSet != oldValue { sharingControlGeneration &+= 1 }
+        }
+    }
     @Published private(set) var caloriesStatus: CaloriesEstimateStatus = .disabled(missingFields: [])
 
     // Preset mode properties
-    @Published var activePreset: TimerPreset? = nil
+    @Published var activePreset: TimerPreset? = nil {
+        didSet { sharingControlGeneration &+= 1 }
+    }
     @Published var presetPhase: PresetPhase = .work
     @Published var presetCurrentSet: Int = 0 // Current set number (1-indexed)
     @Published var presetPhaseTimeRemaining: TimeInterval = 0 // Countdown for current phase
@@ -153,9 +166,13 @@ final class TimerViewModel: ObservableObject {
     }
 
     private let caloriesQueue = DispatchQueue(label: "bpm.calories-estimate", qos: .utility)
+    private var calorieEstimateRevision = UUID()
+    private let energyProfileProvider: () -> UserEnergyProfile
     private let presetStartCountdownDuration: TimeInterval
     private let sessionStore: ActiveWorkoutSessionStore
     private let nowProvider: () -> Date
+    private let soundCueHandler: (TimerSoundCue) -> Void
+    private var pendingSoundCue: (cue: TimerSoundCue, boundary: Date)?
     private var userDefaultsObserver: NSObjectProtocol?
     private var didEnterBackgroundObserver: NSObjectProtocol?
     private var willEnterForegroundObserver: NSObjectProtocol?
@@ -163,10 +180,13 @@ final class TimerViewModel: ObservableObject {
     init(
         presetStartCountdownDuration: TimeInterval = 5.0,
         sessionStore: ActiveWorkoutSessionStore = .shared,
-        nowProvider: (() -> Date)? = nil
+        nowProvider: (() -> Date)? = nil,
+        soundCueHandler: ((TimerSoundCue) -> Void)? = nil,
+        energyProfileProvider: @escaping () -> UserEnergyProfile = { UserEnergyProfileStore.currentProfile() }
     ) {
         self.presetStartCountdownDuration = max(0, presetStartCountdownDuration)
         self.sessionStore = sessionStore
+        self.energyProfileProvider = energyProfileProvider
         let saved = sessionStore.load()
         let clock: MeasurementClock
         if let saved, let anchor = saved.clockDate, let ticks = saved.clockTicks,
@@ -177,7 +197,17 @@ final class TimerViewModel: ObservableObject {
             clock = MeasurementClock()
         }
         self.nowProvider = nowProvider ?? clock.now
-        caloriesStatus = CaloriesEstimator.estimate(samples: [], profile: UserEnergyProfileStore.currentProfile())
+        self.soundCueHandler = soundCueHandler ?? { cue in
+            switch cue {
+            case .workBegins:
+                AlertSoundPlayer.shared.playWorkBegins()
+            case .restBegins:
+                AlertSoundPlayer.shared.playRestBegins()
+            case .workoutComplete:
+                AlertSoundPlayer.shared.playWorkoutComplete()
+            }
+        }
+        caloriesStatus = CaloriesEstimator.estimate(samples: [], profile: energyProfileProvider())
         userDefaultsObserver = NotificationCenter.default.addObserver(
             forName: UserDefaults.didChangeNotification,
             object: nil,
@@ -203,10 +233,17 @@ final class TimerViewModel: ObservableObject {
     }
 
     private var pauses: [WorkoutPause] = []
-    private var workoutStartedAt: Date?
+    private(set) var sharingWorkoutID = UUID().uuidString
+    private(set) var sharingControlGeneration: UInt64 = 0
+    private var workoutStartedAt: Date? {
+        didSet {
+            if workoutStartedAt != oldValue { sharingWorkoutID = UUID().uuidString }
+        }
+    }
     private var workoutEndedAt: Date?
     private var endRecovery: WorkoutEndRecovery?
     private var heartRateCancellable: AnyCancellable?
+    private var heartRateInvalidationCancellable: AnyCancellable?
     private var isRefreshingTiming = false
     private var startTime: Date?
     private var pauseStartTime: Date?
@@ -224,8 +261,6 @@ final class TimerViewModel: ObservableObject {
     private var cooldownEndHeartRate: Int? // Heart rate at end of cooldown (2 minutes)
     private var presetPhaseStartTime: Date? // When current preset phase started
     private var presetPhasePausedTime: TimeInterval = 0 // Time paused in current phase
-    private var audioPlayer: AVAudioPlayer? // For playing sounds that bypass silent mode
-    private var audioSessionDeactivationToken = UUID()
     private var lastLiveActivityElapsedSeconds: Int?
     private var presetStartCountdownTimer: Timer?
     private var presetStartCountdownEndTime: Date?
@@ -243,6 +278,14 @@ final class TimerViewModel: ObservableObject {
               let session = currentSessionMeasurements?(),
               !eligiblePreviousMeasurements(session.samples, at: nowProvider()).isEmpty else { return nil }
         return session.id
+    }
+
+    func recoverableHistoryDuration(for sessionID: UUID) -> TimeInterval? {
+        guard recoverableSessionID == sessionID,
+              let session = currentSessionMeasurements?(), session.id == sessionID else { return nil }
+        let now = nowProvider()
+        guard let first = eligiblePreviousMeasurements(session.samples, at: now).first else { return nil }
+        return max(0, now.timeIntervalSince(first.timestamp))
     }
 
     private func eligiblePreviousMeasurements(_ samples: [HeartRateSample], at now: Date) -> [HeartRateSample] {
@@ -313,7 +356,8 @@ final class TimerViewModel: ObservableObject {
         currentRestAssociatedWorkSetNumber = snapshot.currentRestAssociatedWorkSetNumber
         restStartTime = snapshot.restStartTime
         heartRateSamples = snapshot.heartRateSamples.map {
-            HeartRateSample(value: $0.value, timestamp: $0.timestamp, workoutTime: $0.workoutTime)
+            HeartRateSample(value: $0.value, timestamp: $0.timestamp, workoutTime: $0.workoutTime,
+                            invalidatedAt: $0.invalidatedAt)
         }
         cooldownStartHeartRate = snapshot.cooldownStartHeartRate
         cooldownEndHeartRate = snapshot.cooldownEndHeartRate
@@ -435,7 +479,7 @@ final class TimerViewModel: ObservableObject {
     }
 
     private func completePersistedPresetCountdown(at referenceDate: Date) {
-        guard let preset = activePreset else { return }
+        guard isPresetPrestartCountdownActive, let preset = activePreset else { return }
         let deadline = presetStartCountdownEndTime ?? referenceDate
         stopPresetStartCountdownTimer()
         isPresetPrestartCountdownActive = false
@@ -452,6 +496,7 @@ final class TimerViewModel: ObservableObject {
         presetPhaseStartTime = deadline
         presetPhasePausedTime = 0
         state = .running
+        requestPresetSound(.workBegins, at: deadline)
     }
 
     private func persistCurrentSession(referenceDate: Date? = nil) {
@@ -498,7 +543,8 @@ final class TimerViewModel: ObservableObject {
             currentRestAssociatedWorkSetNumber: currentRestAssociatedWorkSetNumber,
             restStartTime: restStartTime,
             heartRateSamples: heartRateSamples.map {
-                PersistedHeartRateSample(value: $0.value, timestamp: $0.timestamp, workoutTime: $0.workoutTime)
+                PersistedHeartRateSample(value: $0.value, timestamp: $0.timestamp, workoutTime: $0.workoutTime,
+                                         invalidatedAt: $0.invalidatedAt)
             },
             cooldownStartHeartRate: cooldownStartHeartRate,
             cooldownEndHeartRate: cooldownEndHeartRate,
@@ -533,7 +579,9 @@ final class TimerViewModel: ObservableObject {
     }
     
     private var workoutMeasurementEnd: TimeInterval {
-        frozenElapsedTime > 0 ? frozenElapsedTime : elapsedTime
+        // Whole-session statistics must cover the same interval as its duration,
+        // graph, calories, and zone totals, including recorded cooldown.
+        resolvedTotalTime()
     }
 
     var avgHeartRate: Int? { averageBPM(from: 0, through: workoutMeasurementEnd) }
@@ -660,7 +708,7 @@ final class TimerViewModel: ObservableObject {
             let previous = sessionID != nil && session?.id == sessionID && workoutEndedAt == nil && !isCompleted && activePreset == nil
                 ? eligiblePreviousMeasurements(session?.samples ?? [], at: now) : []
             reset()
-            AppAnalytics.signal(.workoutStart)
+            AppAnalytics.signal(.workoutStart, parameters: ["mode": "manual"])
             defaultWorkoutTitle = nil
             startTime = previous.first?.timestamp ?? now
             workoutStartedAt = startTime
@@ -676,7 +724,8 @@ final class TimerViewModel: ObservableObject {
             heartRateSamples = previous.map { sample in
                 HeartRateSample(value: sample.value, timestamp: sample.timestamp,
                                 workoutTime: sample.timestamp.timeIntervalSince(startTime ?? now),
-                                sensorContactStatus: sample.sensorContactStatus)
+                                sensorContactStatus: sample.sensorContactStatus,
+                                invalidatedAt: sample.invalidatedAt)
             }
             elapsedTime = now.timeIntervalSince(startTime ?? now)
             currentSetTime = elapsedTime
@@ -1009,6 +1058,7 @@ final class TimerViewModel: ObservableObject {
     // MARK: - Preset Mode
 
     func loadPreset(_ preset: TimerPreset) {
+        AppAnalytics.signal(.presetSelected, parameters: ["sound_enabled": String(preset.playSound)])
         guard preset.workDuration.isFinite, preset.workDuration > 0,
               preset.restDuration.isFinite, preset.restDuration >= 0,
               (1...1000).contains(preset.numberOfSets) else { return }
@@ -1043,7 +1093,7 @@ final class TimerViewModel: ObservableObject {
         guard let preset = activePreset, state == .idle || state == .paused else { return }
 
         if state == .idle {
-            AppAnalytics.signal(.workoutStart)
+            AppAnalytics.signal(.workoutStart, parameters: ["mode": "preset", "sound_enabled": String(preset.playSound)])
             stopTimer()
             stopPresetStartCountdownTimer()
             defaultWorkoutTitle = resolvedPresetName(for: preset)
@@ -1199,83 +1249,24 @@ final class TimerViewModel: ObservableObject {
     }
 
     func prepareForWorkoutDictation() {
-        audioSessionDeactivationToken = UUID()
-        audioPlayer?.stop()
+        AlertSoundPlayer.shared.suspendForRecording()
     }
 
-    private func playPhaseEndSound() {
-        guard !WorkoutRecordingAudio.shared.isRecording else { return }
-        guard let preset = activePreset, preset.playSound else { return }
-        let deactivationToken = UUID()
-        audioSessionDeactivationToken = deactivationToken
-
-        // Configure audio session to play sound even when device is silenced
-        do {
-            try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, options: [.duckOthers])
-            try AVAudioSession.sharedInstance().setActive(true)
-        } catch {
-            // Fall back to system sound if audio session fails
-            AudioServicesPlaySystemSound(1013) // bell
-            return
-        }
-
-        // Single bell at each phase transition
-        let bellCount = Self.bellCount(for: presetPhase)
-        playBells(count: bellCount, deactivationToken: deactivationToken)
-    }
-
-    static func bellCount(for phase: PresetPhase) -> Int {
-        switch phase {
-        case .work, .rest, .cooldown:
-            return 1
+    private func requestPresetSound(_ cue: TimerSoundCue, at boundary: Date) {
+        guard activePreset?.playSound == true else { return }
+        if isRefreshingTiming {
+            // Reconcile all overdue phases before choosing a cue. Zero-length rest
+            // and delayed callbacks should announce only the current transition.
+            pendingSoundCue = (cue, boundary)
+        } else {
+            deliverPresetSound(cue, at: boundary)
         }
     }
 
-    private func playBells(count: Int, current: Int = 0, deactivationToken: UUID) {
-        guard current < count, !WorkoutRecordingAudio.shared.isRecording else { return }
-
-        let soundURL = URL(fileURLWithPath: "/System/Library/Audio/UISounds/sms-received1.caf")
-        do {
-            audioPlayer = try AVAudioPlayer(contentsOf: soundURL)
-            audioPlayer?.prepareToPlay()
-            let didStartPlayback = audioPlayer?.play() ?? false
-
-            if current + 1 < count {
-                // Schedule next bell after a short delay
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
-                    self?.playBells(count: count, current: current + 1, deactivationToken: deactivationToken)
-                }
-            } else if didStartPlayback {
-                scheduleAudioSessionDeactivation(
-                    after: Self.audioSessionDeactivationDelay(soundDuration: audioPlayer?.duration),
-                    token: deactivationToken
-                )
-            } else {
-                deactivateAudioSession(token: deactivationToken)
-            }
-        } catch {
-            AudioServicesPlaySystemSound(1013)
-            scheduleAudioSessionDeactivation(after: Self.audioSessionDeactivationDelay(soundDuration: nil), token: deactivationToken)
-        }
-    }
-
-    static func audioSessionDeactivationDelay(soundDuration: TimeInterval?) -> TimeInterval {
-        max((soundDuration ?? 0.8) + 0.2, 0.5)
-    }
-
-    private func scheduleAudioSessionDeactivation(after delay: TimeInterval, token: UUID) {
-        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-            self?.deactivateAudioSession(token: token)
-        }
-    }
-
-    private func deactivateAudioSession(token: UUID) {
-        guard audioSessionDeactivationToken == token, !WorkoutRecordingAudio.shared.isRecording else { return }
-        do {
-            try AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
-        } catch {
-            print("Failed to deactivate interval audio session: \(error.localizedDescription)")
-        }
+    private func deliverPresetSound(_ cue: TimerSoundCue, at boundary: Date) {
+        let delay = nowProvider().timeIntervalSince(boundary)
+        guard (0...1).contains(delay), !WorkoutRecordingAudio.shared.isRecording else { return }
+        soundCueHandler(cue)
     }
 
     private func advancePresetPhase() {
@@ -1284,7 +1275,6 @@ final class TimerViewModel: ObservableObject {
         let boundary = phaseStart.addingTimeInterval(duration)
         let timely = abs(nowProvider().timeIntervalSince(boundary)) <= 1
         let bpm = timely ? currentHeartRate?() : heartRate(at: lastSetEndTime + duration)
-        if timely { playPhaseEndSound() }
         if presetPhase == .work {
             capturePresetSet(duration: duration, boundaryHeartRate: bpm)
             if presetCurrentSet == preset.numberOfSets {
@@ -1296,6 +1286,7 @@ final class TimerViewModel: ObservableObject {
                 if preset.includeCooldown {
                     beginCooldown(at: boundary, heartRate: bpm)
                 } else {
+                    requestPresetSound(.workoutComplete, at: boundary)
                     finishWorkout(at: boundary)
                 }
                 return
@@ -1306,12 +1297,14 @@ final class TimerViewModel: ObservableObject {
             sets.append(SetRecord(setNumber: presetCurrentSet, setTime: 0, heartRate: nil,
                                   totalTime: lastSetEndTime, isRestSet: true, isCooldownSet: false,
                                   associatedWorkSetNumber: presetCurrentSet))
+            requestPresetSound(.restBegins, at: boundary)
         } else {
             capturePresetRestSet(duration: duration, boundaryHeartRate: bpm)
             presetCurrentSet += 1
             presetPhase = .work
             isTimingRestSet = false
             currentRestAssociatedWorkSetNumber = nil
+            requestPresetSound(.workBegins, at: boundary)
         }
         presetPhaseStartTime = boundary
         presetPhaseTimeRemaining = presetPhase == .work ? preset.workDuration : preset.restDuration
@@ -1400,6 +1393,9 @@ final class TimerViewModel: ObservableObject {
         heartRateCancellable = manager.heartRateMeasurements.sink { [weak self] sample in
             self?.recordHeartRateSample(sample)
         }
+        heartRateInvalidationCancellable = manager.heartRateInvalidations.sink { [weak self] _ in
+            self?.recordHeartRateInvalidation()
+        }
     }
 
     func recordHeartRateSample(_ sample: HeartRateSample) {
@@ -1408,10 +1404,25 @@ final class TimerViewModel: ObservableObject {
               sample.value > 0, sample.sensorContactStatus != .notDetected,
               recordedMeasurementIDs.insert(sample.id).inserted else { return }
         let time = state == .cooldown ? frozenElapsedTime + cooldownTime : elapsedTime
-        heartRateSamples.append(HeartRateSample(value: sample.value, timestamp: nowProvider(),
-                                               workoutTime: time, sensorContactStatus: sample.sensorContactStatus))
+        let receivedAt = nowProvider()
+        let invalidatedAt = sample.invalidatedAt.map { receivedAt.addingTimeInterval($0.timeIntervalSince(sample.timestamp)) }
+        heartRateSamples.append(HeartRateSample(value: sample.value, timestamp: receivedAt,
+                                               workoutTime: time, sensorContactStatus: sample.sensorContactStatus,
+                                               invalidatedAt: invalidatedAt))
         updateCaloriesEstimate()
         // Persist received data while backgrounded, not just the state at background entry.
+        persistCurrentSession()
+    }
+
+    /// Preserve the last measured value and record when the sensor explicitly
+    /// stopped supporting it. Do not insert a fabricated zero-BPM measurement.
+    func recordHeartRateInvalidation() {
+        guard (state == .running && !isPresetPrestartCountdownActive) || state == .cooldown,
+              let lastIndex = heartRateSamples.indices.last,
+              heartRateSamples[lastIndex].invalidatedAt == nil else { return }
+        heartRateSamples[lastIndex].invalidatedAt = nowProvider()
+        refreshTiming()
+        updateCaloriesEstimate()
         persistCurrentSession()
     }
 
@@ -1423,17 +1434,24 @@ final class TimerViewModel: ObservableObject {
     }
 
     private func heartRate(at time: TimeInterval) -> Int? {
-        heartRateSamples.last {
-            guard let sampleTime = $0.workoutTime else { return false }
-            return sampleTime <= time && time - sampleTime <= 1
-        }?.value
+        guard let sample = heartRateSamples.last(where: { ($0.workoutTime ?? .infinity) <= time }),
+              let sampleTime = sample.workoutTime, time - sampleTime <= 1 else { return nil }
+        if let invalidatedAt = sample.invalidatedAt,
+           time >= sampleTime + invalidatedAt.timeIntervalSince(sample.timestamp) { return nil }
+        return sample.value
     }
 
     /// Reconcile every elapsed boundary before handling input, foregrounding, or samples.
     func refreshTiming() {
         guard !isRefreshingTiming else { return }
         isRefreshingTiming = true
-        defer { isRefreshingTiming = false }
+        defer {
+            isRefreshingTiming = false
+            if let pendingSoundCue {
+                self.pendingSoundCue = nil
+                deliverPresetSound(pendingSoundCue.cue, at: pendingSoundCue.boundary)
+            }
+        }
         let now = nowProvider()
         let wasPrestart = isPresetPrestartCountdownActive
         if state != .paused || !isPresetPrestartCountdownActive {
@@ -1457,7 +1475,7 @@ final class TimerViewModel: ObservableObject {
             if cooldownTime >= 120, let start = cooldownStartTime {
                 cooldownTime = 120
                 currentSetTime = 120
-                if abs(now.timeIntervalSince(start) - 120) <= 1 { playPhaseEndSound() }
+                requestPresetSound(.workoutComplete, at: start.addingTimeInterval(120))
                 finishWorkout(at: start.addingTimeInterval(120))
                 persistCurrentSession()
             }
@@ -1482,6 +1500,7 @@ final class TimerViewModel: ObservableObject {
         cooldownPauseStartTime = nil
         if isPresetMode { presetPhase = .cooldown }
         state = .cooldown
+        requestPresetSound(.restBegins, at: date)
         startCooldownTimer()
     }
 
@@ -1528,34 +1547,49 @@ final class TimerViewModel: ObservableObject {
         #endif
     }
 
-    private var calorieSamples: [HeartRateSample] {
-        // Calories use the active timeline too; pauses must not become exercise.
-        return heartRateSamples.map { sample in
-            HeartRateSample(value: sample.value,
-                            timestamp: Date(timeIntervalSince1970: sample.workoutTime ?? 0),
-                            workoutTime: sample.workoutTime, sensorContactStatus: sample.sensorContactStatus)
+    private var measurementPauses: [WorkoutPause] {
+        var result = pauses
+        if let start = pauseStartTime ?? cooldownPauseStartTime {
+            result.append(WorkoutPause(start: start, end: nowProvider()))
         }
+        return result
+    }
+
+    private func currentCaloriesEstimate() -> CaloriesEstimateStatus {
+        CaloriesEstimator.estimate(samples: heartRateSamples, profile: energyProfileProvider(),
+                                   workoutDuration: resolvedTotalTime(), pauses: measurementPauses)
     }
 
     private func updateCaloriesEstimate() {
-        let samples = calorieSamples
-        let profile = UserEnergyProfileStore.currentProfile()
+        let revision = UUID()
+        calorieEstimateRevision = revision
+        let samples = heartRateSamples
+        let profile = energyProfileProvider()
+        let duration = resolvedTotalTime()
+        let pauses = measurementPauses
+        if samples.isEmpty {
+            caloriesStatus = CaloriesEstimator.estimate(samples: [], profile: profile)
+            return
+        }
         caloriesQueue.async { [weak self] in
-            let status = CaloriesEstimator.estimate(samples: samples, profile: profile)
+            let status = CaloriesEstimator.estimate(samples: samples, profile: profile,
+                                                    workoutDuration: duration, pauses: pauses)
             DispatchQueue.main.async {
-                self?.caloriesStatus = status
+                guard let self, self.calorieEstimateRevision == revision else { return }
+                self.caloriesStatus = status
             }
         }
     }
 
     private func finalizeCaloriesSession(endAt: Date = Date()) {
         guard let startTime = startTime else { return }
-        let profile = UserEnergyProfileStore.currentProfile()
-        let status = CaloriesEstimator.estimate(samples: calorieSamples, profile: profile)
+        calorieEstimateRevision = UUID()
+        let status = currentCaloriesEstimate()
+        caloriesStatus = status
         guard case let .available(estimate) = status else { return }
 
         let session = CaloriesSession(
-            startAt: startTime,
+            startAt: workoutStartedAt ?? startTime,
             endAt: endAt,
             totalKcal: estimate.totalKcal,
             activeKcal: estimate.activeKcal,
@@ -1600,6 +1634,8 @@ final class TimerViewModel: ObservableObject {
         let id = UUID()
         let time: TimeInterval // Time since workout start
         let bpm: Int
+        let segment: Int
+        let validUntil: TimeInterval
     }
     
     struct ChartSegment: Identifiable {
@@ -1622,6 +1658,9 @@ final class TimerViewModel: ObservableObject {
         // Include all samples up to current max time (includes cooldown if active)
         let maxTime = chartMaxTime()
         
+        var segment = 0
+        var previous: (time: TimeInterval, timestamp: Date, invalidatedAt: Date?)?
+        let recordedPauses = measurementPauses
         return heartRateSamples.compactMap { sample in
             // Use workoutTime if available (excludes pauses), otherwise fall back to timestamp calculation
             let workoutTime: TimeInterval
@@ -1629,13 +1668,30 @@ final class TimerViewModel: ObservableObject {
                 workoutTime = sampleWorkoutTime
             } else {
                 // Fallback for old samples without workoutTime
-                guard let startTime = startTime else { return nil }
-                workoutTime = sample.timestamp.timeIntervalSince(startTime)
+                guard let origin = workoutStartedAt ?? startTime else { return nil }
+                let paused = recordedPauses.reduce(0.0) { total, pause in
+                    total + max(0, min(sample.timestamp, pause.end).timeIntervalSince(max(origin, pause.start)))
+                }
+                workoutTime = sample.timestamp.timeIntervalSince(origin) - paused
             }
             
             // Only include samples up to maxTime
-            guard workoutTime <= maxTime else { return nil }
-            return ChartDataPoint(time: workoutTime, bpm: sample.value)
+            guard workoutTime.isFinite, workoutTime >= 0, workoutTime <= maxTime,
+                  sample.value > 0, sample.sensorContactStatus != .notDetected else { return nil }
+            if let previous,
+               workoutTime - previous.time > HeartRateBluetoothManager.defaultHeartRateFreshnessInterval ||
+                sample.timestamp.timeIntervalSince(previous.timestamp) > HeartRateBluetoothManager.defaultHeartRateFreshnessInterval ||
+                previous.invalidatedAt.map({ $0 <= sample.timestamp }) == true ||
+                recordedPauses.contains(where: { $0.start >= previous.timestamp && $0.end <= sample.timestamp }) {
+                segment += 1
+            }
+            previous = (workoutTime, sample.timestamp, sample.invalidatedAt)
+            let pauseStart = recordedPauses.lazy.map(\.start).filter { $0 >= sample.timestamp }.min()
+            let pauseLimit = pauseStart.map { workoutTime + $0.timeIntervalSince(sample.timestamp) } ?? maxTime
+            let invalidLimit = sample.invalidatedAt.map { workoutTime + max(0, $0.timeIntervalSince(sample.timestamp)) } ?? maxTime
+            let validUntil = min(maxTime, workoutTime + HeartRateBluetoothManager.defaultHeartRateFreshnessInterval,
+                                 pauseLimit, invalidLimit)
+            return ChartDataPoint(time: workoutTime, bpm: sample.value, segment: segment, validUntil: validUntil)
         }
     }
     
@@ -1727,7 +1783,11 @@ final class TimerViewModel: ObservableObject {
             let next = index + 1 < heartRateSamples.count ? (heartRateSamples[index + 1].workoutTime ?? end) : end
             // A received reading can represent at most the same 3-second freshness
             // window used for live BPM. Never extend it through a long data gap.
-            let stop = min(end, next, time + HeartRateBluetoothManager.defaultHeartRateFreshnessInterval)
+            let pauseStart = measurementPauses.lazy.map(\.start)
+                .filter { $0 >= sample.timestamp }.min()
+            let pauseLimit = pauseStart.map { time + $0.timeIntervalSince(sample.timestamp) } ?? end
+            let invalidLimit = sample.invalidatedAt.map { time + max(0, $0.timeIntervalSince(sample.timestamp)) } ?? end
+            let stop = min(end, next, pauseLimit, invalidLimit, time + HeartRateBluetoothManager.defaultHeartRateFreshnessInterval)
             let duration = max(0, stop - max(start, time))
             return duration > 0 ? (sample, duration) : nil
         }
@@ -1760,7 +1820,8 @@ final class TimerViewModel: ObservableObject {
             .map { WorkoutZoneSummary(id: UUID(), zone: $0.zone.rawValue, duration: $0.duration) }
 
         let sampleSummaries = heartRateSamples.map { sample in
-            WorkoutHeartRateSample(timestamp: sample.timestamp, bpm: sample.value, workoutTime: sample.workoutTime)
+            WorkoutHeartRateSample(timestamp: sample.timestamp, bpm: sample.value, workoutTime: sample.workoutTime,
+                                   invalidatedAt: sample.invalidatedAt)
         }
 
         let setSummaries = sets.map { set in
@@ -1780,7 +1841,7 @@ final class TimerViewModel: ObservableObject {
 
         let caloriesTotal: Double?
         let caloriesActive: Double?
-        switch caloriesStatus {
+        switch currentCaloriesEstimate() {
         case .available(let estimate):
             caloriesTotal = estimate.totalKcal
             caloriesActive = estimate.activeKcal
@@ -1828,7 +1889,7 @@ final class TimerViewModel: ObservableObject {
         let cooldownSets = sets.filter { $0.isCooldownSet }
         let zones = timeInZones(config: zoneConfig)
         let totalZoneTime = zones.reduce(0) { $0 + $1.duration }
-        let caloriesStatus = CaloriesEstimator.estimate(samples: calorieSamples, profile: UserEnergyProfileStore.currentProfile())
+        let caloriesStatus = currentCaloriesEstimate()
 
         lines.append("🏁 Workout Summary")
         lines.append("")
@@ -1857,7 +1918,7 @@ final class TimerViewModel: ObservableObject {
         case .available(let estimate):
             let total = Int(round(estimate.totalKcal))
             let active = Int(round(estimate.activeKcal))
-            lines.append("🔥 Calories: \(total) (active \(active))")
+            lines.append("🔥 Est. calories: \(total) total (active \(active))")
         case .insufficient(let remaining):
             lines.append("🔥 Calories: waiting \(formatWaitSeconds(remaining))")
         case .disabled:
@@ -1883,7 +1944,7 @@ final class TimerViewModel: ObservableObject {
         let workoutTime = frozenElapsedTime > 0 ? frozenElapsedTime : totalTime
         let zones = timeInZones(config: zoneConfig)
         let totalZoneTime = zones.reduce(0) { $0 + $1.duration }
-        let caloriesStatus = CaloriesEstimator.estimate(samples: calorieSamples, profile: UserEnergyProfileStore.currentProfile())
+        let caloriesStatus = currentCaloriesEstimate()
 
         lines.append("BPM Workout Detail Export")
         lines.append("Context:")
@@ -1935,7 +1996,7 @@ final class TimerViewModel: ObservableObject {
             lines.append("Calories total (kcal): \(String(format: "%.1f", estimate.totalKcal))")
             lines.append("Calories active (kcal): \(String(format: "%.1f", estimate.activeKcal))")
             lines.append("Calories method: \(estimate.method.rawValue)")
-            lines.append("Calories confidence: \(String(format: "%.2f", estimate.confidence))")
+            lines.append("Calories legacy confidence (unvalidated): \(String(format: "%.2f", estimate.confidence))")
             lines.append("Calories HR samples: \(estimate.hrSampleCount), gaps: \(estimate.gapCount)")
         case .insufficient(let remaining):
             lines.append("Calories: waiting \(formatWaitSeconds(remaining))")

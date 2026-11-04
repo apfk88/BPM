@@ -1,0 +1,16 @@
+{
+  "id": "interval-tubular-bell",
+  "provider": "ElevenLabs",
+  "kind": "sound-effect",
+  "text": "One decisive strike on a medium-register orchestral tubular bell with a hard felt mallet. A clear full-bodied DONG with rich tuned metallic harmonics and an elegant compact ringing decay. Strong immediate presence, an unmistakable interval completion signal. A real acoustic bell, warm and bright, never thin or piercing. Single strike only. Close dry studio sound. No melody, music, voice, room ambience or repeated hits.",
+  "duration_seconds": 2.0,
+  "prompt_influence": 0.65,
+  "model_id": "eleven_text_to_sound_v3",
+  "loop": false,
+  "output_format": "mp3_44100_128",
+  "response": {
+    "status": 200,
+    "bytes": 33061,
+    "character_cost": "11"
+  }
+}

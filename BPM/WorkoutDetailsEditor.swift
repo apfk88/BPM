@@ -35,6 +35,7 @@ struct WorkoutDetailsEditor: View {
             .disabled(isSaving)
             .scrollDismissesKeyboard(.interactively)
             .navigationTitle("Edit Workout")
+            .analyticsScreen(.workoutEdit)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {

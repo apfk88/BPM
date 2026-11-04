@@ -1,0 +1,16 @@
+{
+  "id": "bpm-threshold-up",
+  "provider": "ElevenLabs",
+  "output_format": "mp3_44100_128",
+  "text": "Exactly two short rounded electronic pluck notes: lower then distinctly higher, E5 then A5. Warm sine-like timbre with a tiny glass overtone. First note 120ms, silence 60ms, second note 120ms, then silence. One ascending pair for a minimalist fitness app. Gentle precise attack. Dry isolated sound. No echo, reverb, music, voice, bass thump or extra notes.",
+  "duration_seconds": 0.5,
+  "prompt_influence": 0.75,
+  "model_id": "eleven_text_to_sound_v2",
+  "loop": false,
+  "response": {
+    "status": 200,
+    "content_type": "audio/mpeg",
+    "bytes": 8820,
+    "character_cost": "3"
+  }
+}

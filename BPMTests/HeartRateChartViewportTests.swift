@@ -1,7 +1,52 @@
 import Testing
+import Foundation
 @testable import BPM
 
 struct HeartRateChartViewportTests {
+    @Test @MainActor func liveAndSavedChartBreakLinesAcrossDropoutsAndShortPauses() {
+        var now = Date(timeIntervalSince1970: 1_800_000_000)
+        let origin = now
+        let store = ActiveWorkoutSessionStore(fileURL: FileManager.default.temporaryDirectory
+            .appendingPathComponent("chart-accuracy-\(UUID()).json"))
+        let model = TimerViewModel(sessionStore: store, nowProvider: { now })
+        model.start()
+        model.recordHeartRateSample(HeartRateSample(value: 100, timestamp: now, workoutTime: nil))
+        now = origin.addingTimeInterval(1)
+        model.recordHeartRateSample(HeartRateSample(value: 110, timestamp: now, workoutTime: nil))
+        now = origin.addingTimeInterval(10)
+        model.recordHeartRateSample(HeartRateSample(value: 150, timestamp: now, workoutTime: nil))
+        now = origin.addingTimeInterval(10.5)
+        model.stop()
+        now = origin.addingTimeInterval(11.5)
+        model.start()
+        model.recordHeartRateSample(HeartRateSample(value: 120, timestamp: now, workoutTime: nil))
+
+        #expect(model.chartDataPoints().map(\.segment) == [0, 0, 1, 2])
+        let record = model.workoutRecord(zoneConfig: HeartRateZoneConfig(maxHeartRate: 190))
+        #expect(record?.chartDataPoints.map(\.segment) == [0, 0, 1, 2])
+        #expect(record?.chartDataPoints.map(\.time) == [0, 1, 10, 10.5])
+        model.reset()
+    }
+
+    @Test func chartInspectionDoesNotClaimAReadingInsideLongDataGap() {
+        let points = [HeartRateChartDataPoint(time: 0, bpm: 100),
+                      HeartRateChartDataPoint(time: 120, bpm: 180, segment: 1)]
+        #expect(HeartRateChartSelection.dataPoint(at: 60, in: points) == nil)
+        #expect(HeartRateChartSelection.dataPoint(at: 119, in: points) == nil)
+        #expect(HeartRateChartSelection.dataPoint(at: 120, in: points)?.time == 120)
+        #expect(HeartRateChartSelection.dataPoint(at: .nan, in: points) == nil)
+        let knownLoss = [HeartRateChartDataPoint(time: 0, bpm: 100, validUntil: 1),
+                         HeartRateChartDataPoint(time: 2, bpm: 180, segment: 1)]
+        #expect(HeartRateChartSelection.dataPoint(at: 1.5, in: knownLoss) == nil)
+    }
+
+    @Test func peakLabelsDoNotInferPeaksAcrossMissingData() {
+        let points = [HeartRateChartDataPoint(time: 0, bpm: 100),
+                      HeartRateChartDataPoint(time: 1, bpm: 180),
+                      HeartRateChartDataPoint(time: 120, bpm: 120, segment: 1)]
+        #expect(HeartRateChartPeaks.majorPeaks(in: points, visibleDuration: 120).isEmpty)
+    }
+
     @Test func zoomClampsToFullWorkoutAndMinimumWindow() {
         let viewport = HeartRateChartViewport(totalDuration: 600)
 

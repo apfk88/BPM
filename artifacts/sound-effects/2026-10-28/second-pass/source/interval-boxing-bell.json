@@ -1,0 +1,16 @@
+{
+  "id": "interval-boxing-bell",
+  "provider": "ElevenLabs",
+  "kind": "sound-effect",
+  "text": "An unmistakable athletic interval timer cue: two firm bright strikes on a small boxing gym round bell, DING DING, with a short gap. Punchy clear attack, strong metallic midrange that cuts through workout music and heavy breathing, controlled short ringing tail. Energetic and decisive, not delicate or decorative. Dry close microphone studio recording. No crowd, no background noise, no voice, no music.",
+  "duration_seconds": 1.3,
+  "prompt_influence": 0.7,
+  "model_id": "eleven_text_to_sound_v2",
+  "loop": false,
+  "output_format": "mp3_44100_128",
+  "response": {
+    "status": 200,
+    "bytes": 21358,
+    "character_cost": "7"
+  }
+}

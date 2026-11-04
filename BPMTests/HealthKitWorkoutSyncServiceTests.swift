@@ -83,7 +83,7 @@ struct HealthKitWorkoutSyncServiceTests {
         #expect(mockStore.savedEnd == end)
     }
 
-    @Test func syncSetsTotalCaloriesOnWorkout() async throws {
+    @Test func syncDoesNotMislabelTotalCaloriesAsActiveEnergy() async throws {
         let mockStore = MockHealthStore()
         mockStore.authorizationStatusValue = .sharingAuthorized
         let service = await MainActor.run { HealthKitWorkoutSyncService(healthStore: mockStore) }
@@ -96,10 +96,42 @@ struct HealthKitWorkoutSyncServiceTests {
 
         let energySamples = mockStore.savedSamples.compactMap { $0 as? HKQuantitySample }
             .filter { $0.quantityType.identifier == HKQuantityTypeIdentifier.activeEnergyBurned.rawValue }
-        #expect(energySamples.count == 1)
-        let totalEnergy = energySamples.first?.quantity.doubleValue(for: .kilocalorie())
-        #expect(totalEnergy != nil)
-        #expect(abs((totalEnergy ?? 0) - 123.4) < 0.01)
+        #expect(energySamples.isEmpty)
+    }
+
+    @Test @MainActor func syncUsesOnlyFiniteActiveCalories() async throws {
+        for active in [42.5, Double.nan, Double.infinity, -1] {
+            let mock = MockHealthStore()
+            let service = HealthKitWorkoutSyncService(healthStore: mock)
+            let start = Date()
+            let record = makeRecord(start: start, end: start.addingTimeInterval(60),
+                                    caloriesTotal: 90, caloriesActive: active, samples: [])
+            _ = try await service.syncWorkout(record: record, activityType: .running)
+            let energies = mock.savedSamples.compactMap { $0 as? HKQuantitySample }
+                .filter { $0.quantityType.identifier == HKQuantityTypeIdentifier.activeEnergyBurned.rawValue }
+            if active == 42.5 {
+                #expect(energies.count == 1)
+                #expect(energies.first?.quantity.doubleValue(for: .kilocalorie()) == 42.5)
+            } else {
+                #expect(energies.isEmpty)
+            }
+        }
+    }
+
+    @Test @MainActor func syncKeepsRapidReadingsInstantaneousAndExcludesPausedSamples() async throws {
+        let mock = MockHealthStore()
+        let service = HealthKitWorkoutSyncService(healthStore: mock)
+        let start = Date()
+        var record = makeRecord(start: start, end: start.addingTimeInterval(20),
+                                caloriesTotal: nil, caloriesActive: nil, samples: [
+            .init(timestamp: start.addingTimeInterval(1), bpm: 120, workoutTime: 1),
+            .init(timestamp: start.addingTimeInterval(1.25), bpm: 125, workoutTime: 1.25),
+            .init(timestamp: start.addingTimeInterval(5), bpm: 140, workoutTime: nil)
+        ])
+        record.pauses = [.init(start: start.addingTimeInterval(3), end: start.addingTimeInterval(8))]
+        _ = try await service.syncWorkout(record: record, activityType: .running)
+        #expect(mock.savedSamples.count == 2)
+        #expect(mock.savedSamples.allSatisfy { $0.startDate == $0.endDate })
     }
 
     @Test func syncReturnsWorkoutUUID() async throws {

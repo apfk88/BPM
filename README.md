@@ -23,8 +23,8 @@ The marketing site and backend are deployed together on Vercel, with the static 
 - **Quick device picker**: Tap the antenna icon to select or switch devices.
 - **On-screen stats**: Max and average over the last hour.
 - **Workout-friendly**: Dark, high-contrast UI and idle timer disabled while active.
-- **Share your heart rate**: Generate a share code and let friends view your live BPM remotely (sharing is free).
-- **View friend's heart rate**: Enter a friend's code to see their live heart rate updates.
+- **Share your workout**: Open Device to share live BPM, timers, sets, statistics, and charts. One session continues across Home and Workout. Viewers can add Work and Rest sets; the broadcaster owns all other workout controls.
+- **View a shared session**: Enter a friend's code in Device, then navigate Home and workout pages independently. A cyan heart icon identifies shared viewing.
 
 ### Requirements
 - **Xcode**: 16 or newer.
@@ -61,14 +61,17 @@ You can change permission later in iOS Settings → Privacy & Security → Bluet
 **My Device Mode:**
 1. Put on and power your heart rate strap (so it starts advertising).
 2. Launch the app (defaults to "My Device" mode).
-3. Tap the antenna button to open the device picker and select your strap.
+3. Tap Device to open the device picker and select your strap.
 4. Your current BPM appears in large digits; Max and Avg (last hour) show at the bottom.
-5. Optionally tap "Share" to generate a share code for friends to view your heart rate.
+5. Optionally open Device and tap "Start Sharing." The same menu shows and copies your code or stops sharing. Home preserves an active workout and the same sharing session.
 
 **Friend's Code Mode:**
-1. Tap "Friend's Code" at the top of the screen.
-2. Enter the 6-character share code provided by a friend.
-3. View their live heart rate updates (updates every second).
+1. Tap Device, then "View a Friend's BPM."
+2. Enter the friend's 6-digit share code.
+3. Use Home and Workout to choose your own view. Work Set and Rest Set request changes on the broadcaster's device; Start, Pause, End, Cool, Reset, and Save remain on that device.
+4. To leave sharing, open Device and tap Disconnect Friend.
+
+See [live workout sharing](docs/live-workout-sharing.md) for synchronization, permissions, and validation details.
 
 **HRV Measurement:**
 1. Connect a strap that streams RR intervals (Polar H10 or similar) in My Device mode.
@@ -78,8 +81,8 @@ You can change permission later in iOS Settings → Privacy & Security → Bluet
 
 ### Project Structure
 - `BPMApp.swift`: App entry; manages app lifecycle and scanning start/stop.
-- `ContentView.swift` (`HeartRateDisplayView`): Main UI, BPM digits, stats bar, and sharing controls.
-- `DevicePickerView.swift`: Scanning view and connect/disconnect actions.
+- `ContentView.swift` (`HeartRateDisplayView`): Main UI, BPM digits, stats bar, and workout navigation.
+- `DevicePickerView.swift`: Monitor connections, sharing controls, and friend-code entry.
 - `HeartRateBluetoothManager.swift`: CoreBluetooth central, device discovery, connection, and HR parsing (8-bit and 16-bit per spec).
 - `HeartRateSample.swift`: In-memory samples with timestamps for last-hour stats.
 - `SharingService.swift`: API client for sharing heart rate data via backend service.
@@ -88,6 +91,9 @@ You can change permission later in iOS Settings → Privacy & Security → Bluet
 ### Testing
 - Unit and UI test targets are included.
 - In Xcode: Product → Test (or Cmd+U).
+
+### Sound Effects
+- [Sound inventory and custom audio](docs/sound-effects.md): triggers, timing, controls, haptics, bundled ElevenLabs assets, and validation status.
 
 ### Release (App Store Connect)
 - Bump `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION` in `BPM.xcodeproj/project.pbxproj`.
@@ -125,8 +131,8 @@ The app uses a backend service to share heart rate data. To enable sharing:
    - Or modify `SharingService.swift` directly to change the default base URL.
 
 3. **Start sharing**:
-   - In "My Device" mode, tap "Share" to generate a 6-character code.
-   - Share this code with friends who can enter it in "Friend's Code" mode.
+   - Open Device and tap "Start Sharing" to generate a 6-digit code.
+   - Copy the code from Device. Friends enter it under "View a Friend's BPM" in their Device menu.
    - Sessions expire after 90 minutes.
 
 **Note**: Heart rate updates are sent to the backend at 1 Hz (once per second) when sharing is enabled.

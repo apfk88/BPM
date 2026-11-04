@@ -16,28 +16,8 @@ struct ZoneInfo: Codable, Hashable {
 }
 
 enum HeartRateActivityLifecycle {
-    static let missingHeartRateDismissalInterval: TimeInterval = 10 * 60
-
-    static func canStartActivity(bpm: Int?, hasError: Bool) -> Bool {
-        (bpm ?? 0) > 0 || hasError
-    }
-
-    static func missingHeartRateStart(
-        current: Date?,
-        bpm: Int?,
-        hasError: Bool,
-        now: Date
-    ) -> Date? {
-        canStartActivity(bpm: bpm, hasError: hasError) ? nil : current ?? now
-    }
-
-    static func shouldDismiss(
-        missingHeartRateSince: Date?,
-        now: Date,
-        interval: TimeInterval = missingHeartRateDismissalInterval
-    ) -> Bool {
-        guard let missingHeartRateSince else { return false }
-        return now.timeIntervalSince(missingHeartRateSince) >= interval
+    static func shouldShowActivity(bpm: Int?, hasActiveTimer: Bool) -> Bool {
+        (bpm ?? 0) > 0 || hasActiveTimer
     }
 }
 
@@ -118,253 +98,252 @@ struct HeartRateActivityAttributes: ActivityAttributes {
     var title: String
 }
 
+/// Keep ActivityKit effects behind one serial reconciler so a queued reading cannot
+/// recreate an activity after a disconnect, or erase a newly started workout.
+@available(iOS 16.1, iOSApplicationExtension 16.1, *)
+@MainActor
+protocol HeartRateActivityClient: AnyObject {
+    var areActivitiesEnabled: Bool { get }
+    var activityState: ActivityState? { get }
+    func endAllActivities() async
+    func update(_ content: ActivityContent<HeartRateActivityAttributes.ContentState>) async
+    func start(_ content: ActivityContent<HeartRateActivityAttributes.ContentState>) throws
+}
+
+@available(iOS 16.1, iOSApplicationExtension 16.1, *)
+@MainActor
+private final class SystemHeartRateActivityClient: HeartRateActivityClient {
+    private var activity: Activity<HeartRateActivityAttributes>?
+
+    var areActivitiesEnabled: Bool { ActivityAuthorizationInfo().areActivitiesEnabled }
+    var activityState: ActivityState? { activity?.activityState }
+
+    func endAllActivities() async {
+        // Include our handle even if a dismissed activity has left the system list.
+        var existing = Activity<HeartRateActivityAttributes>.activities
+        if let activity, !existing.contains(where: { $0.id == activity.id }) {
+            existing.append(activity)
+        }
+        for activity in existing {
+            await activity.end(nil, dismissalPolicy: .immediate)
+        }
+        activity = nil
+    }
+
+    func update(_ content: ActivityContent<HeartRateActivityAttributes.ContentState>) async {
+        await activity?.update(content)
+    }
+
+    func start(_ content: ActivityContent<HeartRateActivityAttributes.ContentState>) throws {
+        activity = try Activity.request(
+            attributes: HeartRateActivityAttributes(title: "Current BPM"),
+            content: content,
+            pushType: nil
+        )
+    }
+}
+
 @available(iOS 16.1, iOSApplicationExtension 16.1, *)
 @MainActor
 final class HeartRateActivityController {
-    static let shared = HeartRateActivityController()
+    static let shared = HeartRateActivityController(client: SystemHeartRateActivityClient())
 
-    private var activity: Activity<HeartRateActivityAttributes>?
+    private typealias State = HeartRateActivityAttributes.ContentState
+    private enum Source: Hashable { case localHeartRate, localWorkout, viewing }
+    private let client: any HeartRateActivityClient
+    private let now: () -> Date
     private let logger = Logger(subsystem: "com.bpmapp.client", category: "HeartRateActivity")
-    private var isRequestingActivity = false
-    private var lastBpm: Int?
-    private var lastAverage: Int?
-    private var lastMaximum: Int?
-    private var lastMinimum: Int?
-    private var lastZone: ZoneInfo?
-    private var lastIsSharing: Bool = false
-    private var lastIsViewing: Bool = false
-    private var lastHasError: Bool = false
-    private var lastBpmReceivedAt: Date?
-    private var lastTimerReferenceDate: Date?
-    private var lastTimerEndDate: Date?
-    private var lastElapsedSeconds: Int?
-    private var isEndingActivity = false
-    private var missingHeartRateSince: Date?
-    private var missingHeartRateTimer: Timer?
-    
+    private var localState = State(bpm: nil, average: nil, maximum: nil, minimum: nil)
+    private var viewingState: State?
+    private var localHeartRateExpiresAt: Date?
+    private var viewingHeartRateExpiresAt: Date?
+    private var viewingTimerExpiresAt: Date?
+    private var isSharing = false
+    private var elapsedSeconds: Int?
+    private var timerReferenceDate: Date?
+    private var timerEndDate: Date?
+    private var activeSource: Source?
+    private var dismissedSources: Set<Source> = []
+    private var needsCleanup = true
+    private var revision = 0
+    private var reconciliation: Task<Void, Never>?
+    private var expiryTimer: Timer?
 
-    private init() {
-        // Clean up any lingering activities from previous sessions on launch
-        Task { @MainActor in
-            await endAllActivities()
-        }
-    }
-    
-    /// Restores any existing activity from a previous session
-    private func restoreActivity() {
-        let existingActivities = Activity<HeartRateActivityAttributes>.activities
-        if let firstActivity = existingActivities.first {
-            activity = firstActivity
-        }
-    }
-    
-    /// Ends all existing activities, not just the one stored in self.activity
-    private func endAllActivities() async {
-        let existingActivities = Activity<HeartRateActivityAttributes>.activities
-        for activity in existingActivities {
-            let content = ActivityContent(state: activity.content.state, staleDate: nil)
-            await activity.end(content, dismissalPolicy: .immediate)
-        }
-        activity = nil
-        isRequestingActivity = false
+    init(client: any HeartRateActivityClient, now: @escaping () -> Date = Date.init) {
+        self.client = client
+        self.now = now
+        refreshActivity()
     }
 
-    func updateActivity(bpm: Int?, average: Int?, maximum: Int?, minimum: Int?, zone: ZoneInfo? = nil, isSharing: Bool = false, isViewing: Bool = false, hasError: Bool = false) {
-        guard lastElapsedSeconds == nil || !isViewing else { return }
-        lastBpm = bpm
-        lastBpmReceivedAt = bpm == nil ? nil : Date()
-        lastAverage = average
-        lastMaximum = maximum
-        lastMinimum = minimum
-        lastZone = zone
-        lastIsSharing = isSharing
-        lastIsViewing = isViewing
-        lastHasError = hasError
-        applyUpdate()
-    }
-
-    func updateTimer(elapsedSeconds: Int?, isRunning: Bool, referenceDate: Date? = nil, endDate: Date? = nil) {
-        if isRunning && lastIsViewing {
-            lastBpm = nil
-            lastBpmReceivedAt = nil
-            lastAverage = nil
-            lastMaximum = nil
-            lastMinimum = nil
-            lastZone = nil
-            lastIsViewing = false
-        }
-        lastElapsedSeconds = isRunning ? elapsedSeconds : nil
-        lastTimerReferenceDate = referenceDate
-        lastTimerEndDate = endDate
-        applyUpdate()
-    }
-
-    private func applyUpdate() {
-        guard ActivityAuthorizationInfo().areActivitiesEnabled else { return }
-        guard !isEndingActivity else { return }
-
-        let canStartActivity = HeartRateActivityLifecycle.canStartActivity(
-            bpm: lastBpm,
-            hasError: lastHasError
-        )
-        missingHeartRateSince = HeartRateActivityLifecycle.missingHeartRateStart(
-            current: missingHeartRateSince,
-            bpm: lastBpm,
-            hasError: lastHasError,
-            now: Date()
-        )
-
-        if canStartActivity {
-            invalidateMissingHeartRateTimer()
-        }
-
-        // Restore activity if we don't have one stored (e.g., after app restart)
-        if activity == nil {
-            restoreActivity()
-        }
-
-        if !canStartActivity {
-            guard activity != nil else { return }
-
-            if HeartRateActivityLifecycle.shouldDismiss(
-                missingHeartRateSince: missingHeartRateSince,
-                now: Date()
-            ) {
-                endActivityIfNeeded()
-                return
-            }
-
-            scheduleMissingHeartRateDismissal()
-        }
-
-        let state = HeartRateActivityAttributes.ContentState(
-            bpm: lastBpm,
-            average: lastAverage,
-            maximum: lastMaximum,
-            minimum: lastMinimum,
-            elapsedSeconds: lastElapsedSeconds,
-            timerReferenceDate: lastTimerReferenceDate,
-            timerEndDate: lastTimerEndDate,
-            zone: lastZone,
-            isSharing: lastIsSharing,
-            isViewing: lastIsViewing,
-            hasError: lastHasError
-        )
-
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-
-            let staleDate = lastBpmReceivedAt?.addingTimeInterval(3) ?? missingHeartRateSince
-            let content = ActivityContent(state: state, staleDate: staleDate)
-
-            if let currentActivity = activity {
-                await currentActivity.update(content)
-                return
-            }
-
-            if let existingActivity = Activity<HeartRateActivityAttributes>.activities.first {
-                activity = existingActivity
-                await existingActivity.update(content)
-                return
-            }
-
-            guard canStartActivity else { return }
-
-            guard !isRequestingActivity else {
-                logger.debug("Activity request already in progress; skipping new request")
-                return
-            }
-
-            isRequestingActivity = true
-            defer { isRequestingActivity = false }
-
-            let attributes = HeartRateActivityAttributes(title: "Current BPM")
-
-            do {
-                activity = try Activity.request(attributes: attributes, content: content, pushType: nil)
-            } catch {
-                logger.error("Failed to start heart rate activity: \(error.localizedDescription)")
-            }
-        }
-    }
-
-    private func scheduleMissingHeartRateDismissal() {
-        guard missingHeartRateTimer == nil, let missingHeartRateSince else { return }
-
-        let dismissalDate = missingHeartRateSince.addingTimeInterval(
-            HeartRateActivityLifecycle.missingHeartRateDismissalInterval
-        )
-        let interval = max(0, dismissalDate.timeIntervalSinceNow)
-        guard interval > 0 else {
-            endActivityIfNeeded()
-            return
-        }
-
-        let timer = Timer(timeInterval: interval, repeats: false) { [weak self] _ in
-            Task { @MainActor in
-                self?.handleMissingHeartRateDismissalTimer()
-            }
-        }
-        missingHeartRateTimer = timer
-        RunLoop.main.add(timer, forMode: .common)
-    }
-
-    private func handleMissingHeartRateDismissalTimer() {
-        missingHeartRateTimer = nil
-
-        if HeartRateActivityLifecycle.shouldDismiss(
-            missingHeartRateSince: missingHeartRateSince,
-            now: Date()
-        ) {
-            endActivityIfNeeded()
+    func updateActivity(bpm: Int?, average: Int?, maximum: Int?, minimum: Int?, zone: ZoneInfo? = nil,
+                        isSharing: Bool = false, isViewing: Bool = false, hasError: Bool = false,
+                        elapsedSeconds: Int? = nil, timerReferenceDate: Date? = nil, timerEndDate: Date? = nil,
+                        heartRateExpiresAt: Date? = nil, timerExpiresAt: Date? = nil) {
+        let validBpm = bpm.flatMap { $0 > 0 ? $0 : nil }
+        let state = State(bpm: validBpm, average: average, maximum: maximum, minimum: minimum,
+                          elapsedSeconds: elapsedSeconds, timerReferenceDate: timerReferenceDate,
+                          timerEndDate: timerEndDate, zone: zone, isSharing: isSharing,
+                          isViewing: isViewing, hasError: hasError)
+        let expiry = validBpm == nil ? nil : heartRateExpiresAt ?? now().addingTimeInterval(3)
+        if isViewing {
+            viewingState = state
+            viewingHeartRateExpiresAt = expiry
+            viewingTimerExpiresAt = timerExpiresAt
         } else {
-            scheduleMissingHeartRateDismissal()
-        }
-    }
-
-    private func invalidateMissingHeartRateTimer() {
-        missingHeartRateTimer?.invalidate()
-        missingHeartRateTimer = nil
-    }
-
-    private func endActivityIfNeeded() {
-        guard !isEndingActivity else { return }
-        guard activity != nil || !Activity<HeartRateActivityAttributes>.activities.isEmpty else { return }
-
-        invalidateMissingHeartRateTimer()
-        isEndingActivity = true
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            await endAllActivities()
-            isEndingActivity = false
-
-            if HeartRateActivityLifecycle.canStartActivity(bpm: lastBpm, hasError: lastHasError) {
-                applyUpdate()
+            localState = state
+            if validBpm == nil {
+                dismissedSources.remove(.localHeartRate)
+                if activeSource == .localHeartRate { activeSource = nil }
             }
+            localHeartRateExpiresAt = expiry
+            self.isSharing = isSharing
         }
+        refreshActivity()
     }
 
-    private func resetCachedState() {
-        lastBpm = nil
-        lastAverage = nil
-        lastMaximum = nil
-        lastMinimum = nil
-        lastZone = nil
-        lastIsSharing = false
-        lastIsViewing = false
-        lastHasError = false
-        lastElapsedSeconds = nil
-        missingHeartRateSince = nil
-        invalidateMissingHeartRateTimer()
+    /// Broadcasting alone never keeps a Live Activity alive.
+    func updateSharingState(isSharing: Bool) {
+        self.isSharing = isSharing
+        refreshActivity()
+    }
+
+    /// isRunning includes a paused, resumable workout, as supplied by TimerViewModel.
+    func updateTimer(elapsedSeconds: Int?, isRunning: Bool, referenceDate: Date? = nil, endDate: Date? = nil) {
+        if !isRunning {
+            dismissedSources.remove(.localWorkout)
+            if activeSource == .localWorkout { activeSource = nil }
+        }
+        self.elapsedSeconds = isRunning ? elapsedSeconds : nil
+        timerReferenceDate = isRunning ? referenceDate : nil
+        timerEndDate = isRunning ? endDate : nil
+        refreshActivity()
+    }
+
+    func endLocalHeartRate() {
+        localState = State(bpm: nil, average: nil, maximum: nil, minimum: nil)
+        localHeartRateExpiresAt = nil
+        dismissedSources.remove(.localHeartRate)
+        if activeSource == .localHeartRate { activeSource = nil }
+        refreshActivity()
+    }
+
+    func endViewing() {
+        viewingState = nil
+        viewingHeartRateExpiresAt = nil
+        viewingTimerExpiresAt = nil
+        dismissedSources.remove(.viewing)
+        if activeSource == .viewing { activeSource = nil }
+        refreshActivity()
     }
 
     func endActivity() async {
-        // End all activities, not just the one stored in self.activity
-        // This ensures cleanup even after force-close scenarios
-        resetCachedState()
-        isEndingActivity = true
-        await endAllActivities()
-        isEndingActivity = false
+        localState = State(bpm: nil, average: nil, maximum: nil, minimum: nil)
+        viewingState = nil
+        localHeartRateExpiresAt = nil
+        viewingHeartRateExpiresAt = nil
+        viewingTimerExpiresAt = nil
+        elapsedSeconds = nil
+        timerReferenceDate = nil
+        timerEndDate = nil
+        isSharing = false
+        dismissedSources.removeAll()
+        needsCleanup = true
+        refreshActivity()
+        await waitForPendingUpdates()
+    }
+
+    func refreshActivity() {
+        revision += 1
+        scheduleExpiry()
+        guard reconciliation == nil else { return }
+        reconciliation = Task { @MainActor [weak self] in
+            await self?.reconcile()
+        }
+    }
+
+    func waitForPendingUpdates() async {
+        await reconciliation?.value
+    }
+
+    private func desiredActivity() -> (source: Source, content: ActivityContent<State>)? {
+        let date = now()
+        let viewing = elapsedSeconds == nil ? viewingState : nil
+        let base = viewing ?? localState
+        let heartRateExpiry = viewing == nil ? localHeartRateExpiresAt : viewingHeartRateExpiresAt
+        let bpm = heartRateExpiry.map { $0 > date } == true ? base.bpm : nil
+        let sharedTimerIsFresh = viewingTimerExpiresAt.map { $0 > date } ?? true
+        let elapsed = viewing == nil ? elapsedSeconds : (sharedTimerIsFresh ? base.elapsedSeconds : nil)
+        guard HeartRateActivityLifecycle.shouldShowActivity(bpm: bpm, hasActiveTimer: elapsed != nil) else {
+            return nil
+        }
+        let source: Source = viewing != nil ? .viewing : (elapsed != nil ? .localWorkout : .localHeartRate)
+        let state = State(bpm: bpm, average: bpm == nil ? nil : base.average,
+                          maximum: bpm == nil ? nil : base.maximum, minimum: bpm == nil ? nil : base.minimum,
+                          elapsedSeconds: elapsed,
+                          timerReferenceDate: viewing == nil ? timerReferenceDate : base.timerReferenceDate,
+                          timerEndDate: viewing == nil ? timerEndDate : base.timerEndDate,
+                          zone: bpm == nil ? nil : base.zone, isSharing: viewing == nil && isSharing,
+                          isViewing: viewing != nil, hasError: elapsed == nil && base.hasError)
+        // An active timer remains useful without heart rate. A stale reading must
+        // never turn its timer-only view into an error or disconnected placeholder.
+        let staleDate = bpm != nil ? heartRateExpiry : (viewing != nil ? viewingTimerExpiresAt : nil)
+        return (source, ActivityContent(state: state, staleDate: staleDate))
+    }
+
+    private func reconcile() async {
+        while true {
+            if needsCleanup {
+                needsCleanup = false
+                await client.endAllActivities()
+                activeSource = nil
+                // Read the latest sources after awaiting launch/termination cleanup.
+                continue
+            }
+            let appliedRevision = revision
+            let desired = desiredActivity()
+
+            if client.activityState == .dismissed || client.activityState == .ended {
+                // Honor the system/Lock Screen dismissal until that session ends.
+                if let activeSource { dismissedSources.insert(activeSource) }
+                activeSource = nil
+                await client.endAllActivities()
+                continue
+            }
+            if let desired, client.areActivitiesEnabled, !dismissedSources.contains(desired.source) {
+                if client.activityState != nil {
+                    activeSource = desired.source
+                    await client.update(desired.content)
+                } else {
+                    do {
+                        try client.start(desired.content)
+                        activeSource = desired.source
+                    } catch {
+                        logger.error("Failed to start heart rate activity: \(error.localizedDescription)")
+                    }
+                }
+            } else if client.activityState != nil {
+                await client.endAllActivities()
+                activeSource = nil
+            }
+
+            if revision == appliedRevision {
+                reconciliation = nil
+                return
+            }
+        }
+    }
+
+    private func scheduleExpiry() {
+        expiryTimer?.invalidate()
+        expiryTimer = nil
+        let date = now()
+        let deadlines = [localHeartRateExpiresAt, viewingHeartRateExpiresAt, viewingTimerExpiresAt]
+        guard let next = deadlines.compactMap({ $0 }).filter({ $0 > date }).min() else { return }
+        let timer = Timer(timeInterval: next.timeIntervalSince(date), repeats: false) { [weak self] _ in
+            Task { @MainActor in self?.refreshActivity() }
+        }
+        expiryTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
     }
 }
 #endif

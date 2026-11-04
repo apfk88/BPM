@@ -43,11 +43,27 @@ struct UserEnergyProfile {
 
     var missingRequiredFields: [String] {
         var missing: [String] = []
-        if weightKg == nil || (weightKg ?? 0) <= 0 { missing.append("Weight") }
-        if ageYears == nil || (ageYears ?? 0) <= 0 { missing.append("Age") }
+        if !Self.valid(weightKg, in: 1...1000) { missing.append("Weight") }
+        if !(1...130).contains(ageYears ?? 0) { missing.append("Age") }
         if sexAtBirth == nil { missing.append("Sex at birth") }
-        if heightCm == nil || (heightCm ?? 0) <= 0 { missing.append("Height") }
+        if !Self.valid(heightCm, in: 1...300) { missing.append("Height") }
+        if let restHeartRate, !(20...250).contains(restHeartRate) { missing.append("Resting HR") }
+        if let maxHeartRate, !(30...250).contains(maxHeartRate) { missing.append("Max HR") }
+        if let restHeartRate, let maxHeartRate, maxHeartRate <= restHeartRate {
+            missing.append("Max HR must exceed resting HR")
+        }
+        if let vo2Max, !Self.valid(vo2Max, in: 1...150) || vo2Max <= vo2RestValue {
+            missing.append("VO2max")
+        }
+        if let rmrKcalPerDay, !Self.valid(rmrKcalPerDay, in: 1...10000) { missing.append("RMR") }
+        if medsAffectingHr { missing.append("HR-based calories unavailable with HR-altering medication") }
         return missing
+    }
+
+    // Broad input sanity limits, not validation of this model for every accepted person.
+    private static func valid(_ value: Double?, in range: ClosedRange<Double>) -> Bool {
+        guard let value, value.isFinite else { return false }
+        return range.contains(value)
     }
 
     var hasRequiredInputs: Bool {
@@ -67,7 +83,8 @@ struct UserEnergyProfile {
     }
 
     var vo2RestValue: Double {
-        guard let rmrKcalPerDay, let weightKg, weightKg > 0 else { return 3.5 }
+        guard let rmrKcalPerDay, rmrKcalPerDay.isFinite, rmrKcalPerDay > 0,
+              let weightKg, weightKg.isFinite, weightKg > 0 else { return 3.5 }
         let kcalPerMinute = rmrKcalPerDay / 1440.0
         return (kcalPerMinute * 200.0) / weightKg
     }
@@ -137,7 +154,7 @@ struct UserEnergyProfileStore {
         let rmrKcalPerDay = parseDouble(defaults.string(forKey: CaloriesDefaultsKey.rmrKcalPerDay))
         let bodyFatPercent = parseDouble(defaults.string(forKey: CaloriesDefaultsKey.bodyFatPercent))
         let sexRaw = defaults.string(forKey: CaloriesDefaultsKey.sexAtBirth)
-        let sexAtBirth = sexRaw.flatMap(SexAtBirth.init(rawValue:)) ?? .male
+        let sexAtBirth = sexRaw.flatMap(SexAtBirth.init(rawValue:))
 
         return UserEnergyProfile(
             weightKg: weightKg,
@@ -149,7 +166,7 @@ struct UserEnergyProfileStore {
             vo2Max: vo2Max,
             rmrKcalPerDay: rmrKcalPerDay,
             bodyFatPercent: bodyFatPercent,
-            medsAffectingHr: false
+            medsAffectingHr: defaults.bool(forKey: CaloriesDefaultsKey.medsAffectingHr)
         )
     }
 
@@ -177,30 +194,29 @@ final class CaloriesEstimator {
         let usableDuration: TimeInterval
     }
 
-    static func estimate(samples: [HeartRateSample], profile: UserEnergyProfile) -> CaloriesEstimateStatus {
+    static func estimate(
+        samples: [HeartRateSample],
+        profile: UserEnergyProfile,
+        workoutDuration: TimeInterval? = nil,
+        pauses: [WorkoutPause] = []
+    ) -> CaloriesEstimateStatus {
         let missing = profile.missingRequiredFields
         guard missing.isEmpty else { return .disabled(missingFields: missing) }
 
-        let preprocess = preprocess(samples: samples)
+        let preprocess = preprocess(samples: samples, workoutDuration: workoutDuration, pauses: pauses)
         guard !preprocess.samples.isEmpty else { return .insufficient(remaining: 10) }
         guard preprocess.usableDuration >= 10 else {
             return .insufficient(remaining: max(0, 10 - preprocess.usableDuration))
         }
 
-        guard let weightKg = profile.weightKg, let ageYears = profile.ageYears else {
+        guard let weightKg = profile.weightKg, let ageYears = profile.ageYears,
+              let sexAtBirth = profile.sexAtBirth else {
             return .disabled(missingFields: profile.missingRequiredFields)
         }
 
-        var method = preferredMethod(for: profile)
-        if method == .hrrVO2 {
-            if profile.restHeartRateValue == nil || profile.derivedMaxHeartRate == nil || profile.vo2Max == nil {
-                method = regressionMethod(for: profile)
-            } else if let hrRest = profile.restHeartRateValue, let hrMax = profile.derivedMaxHeartRate, hrMax <= hrRest {
-                method = regressionMethod(for: profile)
-            }
-        }
-
-        let restKcalPerMinute = 3.5 * weightKg / 200.0
+        let method = preferredMethod(for: profile)
+        // VO2 is ml/kg/min. At the assumed 5 kcal/litre O2, kcal/min = VO2 * kg / 200.
+        let restKcalPerMinute = profile.vo2RestValue * weightKg / 200.0
         var totalKcal = 0.0
         var activeKcal = 0.0
 
@@ -219,15 +235,14 @@ final class CaloriesEstimator {
                 let pctHrr = max(0, min(1, (sample.bpm - hrRest) / hrr))
                 let vo2Rest = profile.vo2RestValue
                 let vo2 = vo2Rest + pctHrr * (vo2Max - vo2Rest)
-                let met = vo2 / vo2Rest
-                kcalPerMinute = max(met * 3.5 * weightKg / 200.0, 0)
+                kcalPerMinute = max(vo2 * weightKg / 200.0, 0)
 
             case .hrRegression, .hrRegressionUnsexed:
                 kcalPerMinute = regressionKcalPerMinute(
                     bpm: sample.bpm,
                     weightKg: weightKg,
                     ageYears: Double(ageYears),
-                    sex: profile.sexAtBirth ?? .male
+                    sex: sexAtBirth
                 )
             }
 
@@ -252,7 +267,9 @@ final class CaloriesEstimator {
     }
 
     static func preferredMethod(for profile: UserEnergyProfile) -> CaloriesMethod {
-        if profile.restHeartRateValue != nil, profile.vo2Max != nil, profile.derivedMaxHeartRate != nil {
+        if let resting = profile.restHeartRateValue,
+           let maximum = profile.derivedMaxHeartRate, maximum > resting,
+           let vo2Max = profile.vo2Max, vo2Max.isFinite, vo2Max > profile.vo2RestValue {
             return .hrrVO2
         }
         return regressionMethod(for: profile)
@@ -263,130 +280,95 @@ final class CaloriesEstimator {
     }
 
     static func confidence(for profile: UserEnergyProfile, method: CaloriesMethod) -> Double {
-        var value = 0.5
-        if profile.maxHeartRate != nil {
-            value += 0.2
-        }
-        if profile.vo2Max != nil {
-            value += 0.2
-        }
-        if profile.rmrKcalPerDay != nil {
-            value += 0.1
-        }
-        if method == .hrRegressionUnsexed {
-            value -= 0.2
-        }
-        return min(max(value, 0), 1)
+        // Kept for stored-session compatibility. No individual error/confidence model has
+        // been validated; field completeness cannot justify a probability of accuracy.
+        0
     }
 
     static func confidenceLabel(for confidence: Double) -> String {
-        if confidence >= 0.75 { return "High" }
-        if confidence >= 0.55 { return "Medium" }
-        return "Low"
+        "Not validated"
     }
 
-    private static func preprocess(samples: [HeartRateSample]) -> PreprocessResult {
-        let minBpm = 30
-        let maxBpm = 230
-
-        let filtered = samples
-            .filter { $0.value >= minBpm && $0.value <= maxBpm }
-            .sorted { $0.timestamp < $1.timestamp }
-
-        guard !filtered.isEmpty else {
+    private static func preprocess(
+        samples: [HeartRateSample],
+        workoutDuration: TimeInterval?,
+        pauses: [WorkoutPause]
+    ) -> PreprocessResult {
+        let freshness = HeartRateBluetoothManager.defaultHeartRateFreshnessInterval
+        let usesActiveTime = samples.contains { $0.workoutTime != nil }
+        let validPauses = pauses.filter {
+            $0.start.timeIntervalSinceReferenceDate.isFinite &&
+            $0.end.timeIntervalSinceReferenceDate.isFinite && $0.end > $0.start
+        }.sorted { $0.start < $1.start }
+        let timeline = samples.enumerated().compactMap { index, sample -> (index: Int, sample: HeartRateSample, time: TimeInterval)? in
+            guard sample.timestamp.timeIntervalSinceReferenceDate.isFinite else { return nil }
+            let time: TimeInterval
+            if usesActiveTime {
+                guard let active = sample.workoutTime, active.isFinite, active >= 0 else { return nil }
+                time = active
+            } else {
+                time = sample.timestamp.timeIntervalSinceReferenceDate
+            }
+            return (index, sample, time)
+        }.sorted { $0.time == $1.time ? $0.index < $1.index : $0.time < $1.time }
+        guard let last = timeline.last else {
             return PreprocessResult(samples: [], gapCount: 0, usableDuration: 0)
         }
-
-        var segments: [[HeartRateSample]] = []
-        var current: [HeartRateSample] = []
-        var gapCount = 0
-
-        for sample in filtered {
-            if let last = current.last {
-                let gap = sample.timestamp.timeIntervalSince(last.timestamp)
-                if gap > 30 {
-                    if !current.isEmpty {
-                        segments.append(current)
-                    }
-                    current = []
-                    gapCount += 1
-                }
-            }
-            current.append(sample)
+        // A sample has no duration by itself. Only a known workout boundary permits
+        // a final held value, and never longer than the sensor freshness window.
+        let end = usesActiveTime ? (workoutDuration ?? last.time) : last.time
+        guard end.isFinite, !usesActiveTime || end >= 0 else {
+            return PreprocessResult(samples: [], gapCount: 0, usableDuration: 0)
         }
-
-        if !current.isEmpty {
-            segments.append(current)
-        }
-
         var processed: [ProcessedSample] = []
+        var gapCount = 0
         var usableDuration: TimeInterval = 0
-
-        for segment in segments {
-            let smoothed = smoothSegment(segment)
-            guard !smoothed.isEmpty else { continue }
-
-            for index in smoothed.indices {
-                let currentSample = smoothed[index]
-                let nextTimestamp: Date
-                if index < smoothed.count - 1 {
-                    nextTimestamp = smoothed[index + 1].timestamp
-                } else {
-                    nextTimestamp = currentSample.timestamp.addingTimeInterval(1)
-                }
-                let delta = max(0, nextTimestamp.timeIntervalSince(currentSample.timestamp))
-                usableDuration += delta
-                processed.append(ProcessedSample(timestamp: currentSample.timestamp, bpm: currentSample.bpm, duration: delta))
+        for (index, entry) in timeline.enumerated() {
+            let sample = entry.sample
+            guard entry.time < end else { continue }
+            let next = index + 1 < timeline.count ? timeline[index + 1] : nil
+            let nextTime = min(next?.time ?? end, end)
+            let elapsed = max(0, nextTime - entry.time)
+            guard elapsed > 0 else { continue }
+            // Retain invalid samples as boundaries so removing one cannot bridge
+            // an explicit no-contact or invalid-HR period.
+            guard (30...230).contains(sample.value), sample.sensorContactStatus != .notDetected,
+                  !validPauses.contains(where: { sample.timestamp >= $0.start && sample.timestamp < $0.end }) else {
+                gapCount += 1
+                continue
             }
+            var duration = min(elapsed, freshness)
+            if let invalidatedAt = sample.invalidatedAt {
+                let validDuration = invalidatedAt.timeIntervalSince(sample.timestamp)
+                duration = validDuration.isFinite ? min(duration, max(0, validDuration)) : 0
+            }
+            let upcomingPause = validPauses.first { $0.start >= sample.timestamp }
+            if let upcomingPause {
+                duration = min(duration, upcomingPause.start.timeIntervalSince(sample.timestamp))
+            }
+            if usesActiveTime, let next {
+                let wallElapsed = next.sample.timestamp.timeIntervalSince(sample.timestamp)
+                let activeElapsed = next.time - entry.time
+                let knownPause = upcomingPause.map { $0.start <= next.sample.timestamp } ?? false
+                if abs(wallElapsed - activeElapsed) > 1, !knownPause {
+                    // Without pause metadata or a continuous clock, no valid duration
+                    // can be assigned across the discontinuity.
+                    duration = 0
+                }
+            }
+            if duration < elapsed { gapCount += 1 }
+            guard duration > 0 else { continue }
+            processed.append(ProcessedSample(timestamp: sample.timestamp, bpm: Double(sample.value), duration: duration))
+            usableDuration += duration
         }
-
         return PreprocessResult(samples: processed, gapCount: gapCount, usableDuration: usableDuration)
     }
 
-    private static func smoothSegment(_ segment: [HeartRateSample]) -> [(timestamp: Date, bpm: Double)] {
-        guard !segment.isEmpty else { return [] }
-
-        var medians: [Double] = []
-        var window: [HeartRateSample] = []
-
-        for sample in segment {
-            window.append(sample)
-            while let first = window.first, sample.timestamp.timeIntervalSince(first.timestamp) > 5 {
-                window.removeFirst()
-            }
-            let medianValue = median(of: window.map { Double($0.value) })
-            medians.append(medianValue)
-        }
-
-        let alpha = 2.0 / (15.0 + 1.0)
-        var ema: Double = medians.first ?? 0
-        var smoothed: [(timestamp: Date, bpm: Double)] = []
-
-        for (index, medianValue) in medians.enumerated() {
-            if index == 0 {
-                ema = medianValue
-            } else {
-                ema = alpha * medianValue + (1 - alpha) * ema
-            }
-            smoothed.append((timestamp: segment[index].timestamp, bpm: ema))
-        }
-
-        return smoothed
-    }
-
-    private static func median(of values: [Double]) -> Double {
-        guard !values.isEmpty else { return 0 }
-        let sorted = values.sorted()
-        let mid = sorted.count / 2
-        if sorted.count % 2 == 0 {
-            return (sorted[mid - 1] + sorted[mid]) / 2
-        }
-        return sorted[mid]
-    }
-
     private static func regressionKcalPerMinute(bpm: Double, weightKg: Double, ageYears: Double, sex: SexAtBirth) -> Double {
-        let male = 0.239 * (-55.097 + 0.631 * bpm + 0.199 * weightKg + 0.202 * ageYears)
-        let female = 0.239 * (-20.402 + 0.447 * bpm - 0.126 * weightKg + 0.070 * ageYears)
+        // Keytel et al. (2005), no-VO2max regression. Original output is kJ/min.
+        // https://doi.org/10.1080/02640410470001730089
+        let male = (-55.0969 + 0.6309 * bpm + 0.1988 * weightKg + 0.2017 * ageYears) / 4.184
+        let female = (-20.4022 + 0.4472 * bpm - 0.1263 * weightKg + 0.074 * ageYears) / 4.184
         let value = (sex == .female) ? female : male
         return max(value, 0)
     }

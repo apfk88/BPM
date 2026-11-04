@@ -22,6 +22,7 @@ struct HealthKitWorkoutTypesSettingsView: View {
             }
         }
         .navigationTitle("Workout Types")
+        .analyticsScreen(.workoutTypes)
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
             selectedTypes = HealthKitWorkoutTypeSettings.quickSelection(from: quickTypesRawValue)

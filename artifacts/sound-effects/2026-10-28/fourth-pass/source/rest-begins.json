@@ -1,0 +1,16 @@
+{
+  "id": "rest-begins",
+  "provider": "ElevenLabs",
+  "kind": "sound-effect",
+  "text": "One firm strike on a beautifully tuned bronze bell, a deep rounded DONG in the middle register around 440Hz. Full warm metallic body, immediate clear attack and a smooth resonant decay over 1.5 seconds. A decisive RECOVER signal during hard exercise, clearly audible through music. Natural acoustic bell with rich harmonics, warm but assertive, not faint. Single strike only, dry studio recording. No voice, melody, buzz, ambience or repeated hits.",
+  "duration_seconds": 1.8,
+  "prompt_influence": 0.75,
+  "model_id": "eleven_text_to_sound_v3",
+  "loop": false,
+  "output_format": "mp3_44100_128",
+  "response": {
+    "status": 200,
+    "bytes": 29300,
+    "character_cost": "10"
+  }
+}

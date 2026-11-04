@@ -18,6 +18,9 @@ enum HRVCalculator {
     /// Reject a suspect recording instead of silently changing its variability.
     static func qualityError(intervals: [RRInterval], start: TimeInterval, duration: TimeInterval) -> String? {
         let retry = "Keep still, check your strap contact, and measure again."
+        guard start.isFinite, duration.isFinite, duration > 0 else {
+            return "Beat data was interrupted or incomplete. \(retry)"
+        }
         guard intervals.count >= 30, let first = intervals.first, let last = intervals.last else {
             return "Not enough beat intervals for HRV. \(retry)"
         }
@@ -26,7 +29,10 @@ enum HRVCalculator {
             return "Unreliable beat intervals detected. \(retry)"
         }
         let coverage = values.reduce(0, +) / 1000
-        guard first.receivedTicks - start <= 5,
+        guard intervals.allSatisfy({
+                  $0.receivedTicks.isFinite && $0.receivedTicks > start && $0.receivedTicks <= start + duration
+              }),
+              first.receivedTicks - start <= 5,
               start + duration - last.receivedTicks <= 5,
               abs(coverage - duration) <= 5,
               zip(intervals, intervals.dropFirst()).allSatisfy({
@@ -34,6 +40,21 @@ enum HRVCalculator {
                   return gap >= 0 && gap <= 5
               }) else {
             return "Beat data was interrupted or incomplete. \(retry)"
+        }
+
+        // Check coverage throughout the recording, not only the final sum. Missing
+        // beats in one part must not be cancelled by extra intervals in another.
+        // A notification can contain several intervals with the same receipt time;
+        // compare only after its final interval. The five-second allowance is the
+        // same acquisition tolerance used above, not a clinical quality threshold.
+        var elapsedBeatTime: TimeInterval = 0
+        for index in intervals.indices {
+            elapsedBeatTime += intervals[index].value / 1000
+            let isPacketEnd = index == intervals.count - 1
+                || intervals[index + 1].receivedTicks != intervals[index].receivedTicks
+            if isPacketEnd && abs(elapsedBeatTime - (intervals[index].receivedTicks - start)) > 5 {
+                return "Beat data was interrupted or incomplete. \(retry)"
+            }
         }
         for index in values.indices {
             let neighbors = values[max(0, index - 5)...min(values.count - 1, index + 5)].sorted()

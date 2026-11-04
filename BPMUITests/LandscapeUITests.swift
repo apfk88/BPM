@@ -8,18 +8,12 @@ final class LandscapeUITests: XCTestCase {
         XCUIDevice.shared.orientation = .portrait
         app.launch()
 
-        // Clear a simulator session left by an interrupted run of this test.
-        if app.buttons["xmark"].waitForExistence(timeout: 3) {
-            app.buttons["xmark"].tap()
-            if app.alerts["Clear Workout"].waitForExistence(timeout: 1) {
-                app.alerts["Clear Workout"].buttons["Clear"].tap()
-            }
-        }
+        app.resetWorkoutAndReturnHome()
         XCTAssertTrue(app.buttons["Workout"].waitForExistence(timeout: 5))
         attachScreenshot("Home portrait")
 
         rotate(.landscapeLeft, app: app)
-        assertRightColumn(["Device", "Share", "Workout", "HRV"], app: app)
+        assertRightColumn(["Device", "Workout", "HRV"], app: app)
         attachScreenshot("Home landscape")
         app.buttons["Workout"].tap()
         XCTAssertTrue(app.buttons["Start"].waitForExistence(timeout: 5))
@@ -56,7 +50,7 @@ final class LandscapeUITests: XCTestCase {
         // Clear only the workout created by this test.
         app.buttons["Reset"].tap()
         app.alerts["Reset Workout"].buttons["Reset"].tap()
-        app.buttons["xmark"].tap()
+        app.buttons["workoutHome"].tap()
         app.buttons["HRV"].tap()
         XCTAssertTrue(app.buttons["Measure HRV"].waitForExistence(timeout: 5))
         assertRightColumn(["Measure HRV"], app: app)

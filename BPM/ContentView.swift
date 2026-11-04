@@ -118,6 +118,28 @@ private struct SetConfirmationOverlay: View {
 }
 
 
+/// Uses established SF Symbols so shared connections have the same badge on every screen.
+struct SharedConnectionIcon: View {
+    let symbol: String
+    let isShared: Bool
+    let size: CGFloat
+
+    var body: some View {
+        Image(systemName: symbol)
+            .font(.system(size: size))
+            .overlay(alignment: .bottomTrailing) {
+                if isShared {
+                    Image(systemName: "person.fill")
+                        .font(.system(size: max(9, size * 0.44), weight: .semibold))
+                        .padding(2)
+                        .background(.black, in: Circle())
+                        .offset(x: size * 0.22, y: size * 0.1)
+                }
+            }
+            .accessibilityHidden(true)
+    }
+}
+
 struct HeartRateDisplayView: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @EnvironmentObject var bluetoothManager: HeartRateBluetoothManager
@@ -128,11 +150,14 @@ struct HeartRateDisplayView: View {
     @State private var appMode: AppMode = .myDevice
     @State private var isTimerMode = false
     @State private var isHRVMode = false
-    @State private var showClearAlert = false
+    @State private var didResolveInitialMode = false
     @State private var showResetAlert = false
     @State private var showWorkoutStartAlert = false
+    @State private var showViewingStoppedAlert = false
     @State private var pendingRecoverySessionID: UUID?
-    @State private var showDisconnectAlert = false
+    @State private var sharedViewerScreen: SharedWorkoutSnapshot.Screen = .home
+    @State private var sharedWorkoutPage: SharedWorkoutSnapshot.Page = .table
+    @State private var hasInitializedSharedNavigation = false
     @State private var heartRateExtremumDisplay: HeartRateExtremumDisplay = .max
     @State private var collapsedStatDisplay: CollapsedStatDisplay = .max
     @AppStorage(ViewDefaultsKey.timerMode) private var timerViewModeRawValue = TimerViewMode.table.rawValue
@@ -142,8 +167,10 @@ struct HeartRateDisplayView: View {
     @State private var showSettings = false
     @State private var showWorkoutHistory = false
     @StateObject private var zoneStorage = HeartRateZoneStorage.shared
-    @State private var pendingWorkoutShare: SavedWorkoutShareRequest?
-    @State private var savedWorkoutShare: SavedWorkoutShareRequest?
+    @State private var pendingWorkoutSave: SavedWorkoutRequest?
+    @State private var isSavingWorkout = false
+    @State private var savedWorkoutConfirmation: WorkoutRecord?
+    @State private var selectedSavedWorkout: WorkoutRecord?
     @State private var hasSavedWorkout = false
     @State private var savedWorkoutId: UUID?
     @State private var showWorkoutTitlePrompt = false
@@ -157,8 +184,6 @@ struct HeartRateDisplayView: View {
     @State private var pendingHealthKitActivityOption: HealthKitActivityOption = .functionalStrength
     @State private var healthKitSyncBannerState: HealthKitSyncBannerState?
     @State private var isHealthKitSyncInFlight = false
-    @State private var workoutSaveBannerMessage: String?
-    @State private var workoutSaveBannerDismissTask: Task<Void, Never>?
     @State private var setTableBpmDisplay: SetTableBpmDisplay = .avg
     @State private var setConfirmation: UUID?
 
@@ -174,6 +199,17 @@ struct HeartRateDisplayView: View {
         return total < 3600
     }
 
+    private var currentAnalyticsScreen: AppAnalytics.Screen? {
+        guard didResolveInitialMode else { return nil }
+        if isHRVMode { return .hrv }
+        if isViewingShared { return sharedViewerScreen == .workout ? .workout : .home }
+        return isTimerMode ? .workout : .home
+    }
+
+    private var isViewingShared: Bool {
+        appMode == .friendCode && sharingService.isViewing
+    }
+
     private var timerViewMode: TimerViewMode {
         TimerViewMode(rawValue: timerViewModeRawValue) ?? .table
     }
@@ -183,6 +219,7 @@ struct HeartRateDisplayView: View {
             get: { timerViewMode },
             set: { mode in
                 guard timerViewModeRawValue != mode.rawValue else { return }
+                AppAnalytics.signal(.workoutViewSelected, parameters: ["view": mode.rawValue])
                 timerViewModeRawValue = mode.rawValue
                 hasChangedTimerViewModeInSession = true
             }
@@ -206,6 +243,9 @@ struct HeartRateDisplayView: View {
             ZStack {
                 Color.black.ignoresSafeArea()
                 responsiveLayout(geometry: geometry)
+                    .blur(radius: savedWorkoutConfirmation == nil ? 0 : 8)
+                    .animation(.easeOut(duration: 0.4), value: savedWorkoutConfirmation != nil)
+                    .accessibilityHidden(savedWorkoutConfirmation != nil)
                 if isTimerMode, let setConfirmation {
                     SetConfirmationOverlay()
                         .id(setConfirmation)
@@ -213,11 +253,6 @@ struct HeartRateDisplayView: View {
             }
             .overlay(alignment: .top) {
                 VStack(spacing: 8) {
-                    if let workoutSaveBannerMessage {
-                        SuccessHUDView(message: workoutSaveBannerMessage)
-                            .transition(.move(edge: .top).combined(with: .opacity))
-                            .allowsHitTesting(false)
-                    }
                     if let healthKitSyncBannerState {
                         StatusBannerView(
                             style: .warning,
@@ -231,6 +266,43 @@ struct HeartRateDisplayView: View {
                 }
                 .padding(.horizontal, geometry.size.width > geometry.size.height ? 40 : 20)
                 .padding(.top, TopBarLayout.topPadding + TopBarLayout.iconSize + 16)
+                .accessibilityHidden(savedWorkoutConfirmation != nil)
+            }
+            .overlay {
+                if let record = savedWorkoutConfirmation {
+                    WorkoutSavedOverlay(record: record) {
+                        savedWorkoutConfirmation = nil
+                        selectedSavedWorkout = record
+                    } onDismiss: {
+                        withAnimation(.easeOut(duration: 0.2)) {
+                            savedWorkoutConfirmation = nil
+                        }
+                    }
+                    .transition(.opacity)
+                }
+            }
+        }
+        .task(id: sharingService.isSharing) {
+            guard sharingService.isSharing else { return }
+            while !Task.isCancelled && sharingService.isSharing {
+                await sharingService.syncWorkout(
+                    snapshotProvider: makeSharedWorkoutSnapshot,
+                    applyCommand: applySharedWorkoutCommand
+                )
+                do {
+                    try await Task.sleep(for: .seconds(1))
+                } catch { break }
+            }
+        }
+        .task(id: sharingService.isSharing) {
+            guard sharingService.isSharing else { return }
+            // Raw beat delivery must not wait behind workout commands or a slow
+            // snapshot request; its own freshness window is only five seconds.
+            while !Task.isCancelled && sharingService.isSharing {
+                await sharingService.syncRRStream(from: bluetoothManager)
+                do {
+                    try await Task.sleep(for: .seconds(1))
+                } catch { break }
             }
         }
         .onChange(of: timerViewModel.sets.isEmpty) { _, isEmpty in
@@ -247,7 +319,10 @@ struct HeartRateDisplayView: View {
             }
         }
         .sheet(isPresented: $showDevicePicker) {
-            DevicePickerView()
+            DevicePickerView(
+                localWorkoutNeedsConfirmation: timerViewModel.hasRestorableSession,
+                onJoinFriend: joinFriend
+            )
                 .environmentObject(bluetoothManager)
                 .environmentObject(sharingService)
         }
@@ -274,8 +349,17 @@ struct HeartRateDisplayView: View {
                 .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
         }
-        .sheet(item: $savedWorkoutShare) { request in
-            WorkoutShareDrawer(record: request.record, source: .postSave)
+        .sheet(item: $selectedSavedWorkout) { record in
+            NavigationStack {
+                WorkoutDetailView(initialRecord: record, store: workoutStore) {
+                    workoutStore.deleteWorkout(record)
+                }
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Done") { selectedSavedWorkout = nil }
+                    }
+                }
+            }
         }
         .sheet(isPresented: $showWorkoutTypePicker, onDismiss: applyPendingHealthKitSelectionFromSheet) {
             workoutTypePickerSheet()
@@ -283,19 +367,15 @@ struct HeartRateDisplayView: View {
                 .presentationDragIndicator(.visible)
                 .presentationBackgroundInteraction(.disabled)
         }
-        .alert("Disconnect Sharing", isPresented: $showDisconnectAlert) {
-            Button("Cancel", role: .cancel) { }
-            Button("Disconnect", role: .destructive) {
-                sharingService.stopSharing()
-            }
-        } message: {
-            Text("Are you sure you want to disconnect? You'll need to start a new session and share a new code.")
+        .onChange(of: currentAnalyticsScreen, initial: true) { _, screen in
+            if let screen { AppAnalytics.screen(screen) }
         }
         .onAppear {
             let bluetoothManager = self.bluetoothManager
 
             // Restore mode based on saved state
             if sharingService.isViewing {
+                if bluetoothManager.hasActiveDataSource { bluetoothManager.disconnect() }
                 appMode = .friendCode
             } else {
                 appMode = .myDevice
@@ -304,6 +384,7 @@ struct HeartRateDisplayView: View {
             if timerViewModel.hasRestorableSession {
                 isTimerMode = true
             }
+            didResolveInitialMode = true
             
             if appMode == .myDevice {
                 bluetoothManager.startScanning()
@@ -319,6 +400,24 @@ struct HeartRateDisplayView: View {
             timerViewModel.currentHeartRate = { [weak bluetoothManager] in
                 bluetoothManager?.freshHeartRate
             }
+            if sharingService.pendingJoinCode != nil { showDevicePicker = true }
+        }
+        .onOpenURL { url in
+            guard let code = SharingService.friendCode(from: url) else { return }
+            sharingService.requestJoinCode(code)
+            showDevicePicker = true
+        }
+        .onChange(of: sharingService.pendingJoinCode) { _, code in
+            if code != nil { showDevicePicker = true }
+        }
+        .onChange(of: sharingService.viewingStoppedMessage) { _, message in
+            guard message != nil else { return }
+            returnHomeAfterViewingStopped()
+        }
+        .alert("Sharing Stopped", isPresented: $showViewingStoppedAlert) {
+            Button("OK") { sharingService.viewingStoppedMessage = nil }
+        } message: {
+            Text(sharingService.viewingStoppedMessage ?? "Your friend stopped sharing.")
         }
         .onChange(of: appMode) { oldMode, newMode in
             if newMode == .myDevice {
@@ -334,10 +433,23 @@ struct HeartRateDisplayView: View {
         .onChange(of: sharingService.isViewing) { oldValue, newValue in
             if newValue && appMode == .myDevice && !oldValue {
                 appMode = .friendCode
+            } else if !newValue && appMode == .friendCode {
+                appMode = .myDevice
             }
         }
+        .onChange(of: sharingService.friendCode) { _, _ in
+            hasInitializedSharedNavigation = false
+            sharedViewerScreen = .home
+            sharedWorkoutPage = .table
+        }
+        .onChange(of: sharingService.friendWorkout) { _, snapshot in
+            // Match the broadcaster on join, then preserve the viewer's own navigation.
+            guard !hasInitializedSharedNavigation, let snapshot else { return }
+            sharedViewerScreen = snapshot.screen
+            sharedWorkoutPage = snapshot.page
+            hasInitializedSharedNavigation = true
+        }
         .onDisappear {
-            workoutSaveBannerDismissTask?.cancel()
             if appMode == .myDevice {
                 bluetoothManager.stopScanning()
                 IdleTimer.enable()
@@ -350,36 +462,31 @@ struct HeartRateDisplayView: View {
     @ViewBuilder
     private func responsiveLayout(geometry: GeometryProxy) -> some View {
         if isHRVMode {
-            HRVMeasurementView(viewModel: hrvViewModel, onDismiss: {
-                isHRVMode = false
-            })
+            HRVMeasurementView(
+                viewModel: hrvViewModel,
+                onDismiss: { isHRVMode = false },
+                localWorkoutNeedsConfirmation: timerViewModel.hasRestorableSession,
+                onJoinFriend: joinFriend
+            )
                 .environmentObject(bluetoothManager)
                 .environmentObject(sharingService)
-        } else if isTimerMode {
+        } else if isViewingShared, sharedViewerScreen == .workout, let snapshot = sharingService.friendWorkout {
+            SharedWorkoutView(
+                snapshot: snapshot,
+                selectedPage: $sharedWorkoutPage,
+                sharingService: sharingService,
+                onLeave: { sharedViewerScreen = .home },
+                onDevicePicker: { showDevicePicker = true }
+            )
+        } else if isTimerMode && !isViewingShared {
             timerModeLayout(geometry: geometry, isLandscape: geometry.size.width > geometry.size.height)
         } else if geometry.size.width > geometry.size.height {
             landscapeHomeLayout(geometry: geometry)
         } else {
             VStack(spacing: 0) {
-                HStack {
-                    Spacer()
-                    Button {
-                        showSettings = true
-                    } label: {
-                        topBarCircleIcon(systemName: "gearshape", accessibilityLabel: "Settings")
-                    }
-                }
-                .padding(.horizontal, TopBarLayout.horizontalPadding)
-                .padding(.top, TopBarLayout.topPadding)
-
-                VStack(spacing: 8) {
-                    connectionPrompt
-                    bluetoothMessageDisplay
-                    errorMessageDisplay
-                    sharingCodeDisplay
-                }
-                .padding(.horizontal, 24)
-                .padding(.top, 8)
+                connectionStatusDisplay
+                    .padding(.horizontal, 24)
+                    .padding(.top, 8)
 
                 GeometryReader { displayGeometry in
                     heartRateDisplay(size: displayGeometry.size)
@@ -389,26 +496,6 @@ struct HeartRateDisplayView: View {
         }
     }
     
-    private var sharingCodeDisplay: some View {
-        Group {
-            if appMode == .myDevice && sharingService.isSharing, let code = sharingService.shareCode {
-                Text("SHARE CODE: \(formattedShareCode(code))")
-                    .font(.system(size: 20, weight: .bold, design: .monospaced))
-                    .foregroundColor(.green)
-                    .frame(maxWidth: .infinity, alignment: .center)
-            } else if appMode == .friendCode && sharingService.isViewing, let code = sharingService.friendCode {
-                Button {
-                    showDevicePicker = true
-                } label: {
-                    Text("Viewing: \(formattedShareCode(code))")
-                        .font(.system(size: 20, weight: .bold, design: .monospaced))
-                        .foregroundColor(.green)
-                        .frame(maxWidth: .infinity, alignment: .center)
-                }
-            }
-        }
-    }
-
     @ViewBuilder
     private func heartRateDisplay(size: CGSize) -> some View {
         // Base font size anchored to screen height, but cap by width to fit 3 digits comfortably
@@ -439,7 +526,9 @@ struct HeartRateDisplayView: View {
     }
     
     private var displayedHeartRate: Int? {
-        if isTimerMode || appMode == .myDevice {
+        if isViewingShared {
+            return sharingService.friendHeartRate
+        } else if isTimerMode || appMode == .myDevice {
             return bluetoothManager.freshHeartRate
         } else {
             return sharingService.friendHeartRate
@@ -447,9 +536,9 @@ struct HeartRateDisplayView: View {
     }
 
     private var heartButtonColor: Color {
-        if bluetoothManager.hasActiveDataSource {
+        if isViewingShared {
             return .green
-        } else if appMode == .friendCode && sharingService.isViewing {
+        } else if bluetoothManager.hasActiveDataSource {
             return .green
         } else {
             return .white
@@ -457,7 +546,12 @@ struct HeartRateDisplayView: View {
     }
 
     private var heartIconName: String {
-        bluetoothManager.hasActiveDataSource ? "heart.fill" : "heart"
+        isViewingShared || bluetoothManager.hasActiveDataSource ? "heart.fill" : "heart"
+    }
+
+    private var deviceConnectionAccessibilityValue: String {
+        if isViewingShared { return "Viewing shared BPM" }
+        return bluetoothManager.hasActiveDataSource ? "Monitor connected" : "Not connected"
     }
 
     private func completedSummaryRow(totalTime: TimeInterval) -> some View {
@@ -570,7 +664,7 @@ struct HeartRateDisplayView: View {
                 expandedMetricCell(title: "Avg BPM", value: avgBPMValue, tileWidth: tileWidth, tileHeight: tileHeight)
                 expandedMetricCell(title: "Max BPM", value: maxBPMValue, tileWidth: tileWidth, tileHeight: tileHeight)
                 expandedMetricCell(title: zoneTitle, value: zoneAndColor.value, valueColor: zoneAndColor.color, tileWidth: tileWidth, tileHeight: tileHeight)
-                expandedMetricCell(title: "Calories", value: caloriesValue, tileWidth: tileWidth, tileHeight: tileHeight)
+                expandedMetricCell(title: "Est. total kcal", value: caloriesValue, tileWidth: tileWidth, tileHeight: tileHeight)
             }
             .frame(maxWidth: .infinity, alignment: .center)
         }
@@ -724,10 +818,6 @@ struct HeartRateDisplayView: View {
         }
     }
 
-    private func formattedShareCode(_ code: String) -> String {
-        code.map(String.init).joined(separator: " ")
-    }
-
     private func myDeviceExtremumValue(for display: HeartRateExtremumDisplay) -> Int? {
         switch display {
         case .max:
@@ -776,39 +866,41 @@ struct HeartRateDisplayView: View {
         collapsedStatDisplay.cycle()
     }
     
-    @ViewBuilder
-    private var errorMessageDisplay: some View {
-        if let error = sharingService.errorMessage, shouldShowError(for: appMode) {
-            Text(error)
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundColor(.red.opacity(0.85))
-                .multilineTextAlignment(.center)
-                .lineLimit(2)
-                .frame(maxWidth: .infinity, alignment: .center)
-        }
-    }
-
-    @ViewBuilder
-    private var connectionPrompt: some View {
-        if shouldShowConnectionPrompt {
-            Text("No device connected. Tap Device to connect.")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: .infinity, alignment: .center)
-        }
-    }
-
-    @ViewBuilder
-    private var bluetoothMessageDisplay: some View {
+    private var connectionStatus: (message: String, color: Color, opensDevicePicker: Bool)? {
         if appMode == .myDevice, let message = bluetoothManager.connectionMessage {
-            Text(message)
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundColor(.orange.opacity(0.85))
-                .multilineTextAlignment(.center)
-                .lineLimit(3)
-                .frame(maxWidth: .infinity, alignment: .center)
+            return (message, .orange.opacity(0.85), true)
+        }
+        if !isTimerMode, shouldShowConnectionPrompt {
+            return ("No device connected. Tap Device to connect.", .secondary, true)
+        }
+        return nil
+    }
+
+    @ViewBuilder
+    private var connectionStatusDisplay: some View {
+        if let status = connectionStatus {
+            Group {
+                if status.opensDevicePicker {
+                    Button {
+                        showDevicePicker = true
+                    } label: {
+                        Text(status.message)
+                            .frame(maxWidth: .infinity)
+                            .frame(minHeight: 44)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityHint("Opens the device picker")
+                } else {
+                    Text(status.message)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                }
+            }
+            .font(.footnote)
+            .foregroundStyle(status.color)
+            .multilineTextAlignment(.center)
+            .fixedSize(horizontal: false, vertical: true)
+            .accessibilityIdentifier("heartRateConnectionStatus")
         }
     }
 
@@ -848,12 +940,7 @@ struct HeartRateDisplayView: View {
     private func landscapeHomeLayout(geometry: GeometryProxy) -> some View {
         HStack(spacing: 20) {
             VStack(spacing: 8) {
-                VStack(spacing: 6) {
-                    connectionPrompt
-                    bluetoothMessageDisplay
-                    errorMessageDisplay
-                    sharingCodeDisplay
-                }
+                connectionStatusDisplay
                 GeometryReader { proxy in
                     heartRateDisplay(size: proxy.size)
                 }
@@ -863,16 +950,8 @@ struct HeartRateDisplayView: View {
 
             GeometryReader { controlsGeometry in
                 ScrollView {
-                    VStack(spacing: 12) {
-                        Button {
-                            showSettings = true
-                        } label: {
-                            topBarCircleIcon(systemName: "gearshape", accessibilityLabel: "Settings")
-                        }
-                        .frame(maxWidth: .infinity, alignment: .trailing)
-                        homeButtons(screenWidth: geometry.size.width, isLandscape: true)
-                    }
-                    .frame(minHeight: controlsGeometry.size.height, alignment: .center)
+                    homeButtons(screenWidth: geometry.size.width, isLandscape: true)
+                        .frame(minHeight: controlsGeometry.size.height, alignment: .center)
                 }
                 .scrollIndicators(.hidden)
             }
@@ -914,8 +993,7 @@ struct HeartRateDisplayView: View {
             showDevicePicker = true
         } label: {
             (isLandscape || dynamicTypeSize.isAccessibilitySize ? AnyLayout(HStackLayout(spacing: 8)) : AnyLayout(VStackLayout(spacing: 4))) {
-                Image(systemName: heartIconName)
-                    .font(.system(size: scaledButtonSize))
+                SharedConnectionIcon(symbol: heartIconName, isShared: isViewingShared, size: scaledButtonSize)
                     .frame(height: scaledButtonSize + 3)
                 Text("Device")
                     .font(.caption.weight(.medium))
@@ -926,60 +1004,31 @@ struct HeartRateDisplayView: View {
             .padding(.vertical, scaledButtonPadding)
             .frame(minHeight: 30)
         }
+        .accessibilityIdentifier("deviceConnectionMenu")
+        .accessibilityValue(deviceConnectionAccessibilityValue)
+        .accessibilityHint("Opens monitor and sharing controls")
 
         Button {
-            if sharingService.isSharing {
-                showDisconnectAlert = true
+            if isViewingShared {
+                sharedViewerScreen = .workout
             } else {
-                Task {
-                    if !bluetoothManager.hasActiveDataSource {
-                        sharingService.errorMessage = "Please connect a heart rate device before sharing."
-                        sharingService.errorContext = .sharing
-                    } else {
-                        do {
-                            try await sharingService.startSharing()
-                        } catch {
-                            // Error handled by sharingService
-                        }
-                    }
-                }
+                isTimerMode = true
             }
         } label: {
             (isLandscape || dynamicTypeSize.isAccessibilitySize ? AnyLayout(HStackLayout(spacing: 8)) : AnyLayout(VStackLayout(spacing: 4))) {
-                Image(systemName: "antenna.radiowaves.left.and.right")
-                    .font(.system(size: scaledButtonSize))
-                    .frame(height: scaledButtonSize + 3)
-                Text("Share")
-                    .font(.caption.weight(.medium))
-                    .lineLimit(1)
-            }
-            .foregroundColor(appMode == .friendCode ? .gray : (sharingService.isSharing ? .green : .white))
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, scaledButtonPadding)
-            .frame(minHeight: 30)
-        }
-        .disabled(appMode == .friendCode)
-
-        Button {
-            isTimerMode.toggle()
-            if !isTimerMode {
-                timerViewModel.reset()
-            }
-        } label: {
-            (isLandscape || dynamicTypeSize.isAccessibilitySize ? AnyLayout(HStackLayout(spacing: 8)) : AnyLayout(VStackLayout(spacing: 4))) {
-                Image(systemName: "stopwatch")
-                    .renderingMode(.template)
-                    .font(.system(size: scaledButtonSize))
+                SharedConnectionIcon(symbol: "stopwatch", isShared: isViewingShared, size: scaledButtonSize)
                     .frame(height: scaledButtonSize + 3)
                 Text("Workout")
                     .font(.caption.weight(.medium))
                     .lineLimit(1)
             }
-            .foregroundColor(isTimerMode ? .green : .white)
+            .foregroundColor(workoutIsActive ? .green : .white)
             .frame(maxWidth: .infinity)
             .padding(.vertical, scaledButtonPadding)
             .frame(minHeight: 30)
         }
+        .disabled(isViewingShared && sharingService.friendWorkout == nil)
+        .accessibilityValue(workoutIsActive ? "Active workout" : "No active workout")
 
         Button {
             isHRVMode.toggle()
@@ -997,6 +1046,23 @@ struct HeartRateDisplayView: View {
                     .lineLimit(1)
             }
             .foregroundColor(isHRVMode ? .green : .white)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, scaledButtonPadding)
+            .frame(minHeight: 30)
+        }
+
+        Button {
+            showSettings = true
+        } label: {
+            (isLandscape || dynamicTypeSize.isAccessibilitySize ? AnyLayout(HStackLayout(spacing: 8)) : AnyLayout(VStackLayout(spacing: 4))) {
+                Image(systemName: "gearshape")
+                    .font(.system(size: scaledButtonSize))
+                    .frame(height: scaledButtonSize + 3)
+                Text("Settings")
+                    .font(.caption.weight(.medium))
+                    .lineLimit(1)
+            }
+            .foregroundColor(.white)
             .frame(maxWidth: .infinity)
             .padding(.vertical, scaledButtonPadding)
             .frame(minHeight: 30)
@@ -1052,17 +1118,80 @@ struct HeartRateDisplayView: View {
         }
     }
 
-    private func shouldShowError(for mode: AppMode) -> Bool {
-        guard let context = sharingService.errorContext else {
-            return true
+    private var workoutIsActive: Bool {
+        if isViewingShared {
+            return sharingService.friendWorkout.map { $0.state != .idle } ?? false
         }
-        
-        switch (mode, context) {
-        case (.myDevice, .sharing), (.friendCode, .viewing):
-            return true
-        default:
-            return false
+        return timerViewModel.state != .idle
+    }
+
+    private var recoverableHistoryButtonTitle: String? {
+        guard let sessionID = pendingRecoverySessionID,
+              let duration = timerViewModel.recoverableHistoryDuration(for: sessionID) else {
+            return nil
         }
+        if duration < 60 {
+            let seconds = max(1, Int(duration))
+            return "Include last \(seconds) \(seconds == 1 ? "second" : "seconds")"
+        }
+        let minutes = (duration / 60).formatted(.number.precision(.fractionLength(0...1)))
+        return "Include last \(minutes) \(minutes == "1" ? "minute" : "minutes")"
+    }
+
+    private func joinFriend(_ code: String) {
+        guard sharingService.canStartViewing(code: code) else { return }
+        if timerViewModel.hasRestorableSession {
+            timerViewModel.endWorkout()
+            timerViewModel.reset()
+        }
+        hrvViewModel.reset()
+        isTimerMode = false
+        sharedViewerScreen = .home
+        hasInitializedSharedNavigation = false
+        sharingService.startViewing(code: code, disconnectMonitor: bluetoothManager.disconnect)
+    }
+
+    private func returnHomeAfterViewingStopped() {
+        showDevicePicker = false
+        isTimerMode = false
+        isHRVMode = false
+        sharedViewerScreen = .home
+        sharedWorkoutPage = .table
+        hasInitializedSharedNavigation = false
+        timerViewModel.reset()
+        hrvViewModel.reset()
+        Task { @MainActor in
+            // Let an open Device or HRV sheet finish dismissing before presenting the alert.
+            try? await Task.sleep(for: .milliseconds(400))
+            if sharingService.viewingStoppedMessage != nil { showViewingStoppedAlert = true }
+        }
+    }
+
+    private func makeSharedWorkoutSnapshot() -> SharedWorkoutSnapshot {
+        SharedWorkoutPresentation.snapshot(
+            timer: timerViewModel,
+            screen: isTimerMode && !isHRVMode ? .workout : .home,
+            page: SharedWorkoutSnapshot.Page(rawValue: timerViewMode.rawValue) ?? .table,
+            heartRate: bluetoothManager.freshHeartRate,
+            zoneConfig: zoneStorage.effectiveConfig,
+            primaryBPM: setTableBpmDisplay == .avg ? "avg" : "max",
+            calories: caloriesDisplayValue,
+            allowsRemoteControl: !isWorkoutSaveFlowActive
+        )
+    }
+
+    private var isWorkoutSaveFlowActive: Bool {
+        showWorkoutTypePicker || pendingHealthKitSelectionFromSheet != nil
+            || showWorkoutTitlePrompt || isSavingWorkout || pendingWorkoutSave != nil
+    }
+
+    private func applySharedWorkoutCommand(_ command: SharedWorkoutCommand) -> Bool {
+        guard !isWorkoutSaveFlowActive else { return false }
+        let applied = SharedWorkoutPresentation.apply(command, to: timerViewModel, current: makeSharedWorkoutSnapshot())
+        if applied && isTimerMode && (command.action == .work || command.action == .rest) {
+            setConfirmation = UUID()
+        }
+        return applied
     }
 
     // MARK: - Timer Mode UI
@@ -1126,23 +1255,14 @@ struct HeartRateDisplayView: View {
     @ViewBuilder
     private func timerModeLayout(geometry: GeometryProxy, isLandscape: Bool) -> some View {
         VStack(spacing: 0) {
-            // Top bar with device picker, view settings, and clear button
+            // Monitor and sharing controls use the same Device menu on every page.
             HStack(spacing: TopBarLayout.buttonSpacing) {
                 Button {
-                    // Only show alert if there's workout data to lose
-                    if hasSavedWorkout {
-                        timerViewModel.reset()
-                        isTimerMode = false
-                    } else if !timerViewModel.sets.isEmpty || timerViewModel.state != .idle {
-                        showClearAlert = true
-                    } else {
-                        timerViewModel.reset()
-                        isTimerMode = false
-                    }
+                    isTimerMode = false
                 } label: {
-                    topBarCircleIcon(systemName: "xmark", accessibilityLabel: "Close workout")
-                        .accessibilityIdentifier("xmark")
+                    topBarCircleIcon(systemName: "house", accessibilityLabel: "Home")
                 }
+                .accessibilityIdentifier("workoutHome")
 
                 Spacer()
 
@@ -1150,12 +1270,15 @@ struct HeartRateDisplayView: View {
                     Button {
                         showDevicePicker = true
                     } label: {
-                        topBarCircleIcon(
-                            systemName: heartIconName,
-                            color: heartButtonColor,
-                            accessibilityLabel: "Device Picker"
-                        )
+                        SharedConnectionIcon(symbol: heartIconName, isShared: isViewingShared, size: TopBarLayout.iconFontSize)
+                            .foregroundStyle(heartButtonColor)
+                            .frame(width: TopBarLayout.iconSize, height: TopBarLayout.iconSize)
+                            .bpmCircleSurface()
                     }
+                    .accessibilityLabel("Device Picker")
+                    .accessibilityIdentifier("deviceConnectionMenu")
+                    .accessibilityValue(deviceConnectionAccessibilityValue)
+                    .accessibilityHint("Opens monitor and sharing controls")
 
                     Button {
                         showWorkoutHistory = true
@@ -1175,7 +1298,6 @@ struct HeartRateDisplayView: View {
                         )
                     }
                 }
-                .frame(width: TopBarLayout.trailingButtonGroupWidth, alignment: .trailing)
             }
             .bpmGlassGroup()
             .padding(.horizontal, TopBarLayout.horizontalPadding)
@@ -1185,24 +1307,16 @@ struct HeartRateDisplayView: View {
                     pendingRecoverySessionID = nil
                     timerViewModel.start()
                 }
-                Button("Include previous measurements") {
-                    timerViewModel.start(includingPreviousMeasurementsFrom: pendingRecoverySessionID)
-                    pendingRecoverySessionID = nil
+                if let title = recoverableHistoryButtonTitle {
+                    Button(title) {
+                        timerViewModel.start(includingPreviousMeasurementsFrom: pendingRecoverySessionID)
+                        pendingRecoverySessionID = nil
+                    }
+                    .accessibilityIdentifier("includePreviousMeasurements")
                 }
                 Button("Cancel", role: .cancel) {
                     pendingRecoverySessionID = nil
                 }
-            } message: {
-                Text("Include available measurements from this sensor session (up to the last hour), or start now? Including them starts the workout at the earliest included measurement.")
-            }
-            .alert("Clear Workout", isPresented: $showClearAlert) {
-                Button("Cancel", role: .cancel) { }
-                Button("Clear", role: .destructive) {
-                    timerViewModel.reset()
-                    isTimerMode = false
-                }
-            } message: {
-                Text("Are you sure you want to clear all workout data? This cannot be undone.")
             }
             .alert("Reset Workout", isPresented: $showResetAlert) {
                 Button("Cancel", role: .cancel) { }
@@ -1211,6 +1325,12 @@ struct HeartRateDisplayView: View {
                 }
             } message: {
                 Text("Are you sure you want to reset? This will clear all workout data.")
+            }
+
+            if connectionStatus != nil {
+                connectionStatusDisplay
+                    .padding(.horizontal, TopBarLayout.horizontalPadding)
+                    .padding(.top, 8)
             }
 
             let contentLayout = isLandscape
@@ -1238,7 +1358,6 @@ struct HeartRateDisplayView: View {
                     .padding(.bottom, 8)
                 } else {
                     timerControlButtons(isLandscape: false, screenWidth: geometry.size.width)
-                        .padding(.bottom, geometry.safeAreaInsets.bottom)
                 }
             }
 
@@ -1791,12 +1910,12 @@ struct HeartRateDisplayView: View {
     private func dismissSaveWorkoutSheet() {
         pendingHealthKitActivityOption = defaultHealthKitActivityOption
         workoutNotesText = ""
-        if let request = pendingWorkoutShare {
-            pendingWorkoutShare = nil
-            // Finish any first-use Health permission sheet before presenting the share drawer.
+        if let request = pendingWorkoutSave {
+            pendingWorkoutSave = nil
+            savedWorkoutConfirmation = request.record
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
             Task {
                 await syncSavedWorkoutToHealthKit(record: request.record, activityOption: request.activityOption)
-                savedWorkoutShare = request
             }
         }
     }
@@ -1852,6 +1971,10 @@ struct HeartRateDisplayView: View {
 
     @MainActor
     private func saveCurrentWorkout(title: String?, notes: String?, activityOption: HealthKitActivityOption) async throws {
+        guard !isViewingShared, !isSavingWorkout else { throw WorkoutStore.DetailEditError.saveFailed }
+        isSavingWorkout = true
+        defer { isSavingWorkout = false }
+        let originalWorkoutID = timerViewModel.sharingWorkoutID
         guard let record = timerViewModel.workoutRecord(
             zoneConfig: zoneStorage.effectiveConfig,
             workoutId: savedWorkoutId,
@@ -1864,11 +1987,15 @@ struct HeartRateDisplayView: View {
             workoutStore.saveWorkout(record) { continuation.resume(with: $0) }
         }
         AppAnalytics.signal(.workoutSave)
-        savedWorkoutId = saved.id
-        hasSavedWorkout = true
-        pendingWorkoutShare = SavedWorkoutShareRequest(record: saved, activityOption: activityOption)
-        timerViewModel.reset()
-        isTimerMode = false
+        pendingWorkoutSave = SavedWorkoutRequest(record: saved, activityOption: activityOption)
+        // A delayed disk write must never reset a different workout that began
+        // after this save was requested, regardless of which UI initiated it.
+        if timerViewModel.sharingWorkoutID == originalWorkoutID {
+            savedWorkoutId = saved.id
+            hasSavedWorkout = true
+            timerViewModel.reset()
+            isTimerMode = false
+        }
     }
 
     @MainActor
@@ -1934,25 +2061,6 @@ struct HeartRateDisplayView: View {
         }
     }
 
-    @MainActor
-    private func showWorkoutSaveFeedback(_ message: String) {
-        let generator = UINotificationFeedbackGenerator()
-        generator.prepare()
-        generator.notificationOccurred(.success)
-        workoutSaveBannerDismissTask?.cancel()
-        withAnimation {
-            workoutSaveBannerMessage = message
-        }
-        workoutSaveBannerDismissTask = Task { @MainActor in
-            try? await Task.sleep(for: .seconds(2))
-            guard !Task.isCancelled else { return }
-            withAnimation {
-                workoutSaveBannerMessage = nil
-            }
-            workoutSaveBannerDismissTask = nil
-        }
-    }
-    
     @ViewBuilder
     private func timerControlButtons(isLandscape: Bool, screenWidth: CGFloat) -> some View {
         let scaleFactor = min(1.0, screenWidth / 375.0)
@@ -1960,6 +2068,8 @@ struct HeartRateDisplayView: View {
         let buttonPadding = isLandscape ? 0.0 : max(20.0, 24.0 * scaleFactor)
         let buttonFontSize = isLandscape ? 16.0 : max(14.0, 18.0 * scaleFactor)
         let buttonPaddingSize = isLandscape ? 8.0 : max(12.0, 16.0 * scaleFactor)
+        let buttonMinHeight = isLandscape ? 30.0 : 52.0
+        let bottomPadding = isLandscape ? 4.0 : max(12.0, 16.0 * scaleFactor)
         let rowLayout = isLandscape ? AnyLayout(VStackLayout(spacing: buttonSpacing)) : AnyLayout(HStackLayout(spacing: buttonSpacing))
         let isCooldownDisabled = timerViewModel.state == .idle && !timerViewModel.isPresetMode
         let isInCooldownMode = timerViewModel.isInCooldownMode
@@ -1990,7 +2100,7 @@ struct HeartRateDisplayView: View {
                         .frame(maxWidth: .infinity)
                         .padding(.horizontal, 2)
                         .padding(.vertical, isLandscape ? 0 : 6)
-                        .frame(minHeight: 30)
+                        .frame(minHeight: buttonMinHeight)
                 }
                 .frame(maxWidth: .infinity)
                 .disabled(hasSavedWorkout)
@@ -2009,7 +2119,7 @@ struct HeartRateDisplayView: View {
                             .frame(maxWidth: .infinity)
                             .padding(.horizontal, 2)
                             .padding(.vertical, isLandscape ? 0 : 6)
-                            .frame(minHeight: 30)
+                            .frame(minHeight: buttonMinHeight)
                     }
                     .frame(maxWidth: .infinity)
 
@@ -2022,7 +2132,7 @@ struct HeartRateDisplayView: View {
                             .frame(maxWidth: .infinity)
                             .padding(.horizontal, 2)
                             .padding(.vertical, isLandscape ? 0 : 6)
-                            .frame(minHeight: 30)
+                            .frame(minHeight: buttonMinHeight)
                     }
                     .frame(maxWidth: .infinity)
                     .accessibilityIdentifier("resumeEndedWorkout")
@@ -2031,7 +2141,8 @@ struct HeartRateDisplayView: View {
             .bpmActionStyle()
             .bpmGlassGroup()
             .padding(.horizontal, buttonPadding)
-            .padding(.vertical, isLandscape ? 4 : 20)
+            .padding(.top, isLandscape ? 4 : 20)
+            .padding(.bottom, bottomPadding)
             .background(Color.black.opacity(0.8))
         } else if isStartState {
             VStack(spacing: buttonSpacing) {
@@ -2052,7 +2163,7 @@ struct HeartRateDisplayView: View {
                             .frame(maxWidth: .infinity)
                             .padding(.horizontal, 2)
                             .padding(.vertical, isLandscape ? 0 : 6)
-                            .frame(minHeight: 30)
+                            .frame(minHeight: buttonMinHeight)
                     }
                     .bpmActionStyle(prominent: true)
                     .tint(.white)
@@ -2067,7 +2178,7 @@ struct HeartRateDisplayView: View {
                             .frame(maxWidth: .infinity)
                             .padding(.horizontal, 2)
                             .padding(.vertical, isLandscape ? 0 : 6)
-                            .frame(minHeight: 30)
+                            .frame(minHeight: buttonMinHeight)
                     }
                     .frame(maxWidth: .infinity)
                 }
@@ -2091,7 +2202,7 @@ struct HeartRateDisplayView: View {
                             .frame(maxWidth: .infinity)
                             .padding(.horizontal, 2)
                             .padding(.vertical, isLandscape ? 0 : 6)
-                            .frame(minHeight: 30)
+                            .frame(minHeight: buttonMinHeight)
                         }
                         .disabled(workSetDisabled)
                         .frame(maxWidth: .infinity)
@@ -2113,7 +2224,7 @@ struct HeartRateDisplayView: View {
                             .frame(maxWidth: .infinity)
                             .padding(.horizontal, 2)
                             .padding(.vertical, isLandscape ? 0 : 6)
-                            .frame(minHeight: 30)
+                            .frame(minHeight: buttonMinHeight)
                         }
                         .disabled(restSetDisabled)
                         .frame(maxWidth: .infinity)
@@ -2125,7 +2236,8 @@ struct HeartRateDisplayView: View {
             .bpmActionStyle()
             .bpmGlassGroup()
             .padding(.horizontal, buttonPadding)
-            .padding(.vertical, isLandscape ? 4 : 20)
+            .padding(.top, isLandscape ? 4 : 20)
+            .padding(.bottom, bottomPadding)
             .background(Color.black.opacity(0.8))
         } else {
             // Stack each control on the right in landscape; use two rows in portrait.
@@ -2187,7 +2299,7 @@ struct HeartRateDisplayView: View {
                             .frame(maxWidth: .infinity)
                             .padding(.horizontal, 2)
                             .padding(.vertical, isLandscape ? 0 : 6)
-                            .frame(minHeight: 30)
+                            .frame(minHeight: buttonMinHeight)
                     }
                     .frame(maxWidth: .infinity)
 
@@ -2203,7 +2315,7 @@ struct HeartRateDisplayView: View {
                             .frame(maxWidth: .infinity)
                             .padding(.horizontal, 2)
                             .padding(.vertical, isLandscape ? 0 : 6)
-                            .frame(minHeight: 30)
+                            .frame(minHeight: buttonMinHeight)
                     }
                     .disabled((timerViewModel.state == .idle && timerViewModel.sets.isEmpty && !isPresetMode) || isCompleted)
                     .frame(maxWidth: .infinity)
@@ -2229,7 +2341,7 @@ struct HeartRateDisplayView: View {
                                 .frame(maxWidth: .infinity)
                                 .padding(.horizontal, 2)
                                 .padding(.vertical, isLandscape ? 0 : 6)
-                                .frame(minHeight: 30)
+                                .frame(minHeight: buttonMinHeight)
                         }
                         .disabled(isCooldownDisabled || isInCooldownMode || isCompleted)
                         .frame(maxWidth: .infinity)
@@ -2256,7 +2368,7 @@ struct HeartRateDisplayView: View {
                             .frame(maxWidth: .infinity)
                             .padding(.horizontal, 2)
                             .padding(.vertical, isLandscape ? 0 : 6)
-                            .frame(minHeight: 30)
+                            .frame(minHeight: buttonMinHeight)
                         }
                         .disabled(workSetDisabled)
                         .frame(maxWidth: .infinity)
@@ -2278,7 +2390,7 @@ struct HeartRateDisplayView: View {
                             .frame(maxWidth: .infinity)
                             .padding(.horizontal, 2)
                             .padding(.vertical, isLandscape ? 0 : 6)
-                            .frame(minHeight: 30)
+                            .frame(minHeight: buttonMinHeight)
                         }
                         .disabled(restSetDisabled)
                         .frame(maxWidth: .infinity)
@@ -2290,7 +2402,8 @@ struct HeartRateDisplayView: View {
             .bpmActionStyle()
             .bpmGlassGroup()
             .padding(.horizontal, buttonPadding)
-            .padding(.vertical, isLandscape ? 4 : 20)
+            .padding(.top, isLandscape ? 4 : 20)
+            .padding(.bottom, bottomPadding)
             .background(Color.black.opacity(0.8))
         }
     }

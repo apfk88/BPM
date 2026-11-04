@@ -4,6 +4,6 @@
     "module": "commonjs", "moduleResolution": "node", "noEmit": false,
     "outDir": ".test-build", "incremental": false, "target": "es2022"
   },
-  "include": ["tests/**/*.ts", "lib/**/*.ts", "pages/api/workout-recap.ts"],
+  "include": ["tests/**/*.ts", "lib/**/*.ts", "pages/api/**/*.ts"],
   "exclude": ["node_modules", ".test-build"]
 }

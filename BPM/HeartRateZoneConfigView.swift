@@ -58,7 +58,7 @@ struct HeartRateZoneConfigView: View {
                                     .foregroundColor(.gray)
                             }
 
-                            Text("If you don't know your max heart rate, use 220 minus your age.")
+                            Text("Max HR formulas are population estimates. Use a measured value when available.")
                                 .font(.system(size: 13))
                                 .foregroundColor(.gray)
                         }
@@ -119,6 +119,11 @@ struct HeartRateZoneConfigView: View {
                                     .padding(.top, 4)
                             }
                         }
+
+                        Text("Z1 includes resting values below its lower limit; Z5 includes values above max HR. Gaps between custom ranges remain unassigned.")
+                            .font(.system(size: 13))
+                            .foregroundColor(.gray)
+                            .padding(.horizontal, 20)
 
                         // Clear Configuration Button
                         if storage.isConfigured {

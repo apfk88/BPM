@@ -35,6 +35,7 @@ struct PresetConfigurationView: View {
                 }
             }
             .navigationTitle("Presets")
+            .analyticsScreen(.presets)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -58,6 +59,7 @@ struct PresetConfigurationView: View {
                     isNew: isCreatingNew,
                     onSave: { savedPreset in
                         presetStorage.savePreset(savedPreset)
+                        AppAnalytics.signal(.presetSaved, parameters: ["action": isCreatingNew ? "create" : "edit", "sound_enabled": String(savedPreset.playSound)])
                         editingPreset = nil
                         isCreatingNew = false
                     },

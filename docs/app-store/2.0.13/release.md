@@ -1,6 +1,15 @@
-# BPM 2.0.13 (16)
+# BPM 2.0.13 (17)
 
 Prepared October 26, 2026 for App Store Connect app 6754830191, bundle `kvamme.BPM`.
+
+## Build 17, October 27
+
+- Includes the share drawer refinement: neighboring cards use 30% opacity; the selected card remains fully opaque with a 0.2-second fade on selection changes.
+- The existing gallery/edit/export UI regression passed on iPhone 18 Pro (iOS 27). Screenshots confirmed the faded neighboring cards. Result: `/private/tmp/BPM-ShareOpacity-Verified.xcresult`.
+- Release archive succeeded: `build/BPM-2.0.13-17.xcarchive`. App and activity extension versions verified as 2.0.13 (17).
+- Upload succeeded at 5:37 PM PDT; Apple processing completed; build ID `5fead6f8-bf8d-4bff-b60c-adeeff17e5b0`. Submitted October 27 at 5:42 PM PDT; App Store Connect confirmed **Waiting for Review** for **2.0.13 (17)**. Existing automatic release is retained. Upload log: `/private/tmp/BPM-Release17-Upload.log`.
+- Build 17 replaced rejected build 16 in submission `73866250-6c2e-4964-af23-11ce16a4d123`. Reviewer notes now explain the BPM, zone, and preset sound controls and reiterate the offered bug-fix exception. The audio declaration remains; notes explicitly disclose that alerts are intermittent and no physical-device video is attached. The 2.5.4 issue remains a review risk, not a verified fix.
+- Submission proof: `build/privacy-release-proof/build-17-waiting-review.png`.
 
 ## Review follow-up, October 26
 
@@ -81,7 +90,7 @@ The updated policy is live at https://bpmtracker.app/privacy.html, verified HTTP
 
 ## What's New
 
-• Turn up to 60 seconds of spoken workout notes into an editable title and exercise-by-exercise description, with explicit OpenAI consent.
+• Turn up to 60 seconds of spoken workout notes into an editable title and exercise-by-exercise description.
 • Share customizable chart and stats cards, plain-text summaries, or detailed workout logs.
 • Edit saved workout titles and descriptions.
 • Resume an accidentally ended workout or include recent heart-rate measurements when starting.
@@ -92,7 +101,7 @@ The updated policy is live at https://bpmtracker.app/privacy.html, verified HTTP
 
 This app requires a physical Bluetooth Low Energy (BLE) heart rate monitor. Without a compatible monitor connected, it displays "---" instead of a heart rate value. Compatible monitors implement the standard Bluetooth GATT Heart Rate Service (UUID 0x180D). To test: wear or activate the monitor, grant Bluetooth permission, tap the heart icon, and select the device. Once connected, the live heart rate appears in large digits. In workout mode, swipe to the second view for the full-screen BPM display. Optional sharing lets users share their live heart rate using a 6-character code. No sign-in is required.
 
-Version 2.0.13 adds optional AI voice notes to Save Workout. Start and end a workout, choose a workout type, and open Save Workout. Tap AI voice, grant microphone permission, record up to 60 seconds, then tap Send. On first use, an explicit "Send recording to OpenAI?" confirmation explains the data transfer. Cancel keeps the recording local and does not send it. Confirm to generate an editable title and exercise-by-exercise description. Review and correct the text before tapping Save. Manual title and description entry works without AI permission. Reset AI voice permission in Settings to test the confirmation again.
+Version 2.0.13 adds optional AI voice notes to Save Workout. Start and end a workout, choose a workout type, and open Save Workout. Tap AI voice, grant microphone permission, record up to 60 seconds, then tap Send. On first use, a "Send recording?" confirmation names OpenAI and explains that the recording, including any health details mentioned, is sent for AI transcription and workout notes. Choose "Allow & Send" to permit the upload. Cancel keeps the recording local and does not send it. Confirm to generate an editable title and exercise-by-exercise description. Review and correct the text before tapping Save. Manual title and description entry works without AI permission. Reset AI voice permission in Settings to test the confirmation again.
 
 The recording is sent through BPM's backend to OpenAI for transcription; the transcript is processed to generate the workout text. Measured heart rate, HealthKit records, and workout history are not attached. Model-improvement sharing is disabled. Audio is processed transiently; transcript/result safety logs may be retained for up to 30 days, with legal or safety exceptions. The app links to https://bpmtracker.app/privacy.html#ai-voice before upload. App Privacy declares Health, Fitness, and Other User Content used for App Functionality, linked to identity because freeform speech may identify the user, and not used for tracking.
 

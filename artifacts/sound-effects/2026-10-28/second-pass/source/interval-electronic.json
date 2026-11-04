@@ -1,0 +1,16 @@
+{
+  "id": "interval-electronic",
+  "provider": "ElevenLabs",
+  "kind": "sound-effect",
+  "text": "A bold gym interval timer signal: three very clear punchy electronic beeps, BEEP BEEP BEEEP, the last held slightly longer. Bright focused midrange with a rounded body, immediate attack, obvious rhythmic separation. Designed to be unmistakable during hard exercise with music playing. Assertive professional sports timer, not a phone notification. No siren, no melody, no voice, no music, no ambience or echo.",
+  "duration_seconds": 1.2,
+  "prompt_influence": 0.7,
+  "model_id": "eleven_text_to_sound_v2",
+  "loop": false,
+  "output_format": "mp3_44100_128",
+  "response": {
+    "status": 200,
+    "bytes": 20105,
+    "character_cost": "7"
+  }
+}

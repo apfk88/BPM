@@ -70,7 +70,10 @@ struct SettingsView: View {
                             .foregroundColor(.secondary)
                     }
                 ) {
-                    Toggle("Zone Alert", isOn: $isZoneAlertEnabled)
+                    Toggle("Zone Alert", isOn: Binding(
+                        get: { isZoneAlertEnabled },
+                        set: { isZoneAlertEnabled = $0; AppAnalytics.setting(.zoneAlert, enabled: $0) }
+                    ))
                     NavigationLink {
                         ZoneAlertSelectionView()
                     } label: {
@@ -90,7 +93,10 @@ struct SettingsView: View {
                             .foregroundColor(.secondary)
                     }
                 ) {
-                    Toggle("BPM Alert", isOn: $isHeartRateAlertEnabled)
+                    Toggle("BPM Alert", isOn: Binding(
+                        get: { isHeartRateAlertEnabled },
+                        set: { isHeartRateAlertEnabled = $0; AppAnalytics.setting(.bpmAlert, enabled: $0) }
+                    ))
                     HStack {
                         Text("BPM Alert")
                         Spacer()
@@ -133,18 +139,11 @@ struct SettingsView: View {
                         }
                     }
                 }
-                Section {
+                Section("AI Voice Privacy") {
                     Button("Reset AI voice permission") {
                         hasVoiceConsent = false
                     }
                     .disabled(!hasVoiceConsent)
-                    Link("Voice privacy and retention", destination: URL(string: "https://bpmtracker.app/privacy.html#ai-voice")!)
-                } header: {
-                    Text("AI Voice Privacy")
-                } footer: {
-                    Text(hasVoiceConsent
-                         ? "Only recordings you choose to send go to OpenAI. Reset permission to be asked again before sending. This does not delete requests already processed."
-                         : "Permission will be requested before a recording is sent to OpenAI. You can always enter workout notes manually.")
                 }
                 Section(header: Text("Support")) {
                     Link(destination: appStoreReviewURL) {
@@ -186,6 +185,7 @@ struct SettingsView: View {
             }
             .scrollDismissesKeyboard(.interactively)
             .navigationTitle("Settings")
+            .analyticsScreen(.settings)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
@@ -277,6 +277,7 @@ struct SettingsView: View {
 
     @MainActor
     private func requestHealthKitAccess() async {
+        AppAnalytics.signal(.healthAccessRequested)
         healthKitStatusMessage = nil
         do {
             try await healthKitSyncService.requestWriteAuthorization()
@@ -369,6 +370,7 @@ private struct ZoneSettingsView: View {
             }
         }
         .navigationTitle("Zone Settings")
+        .analyticsScreen(.zones)
         .onAppear {
             if !didLoadConfig {
                 loadExistingConfiguration()
@@ -545,6 +547,7 @@ private struct ZoneAlertSelectionView: View {
             }
         }
         .navigationTitle("Selected Zones")
+        .analyticsScreen(.zoneAlerts)
     }
 
     private func zoneBinding(_ zone: HeartRateZone) -> Binding<Bool> {

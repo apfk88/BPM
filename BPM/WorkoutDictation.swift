@@ -121,6 +121,7 @@ final class WorkoutDictation: ObservableObject {
                 throw CocoaError(.fileWriteUnknown)
             }
             isRecording = true
+            AppAnalytics.signal(.voiceRecordingStarted)
             // The recorder enforces the duration even if the UI task is delayed.
             ticker = Task { [weak self] in
                 while !Task.isCancelled {

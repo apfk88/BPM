@@ -10,7 +10,7 @@ enum HeartRateZoneDefaultsKey {
     static let config = "heartRateZoneConfig"
 }
 
-struct HeartRateZoneConfig: Codable {
+struct HeartRateZoneConfig: Codable, Equatable {
     var maxHeartRate: Int
     var zone1Min: Int
     var zone1Max: Int
@@ -111,16 +111,19 @@ enum HeartRateZone: Int, CaseIterable {
 
         if heartRate >= config.zone5Min {
             return .zone5
-        } else if heartRate >= config.zone4Min {
+        } else if heartRate >= config.zone4Min && heartRate < config.zone4Max {
             return .zone4
-        } else if heartRate >= config.zone3Min {
+        } else if heartRate >= config.zone3Min && heartRate < config.zone3Max {
             return .zone3
-        } else if heartRate >= config.zone2Min {
+        } else if heartRate >= config.zone2Min && heartRate < config.zone2Max {
             return .zone2
-        } else {
-            // Any positive heart rate below zone2 is considered zone1 (recovery/rest)
+        } else if heartRate < config.zone1Max {
+            // Retain resting readings below Z1's nominal lower threshold.
             return .zone1
         }
+        // Custom ranges may contain gaps. Do not silently extend a zone beyond
+        // the upper bound the user entered. Shared boundaries enter the higher zone.
+        return nil
     }
 }
 
@@ -129,11 +132,15 @@ class HeartRateZoneStorage: ObservableObject {
 
     private let storageKey = HeartRateZoneDefaultsKey.config
     private let defaultMaxHeartRate = 190
+    private let userDefaults: UserDefaults
+    private let notificationCenter: NotificationCenter
     private var lastLoadedData: Data?
     private var defaultsObserver: NSObjectProtocol?
+    private var isLoadingDefaults = false
 
     @Published var config: HeartRateZoneConfig? {
         didSet {
+            guard !isLoadingDefaults, config != oldValue else { return }
             save()
         }
     }
@@ -146,9 +153,11 @@ class HeartRateZoneStorage: ObservableObject {
         config ?? HeartRateZoneConfig(maxHeartRate: defaultMaxHeartRate)
     }
 
-    private init() {
+    init(userDefaults: UserDefaults = .standard, notificationCenter: NotificationCenter = .default) {
+        self.userDefaults = userDefaults
+        self.notificationCenter = notificationCenter
         load()
-        defaultsObserver = NotificationCenter.default.addObserver(
+        defaultsObserver = notificationCenter.addObserver(
             forName: UserDefaults.didChangeNotification,
             object: nil,
             queue: .main
@@ -159,35 +168,42 @@ class HeartRateZoneStorage: ObservableObject {
 
     deinit {
         if let defaultsObserver {
-            NotificationCenter.default.removeObserver(defaultsObserver)
+            notificationCenter.removeObserver(defaultsObserver)
         }
     }
 
     private func load() {
-        let data = UserDefaults.standard.data(forKey: storageKey)
+        let data = userDefaults.data(forKey: storageKey)
         lastLoadedData = data
-        guard let data,
-              let loaded = try? JSONDecoder().decode(HeartRateZoneConfig.self, from: data) else {
-            config = nil
-            return
-        }
+        let loaded = data.flatMap { try? JSONDecoder().decode(HeartRateZoneConfig.self, from: $0) }
+        guard loaded != config else { return }
+        // A defaults notification reads external state; it must never write the
+        // same value back and synchronously enter this observer again.
+        isLoadingDefaults = true
+        defer { isLoadingDefaults = false }
         config = loaded
     }
 
     private func reloadIfChanged() {
-        let data = UserDefaults.standard.data(forKey: storageKey)
+        let data = userDefaults.data(forKey: storageKey)
         guard data != lastLoadedData else { return }
         load()
     }
 
     private func save() {
-        if let config = config,
-           let data = try? JSONEncoder().encode(config) {
-            UserDefaults.standard.set(data, forKey: storageKey)
+        if let config = config {
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.sortedKeys]
+            guard let data = try? encoder.encode(config) else { return }
+            // Update the cache before writing because UserDefaults can deliver
+            // its change notification synchronously from inside set/remove.
             lastLoadedData = data
+            guard userDefaults.data(forKey: storageKey) != data else { return }
+            userDefaults.set(data, forKey: storageKey)
         } else if config == nil {
-            UserDefaults.standard.removeObject(forKey: storageKey)
             lastLoadedData = nil
+            guard userDefaults.object(forKey: storageKey) != nil else { return }
+            userDefaults.removeObject(forKey: storageKey)
         }
     }
 

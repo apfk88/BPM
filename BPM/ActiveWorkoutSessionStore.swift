@@ -14,6 +14,7 @@ struct PersistedHeartRateSample: Codable, Equatable {
     let value: Int
     let timestamp: Date
     let workoutTime: TimeInterval?
+    var invalidatedAt: Date? = nil
 }
 
 /// The active set and preset state immediately before a manual End action.

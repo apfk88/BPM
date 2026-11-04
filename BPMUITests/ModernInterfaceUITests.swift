@@ -9,7 +9,7 @@ final class ModernInterfaceUITests: XCTestCase {
         app.launchArguments = ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"]
         launchHome(app)
         XCTAssertTrue(app.buttons["Device"].waitForExistence(timeout: 5))
-        for label in ["Device", "Share", "Workout", "HRV", "Settings"] {
+        for label in ["Device", "Workout", "HRV", "Settings"] {
             assertVisible(app.buttons[label], in: app)
         }
         screenshot("Home with accessibility text")
@@ -72,13 +72,16 @@ final class ModernInterfaceUITests: XCTestCase {
         XCTAssertTrue(app.buttons["End"].waitForExistence(timeout: 5))
         XCTAssertFalse(app.buttons["Save Workout"].exists)
         app.buttons["End"].tap()
+        XCTAssertTrue(app.buttons["Save Workout"].waitForExistence(timeout: 5))
         app.buttons["Save Workout"].tap()
+        XCTAssertTrue(app.navigationBars["Workout Type"].waitForExistence(timeout: 5))
         app.buttons["Functional Strength"].firstMatch.tap()
         XCTAssertTrue(app.navigationBars["Save Workout"].waitForExistence(timeout: 5))
         app.buttons["Cancel"].tap()
         XCTAssertTrue(app.buttons["Save Workout"].waitForExistence(timeout: 5))
 
         app.buttons["Save Workout"].tap()
+        XCTAssertTrue(app.navigationBars["Workout Type"].waitForExistence(timeout: 5))
         app.buttons["Functional Strength"].firstMatch.tap()
         let title = "UI review \(UUID().uuidString.prefix(6))"
         let titleField = app.textFields["Title"]
@@ -97,14 +100,19 @@ final class ModernInterfaceUITests: XCTestCase {
         if app.alerts["Health Access"].waitForExistence(timeout: 3) {
             app.alerts["Health Access"].buttons["OK"].tap()
         }
-        XCTAssertTrue(app.buttons["closeWorkoutShareDrawer"].waitForExistence(timeout: 5))
-        XCTAssertEqual(app.staticTexts["workoutShareFormat"].label, "Chart Card")
-        screenshot("Share drawer automatically after save")
-        app.buttons["shareSelectedWorkoutFormat"].tap()
-        XCTAssertTrue(app.navigationBars["Chart Card"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.buttons["shareWorkoutImage"].exists)
-        app.buttons["closeWorkoutCardEditor"].tap()
-        app.buttons["closeWorkoutShareDrawer"].tap()
+        let savedCard = app.buttons["openSavedWorkout"]
+        XCTAssertTrue(savedCard.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Workout saved"].exists)
+        XCTAssertTrue(savedCard.label.contains(title))
+        XCTAssertFalse(app.buttons["closeWorkoutShareDrawer"].exists)
+        XCTAssertFalse(app.buttons["shareSelectedWorkoutFormat"].exists)
+        screenshot("Workout saved chart card")
+        savedCard.tap()
+        XCTAssertTrue(app.navigationBars["Workout"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["editSavedWorkout"].exists)
+        XCTAssertTrue(app.buttons["openWorkoutShareDrawer"].exists)
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", title)).firstMatch.exists)
+        app.navigationBars["Workout"].buttons["Done"].tap()
         XCTAssertTrue(app.buttons["Workout"].waitForExistence(timeout: 5))
         app.buttons["Settings"].tap()
         let healthDeny = app.buttons["UIA.Health.DoNotAllow.Button"]
@@ -145,13 +153,7 @@ final class ModernInterfaceUITests: XCTestCase {
     @MainActor
     private func launchHome(_ app: XCUIApplication) {
         app.launch()
-        // Recover only the isolated simulator session from an interrupted test.
-        if app.buttons["xmark"].waitForExistence(timeout: 2) {
-            app.buttons["xmark"].tap()
-            if app.alerts["Clear Workout"].waitForExistence(timeout: 1) {
-                app.alerts["Clear Workout"].buttons["Clear"].tap()
-            }
-        }
+        app.resetWorkoutAndReturnHome()
     }
 
     @MainActor

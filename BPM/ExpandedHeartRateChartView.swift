@@ -78,6 +78,7 @@ struct ExpandedHeartRateChartView: View {
                 chartControls
             }
             .navigationTitle(workoutTitle)
+            .analyticsScreen(.workoutChart)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {

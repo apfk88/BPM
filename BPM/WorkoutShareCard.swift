@@ -9,10 +9,104 @@ enum WorkoutShareStyle: String, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
-private enum WorkoutCardPalette {
+enum WorkoutCardPalette {
     static let background = Color(red: 0.065, green: 0.075, blue: 0.09)
     static let coral = Color(red: 1, green: 0.39, blue: 0.34)
     static let muted = Color(red: 0.63, green: 0.66, blue: 0.70)
+}
+
+enum WorkoutShareAccent: String, CaseIterable, Identifiable {
+    case white = "White"
+    case red = "Red"
+    case orange = "Orange"
+    case yellow = "Yellow"
+    case green = "Green"
+    case blue = "Blue"
+    case indigo = "Indigo"
+    case violet = "Violet"
+
+    var id: String { rawValue }
+
+    var color: Color {
+        switch self {
+        case .white: .white
+        case .red: WorkoutCardPalette.coral
+        case .orange: .orange
+        case .yellow: .yellow
+        case .green: .green
+        case .blue: .blue
+        case .indigo: .indigo
+        case .violet: .purple
+        }
+    }
+
+    var foregroundColor: Color {
+        let resolved = UIColor(color).resolvedColor(with: UITraitCollection(userInterfaceStyle: .dark))
+        var red: CGFloat = 0
+        var green: CGFloat = 0
+        var blue: CGFloat = 0
+        guard resolved.getRed(&red, green: &green, blue: &blue, alpha: nil) else { return .black }
+        func linear(_ component: CGFloat) -> Double {
+            let value = Double(component)
+            return value <= 0.04045 ? value / 12.92 : pow((value + 0.055) / 1.055, 2.4)
+        }
+        let luminance = 0.2126 * linear(red) + 0.7152 * linear(green) + 0.0722 * linear(blue)
+        return luminance > 0.179 ? .black : .white
+    }
+}
+
+struct WorkoutShareAccentPicker: View {
+    @Binding var selection: WorkoutShareAccent
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @ScaledMetric(relativeTo: .subheadline) private var swatchSize: CGFloat = 32
+
+    var body: some View {
+        ScrollViewReader { proxy in
+            ScrollView(.horizontal) {
+                HStack(spacing: 10) {
+                    ForEach(WorkoutShareAccent.allCases) { accent in
+                        swatch(accent)
+                            .id(accent)
+                    }
+                }
+                .padding(.vertical, 3)
+            }
+            .scrollIndicators(.hidden)
+            .accessibilityIdentifier("workoutAccentScroll")
+            .onAppear { proxy.scrollTo(selection, anchor: .center) }
+            .onChange(of: selection) { _, accent in
+                withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
+                    proxy.scrollTo(accent, anchor: .center)
+                }
+            }
+        }
+    }
+
+    private func swatch(_ accent: WorkoutShareAccent) -> some View {
+        Button {
+            selection = accent
+        } label: {
+            Circle()
+                .fill(accent.color)
+                .frame(width: swatchSize, height: swatchSize)
+                .overlay {
+                    if selection == accent {
+                        Image(systemName: "checkmark")
+                            .font(.system(size: swatchSize * 0.36, weight: .bold))
+                            .foregroundStyle(accent.foregroundColor)
+                    }
+                }
+                .frame(width: max(44, swatchSize + 12), height: max(44, swatchSize + 12))
+                .overlay {
+                    Circle().strokeBorder(selection == accent ? Color.white : .clear, lineWidth: 2)
+                }
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(accent.rawValue) accent")
+        .accessibilityIdentifier("workoutAccent\(accent.rawValue)")
+        .accessibilityAddTraits(selection == accent ? .isSelected : [])
+    }
 }
 
 /// One design shared by history, the live preview, and the exported image.
@@ -20,8 +114,8 @@ struct WorkoutShareCard: View {
     let snapshot: WorkoutShareSnapshot
     let style: WorkoutShareStyle
     var compact = false
+    var accent: WorkoutShareAccent = .white
 
-    private var accent: Color { WorkoutCardPalette.coral }
     private var muted: Color { WorkoutCardPalette.muted }
 
     var body: some View {
@@ -29,7 +123,7 @@ struct WorkoutShareCard: View {
             header
             if style == .chart {
                 if !compact { title }
-                WorkoutSharePlot(snapshot: snapshot, showsAxes: !compact)
+                WorkoutSharePlot(snapshot: snapshot, showsAxes: !compact, accent: accent.color)
                     .frame(maxHeight: .infinity)
                 metrics
             } else {
@@ -43,7 +137,7 @@ struct WorkoutShareCard: View {
         .background {
             ZStack(alignment: .topTrailing) {
                 WorkoutCardPalette.background
-                RadialGradient(colors: [accent.opacity(0.13), .clear], center: .topTrailing,
+                RadialGradient(colors: [accent.color.opacity(0.13), .clear], center: .topTrailing,
                                startRadius: 0, endRadius: 320)
                 // A quiet frame gives the artwork definition against both dark and light surfaces.
                 RoundedRectangle(cornerRadius: 24).strokeBorder(.white.opacity(0.09), lineWidth: 1)
@@ -186,10 +280,11 @@ struct WorkoutShareCardPreview: View {
     let snapshot: WorkoutShareSnapshot
     let style: WorkoutShareStyle
     var compact = false
+    var accent: WorkoutShareAccent = .white
 
     var body: some View {
         GeometryReader { geometry in
-            WorkoutShareCard(snapshot: snapshot, style: style, compact: compact)
+            WorkoutShareCard(snapshot: snapshot, style: style, compact: compact, accent: accent)
                 .scaleEffect(geometry.size.width / 360, anchor: .topLeading)
         }
         .aspectRatio(360 / (compact ? 238 : 450), contentMode: .fit)
@@ -200,6 +295,7 @@ struct WorkoutShareCardPreview: View {
 struct WorkoutSharePlot: View {
     let snapshot: WorkoutShareSnapshot
     var showsAxes = true
+    var accent: Color = .white
 
     var body: some View {
         let points = snapshot.plotPoints
@@ -250,14 +346,14 @@ struct WorkoutSharePlot: View {
                             fill.addLine(to: CGPoint(x: position(first).x, y: height))
                             fill.closeSubpath()
                             context.fill(fill, with: .linearGradient(
-                                Gradient(colors: [WorkoutCardPalette.coral.opacity(0.35), WorkoutCardPalette.coral.opacity(0.01)]),
+                                Gradient(colors: [accent.opacity(0.35), accent.opacity(0.01)]),
                                 startPoint: .zero, endPoint: CGPoint(x: 0, y: height)))
-                            context.stroke(line, with: .color(WorkoutCardPalette.coral),
+                            context.stroke(line, with: .color(accent),
                                            style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
                         } else {
                             let point = position(first)
                             context.fill(Path(ellipseIn: CGRect(x: point.x - 1.5, y: point.y - 1.5, width: 3, height: 3)),
-                                         with: .color(WorkoutCardPalette.coral))
+                                         with: .color(accent))
                         }
                     }
                 }
@@ -287,8 +383,9 @@ struct WorkoutSharePlot: View {
 }
 
 enum WorkoutShareCardRenderer {
-    @MainActor static func image(snapshot: WorkoutShareSnapshot, style: WorkoutShareStyle) -> UIImage? {
-        let renderer = ImageRenderer(content: WorkoutShareCard(snapshot: snapshot, style: style))
+    @MainActor static func image(snapshot: WorkoutShareSnapshot, style: WorkoutShareStyle,
+                                 accent: WorkoutShareAccent = .white) -> UIImage? {
+        let renderer = ImageRenderer(content: WorkoutShareCard(snapshot: snapshot, style: style, accent: accent))
         renderer.scale = 3 // 1080 × 1350, matching the on-screen composition.
         return renderer.uiImage
     }

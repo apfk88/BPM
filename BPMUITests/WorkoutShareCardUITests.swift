@@ -32,7 +32,10 @@ final class WorkoutShareCardUITests: XCTestCase {
         XCTAssertNotEqual(start.value as? String, "0:00")
         reveal(end, in: editor)
         if end.frame.maxY > app.buttons["shareWorkoutImage"].frame.minY - 12 { editor.swipeUp() }
-        end.adjust(toNormalizedSliderPosition: 0.85)
+        // This slider exposes elapsed time, so drag its thumb without interpreting the value as a percentage.
+        let endThumb = end.coordinate(withNormalizedOffset: CGVector(dx: 0.98, dy: 0.5))
+        let trimmedEnd = end.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: 0.5))
+        endThumb.press(forDuration: 0.1, thenDragTo: trimmedEnd)
         XCTAssertNotEqual(end.value as? String, "42:00")
         XCTAssertNotEqual(app.staticTexts["selectedWorkoutDuration"].label, "42:00")
         XCTAssertTrue(app.buttons["resetWorkoutCard"].isEnabled)

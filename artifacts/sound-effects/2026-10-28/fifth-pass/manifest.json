@@ -1,0 +1,54 @@
+{
+  "status": "Revised work cue audition; app unchanged",
+  "generation_provider": "ElevenLabs, existing source reused",
+  "new_api_calls": 0,
+  "source": "../third-pass/source/interval-tubular-bell.wav",
+  "previous_work": "../fourth-pass/work-begins.wav",
+  "unchanged_rest": "../fourth-pass/rest-begins.wav",
+  "changes": "Restored complete generated bell decay at the same1.3 resampling ratio. Added a quiet diffuse reverb tail after100ms with restrained high frequencies. Preserved first100ms of the previously auditioned work cue exactly. Rest cue unmodified.",
+  "audio_format": {
+    "sample_rate_hz": 44100,
+    "channels": 1,
+    "pcm_bits": 16
+  },
+  "natural_source_duration_seconds": 1.538458,
+  "work_duration_seconds": 2.0,
+  "peak_dbfs": -4.31,
+  "rms_100ms": [
+    0.18796,
+    0.13889,
+    0.1005,
+    0.09318,
+    0.08313,
+    0.04978,
+    0.04368,
+    0.03514,
+    0.02283,
+    0.01853,
+    0.01135,
+    0.00645,
+    0.00441,
+    0.00281,
+    0.00221,
+    0.00158,
+    0.00126,
+    0.00073,
+    0.0005,
+    0.00013
+  ],
+  "rest_sha256": "2676d154dc4fbf3c89bebc8deeb8d6e7748cf946bf2ead8e6678fe0fc032d387",
+  "files": [
+    "work-begins.wav",
+    "work-then-rest.wav"
+  ],
+  "reverb": {
+    "rt60_seconds": 2.0,
+    "wet_to_dry_rms_ratio_150_to650ms": 0.4,
+    "wet_fade_in_ms": [
+      100,
+      180
+    ],
+    "wet_low_pass_hz": 3200,
+    "final_fade_ms": 200
+  }
+}

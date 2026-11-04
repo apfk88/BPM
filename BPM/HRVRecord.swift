@@ -49,7 +49,7 @@ extension HRVRecord {
     func jsonString() -> String {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        encoder.dateEncodingStrategy = .iso8601
+        encoder.dateEncodingStrategy = MeasurementDateCoding.encodingStrategy
         guard let data = try? encoder.encode(self) else { return "{}" }
         return String(data: data, encoding: .utf8) ?? "{}"
     }

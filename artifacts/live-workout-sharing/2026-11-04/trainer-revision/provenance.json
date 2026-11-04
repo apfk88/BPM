@@ -1,0 +1,36 @@
+{
+  "resultBundle": "test_sim_2026-11-04T16-51-19-132Z_pid65164_c6308d7c.xcresult",
+  "device": "BPM iOS 27 Review / iPhone 17e / iOS 27.0",
+  "screenshots": [
+    {
+      "file": "device-sharing-menu.png",
+      "test": "LiveHeartRateSharingUITests/testWorkoutCanStartAndStopLiveSharingWithoutInterruptingTimer()",
+      "testResult": "Passed"
+    },
+    {
+      "file": "device-viewing-menu.png",
+      "test": "SharedWorkoutViewerUITests/testViewerNavigatesIndependentlyAndCanControlWorkoutWithoutSaving()",
+      "testResult": "Passed"
+    },
+    {
+      "file": "viewer-home.png",
+      "test": "SharedWorkoutViewerUITests/testViewerNavigatesIndependentlyAndCanControlWorkoutWithoutSaving()",
+      "testResult": "Passed"
+    },
+    {
+      "file": "viewer-workout.png",
+      "test": "SharedWorkoutViewerUITests/testViewerNavigatesIndependentlyAndCanControlWorkoutWithoutSaving()",
+      "testResult": "Passed"
+    },
+    {
+      "file": "viewer-chart.png",
+      "test": "SharedWorkoutViewerUITests/testViewerNavigatesIndependentlyAndCanControlWorkoutWithoutSaving()",
+      "testResult": "Passed"
+    },
+    {
+      "file": "viewer-landscape-chart.png",
+      "test": "SharedWorkoutViewerUITests/testViewerNavigatesIndependentlyAndCanControlWorkoutWithoutSaving()",
+      "testResult": "Passed"
+    }
+  ]
+}

@@ -4,6 +4,25 @@ import Testing
 
 @Suite(.serialized)
 struct WorkoutStoreTests {
+    @Test func cloudReductionKeepsFullTimelineAndKnownSignalLoss() {
+        let start = Date(timeIntervalSince1970: 1_800_000_000)
+        let samples = (0..<239).map { index in
+            WorkoutHeartRateSample(timestamp: start.addingTimeInterval(Double(index)), bpm: 100 + index % 50,
+                                   workoutTime: Double(index),
+                                   invalidatedAt: index == 3 ? start.addingTimeInterval(3.5) : nil)
+        }
+        let reduced = WorkoutStore.downsampledSamples(samples, maxCount: 120)
+        #expect(reduced.count == 120)
+        #expect(reduced.first?.timestamp == samples.first?.timestamp)
+        #expect(reduced.last?.timestamp == samples.last?.timestamp)
+        #expect(reduced.contains { $0.invalidatedAt == start.addingTimeInterval(3.5) })
+
+        let small = WorkoutStore.downsampledSamples(Array(samples.prefix(7)), maxCount: 4)
+        #expect(small.map(\.workoutTime) == [0, 2, 4, 6])
+        #expect(small[1].bpm == samples[2].bpm)
+        #expect(small[1].invalidatedAt == start.addingTimeInterval(3.5))
+    }
+
     @MainActor @Test func editingDetailsPersistsAndKeepsLatestMeasurementsAndSync() async throws {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("workout-edit-\(UUID()).json")
         let defaults = UserDefaults(suiteName: "workout-edit-\(UUID())")!

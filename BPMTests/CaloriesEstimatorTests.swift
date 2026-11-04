@@ -16,7 +16,7 @@ struct CaloriesEstimatorTests {
             bodyFatPercent: nil,
             medsAffectingHr: false
         )
-        let samples = makeSamples(bpm: 60, count: 300)
+        let samples = makeSamples(bpm: 60, count: 301)
 
         let status = CaloriesEstimator.estimate(samples: samples, profile: profile)
         guard case let .available(estimate) = status else {
@@ -43,7 +43,7 @@ struct CaloriesEstimatorTests {
             bodyFatPercent: nil,
             medsAffectingHr: false
         )
-        let samples = makeSamples(bpm: 150, count: 300)
+        let samples = makeSamples(bpm: 150, count: 301)
 
         let status = CaloriesEstimator.estimate(samples: samples, profile: profile)
         guard case let .available(estimate) = status else {
@@ -52,15 +52,15 @@ struct CaloriesEstimatorTests {
         }
 
         #expect(estimate.method == .hrRegression)
-        let base = -55.097
-        let hrComponent = 0.631 * 150.0
-        let weightComponent = 0.199 * 80.0
-        let ageComponent = 0.202 * 40.0
-        let expectedPerMin = 0.239 * (base + hrComponent + weightComponent + ageComponent)
+        let base = -55.0969
+        let hrComponent = 0.6309 * 150.0
+        let weightComponent = 0.1988 * 80.0
+        let ageComponent = 0.2017 * 40.0
+        let expectedPerMin = (base + hrComponent + weightComponent + ageComponent) / 4.184
         #expect(abs(estimate.totalKcal - expectedPerMin * 5) < 0.2)
     }
 
-    @Test func currentProfileUsesMaleDefaultWhenSexWasNeverPersisted() {
+    @Test func currentProfileRequiresExplicitSexSelection() {
         let defaults = UserDefaults(suiteName: "calories-\(UUID().uuidString)")!
         defaults.set("80", forKey: CaloriesDefaultsKey.weightKg)
         defaults.set("40", forKey: CaloriesDefaultsKey.ageYears)
@@ -68,8 +68,8 @@ struct CaloriesEstimatorTests {
 
         let profile = UserEnergyProfileStore.currentProfile(defaults: defaults)
 
-        #expect(profile.sexAtBirth == .male)
-        #expect(profile.missingRequiredFields.isEmpty)
+        #expect(profile.sexAtBirth == nil)
+        #expect(profile.missingRequiredFields.contains("Sex at birth"))
     }
 
     @Test func requiredProfileWithoutRMRStillProducesEstimate() {
@@ -77,9 +77,10 @@ struct CaloriesEstimatorTests {
         defaults.set("80", forKey: CaloriesDefaultsKey.weightKg)
         defaults.set("40", forKey: CaloriesDefaultsKey.ageYears)
         defaults.set("180", forKey: CaloriesDefaultsKey.heightCm)
+        defaults.set("male", forKey: CaloriesDefaultsKey.sexAtBirth)
 
         let profile = UserEnergyProfileStore.currentProfile(defaults: defaults)
-        let samples = makeSamples(bpm: 150, count: 300)
+        let samples = makeSamples(bpm: 150, count: 301)
         let status = CaloriesEstimator.estimate(samples: samples, profile: profile)
 
         guard case let .available(estimate) = status else {
@@ -134,6 +135,203 @@ struct CaloriesEstimatorTests {
             return
         }
     }
+
+    @Test func measuredRMRIsUsedAtRestAndDoesNotRescaleVO2max() throws {
+        var profile = referenceProfile
+        profile.restHeartRate = 60
+        profile.maxHeartRate = 190
+        profile.vo2Max = 50
+        profile.rmrKcalPerDay = 1440
+        let resting = try estimate(makeSamples(bpm: 60, count: 301), profile: profile)
+        #expect(abs(resting.totalKcal - 5) < 0.000_001)
+        #expect(abs(resting.activeKcal) < 0.000_001)
+
+        let peak = try estimate(makeSamples(bpm: 190, count: 301), profile: profile)
+        // 50 ml/kg/min * 80 kg = 4 L/min; at 5 kcal/L, five minutes = 100 kcal.
+        #expect(abs(peak.totalKcal - 100) < 0.000_001)
+        #expect(abs(peak.activeKcal - 95) < 0.000_001)
+    }
+
+    @Test func regressionUsesFullFemaleCoefficients() throws {
+        var profile = referenceProfile
+        profile.sexAtBirth = .female
+        profile.weightKg = 65
+        profile.ageYears = 35
+        let result = try estimate(makeSamples(bpm: 145, count: 2401), profile: profile)
+        // Keytel's female equation gives 38.8223 kJ/min for these inputs.
+        #expect(abs(result.totalKcal - (38.8223 / 4.184 * 40)) < 0.000_001)
+    }
+
+    @Test func regressionSubtractsMeasuredRestingEnergy() throws {
+        var profile = referenceProfile
+        profile.rmrKcalPerDay = 1440
+        let result = try estimate(makeSamples(bpm: 150, count: 301), profile: profile)
+        #expect(abs(result.totalKcal - result.activeKcal - 5) < 0.000_001)
+    }
+
+    @Test func missingMeasurementsAreNotFilledForThirtySeconds() throws {
+        let samples = (Array(0...4) + Array(24...29)).map { sample(at: Double($0), bpm: 150) }
+        let result = try estimate(samples, duration: 30)
+        // 0...4 plus three fresh seconds, then six seconds from 24 to the end.
+        #expect(abs(result.usableDuration - 13) < 0.000_001)
+        #expect(result.gapCount == 1)
+        let continuous = try estimate(makeSamples(bpm: 150, count: 31))
+        #expect(abs(result.totalKcal / continuous.totalKcal - 13.0 / 30.0) < 0.000_001)
+    }
+
+    @Test func lastSampleDoesNotCreateAnExtraSecond() throws {
+        let result = try estimate(makeSamples(bpm: 150, count: 11))
+        #expect(result.usableDuration == 10)
+        let bounded = try estimate(makeSamples(bpm: 150, count: 11), duration: 10.25)
+        #expect(bounded.usableDuration == 10.25)
+        let stale = try estimate(makeSamples(bpm: 150, count: 11), duration: 100)
+        #expect(stale.usableDuration == 13)
+    }
+
+    @Test func estimateDoesNotDependOnNotificationFrequency() throws {
+        let sparse = stride(from: 0, through: 30, by: 2).map { sample(at: Double($0), bpm: $0 < 10 ? 100 : 150) }
+        let frequent = stride(from: 0.0, through: 30.0, by: 0.25).map { sample(at: $0, bpm: $0 < 10 ? 100 : 150) }
+        let sparseResult = try estimate(sparse)
+        let frequentResult = try estimate(frequent)
+        #expect(abs(sparseResult.totalKcal - frequentResult.totalKcal) < 0.000_001)
+        #expect(abs(sparseResult.activeKcal - frequentResult.activeKcal) < 0.000_001)
+    }
+
+    @Test func duplicateTimestampsDoNotAddDuration() throws {
+        let samples = makeSamples(bpm: 150, count: 31)
+        let regular = try estimate(samples)
+        let duplicate = try estimate(samples.flatMap { [$0, $0] })
+        #expect(abs(regular.totalKcal - duplicate.totalKcal) < 0.000_001)
+        #expect(duplicate.usableDuration == 30)
+    }
+
+    @Test func contactLossTerminatesPreviouslyHeldValue() throws {
+        let samples = (Array(0...9) + Array(20...30)).map { sample(at: Double($0), bpm: 150) }
+            + [sample(at: 10, bpm: 150, contact: .notDetected)]
+        let result = try estimate(samples)
+        #expect(result.usableDuration == 20)
+        #expect(result.gapCount >= 1)
+    }
+
+    @Test func invalidHeartRateRemainsAGapBoundary() throws {
+        let samples = (Array(0...9) + Array(20...30)).map { sample(at: Double($0), bpm: 150) }
+            + [sample(at: 10, bpm: 0)]
+        let result = try estimate(samples)
+        #expect(result.usableDuration == 20)
+    }
+
+    @Test func explicitSensorLossEndsTheLastValidCalorieInterval() throws {
+        var samples = makeSamples(bpm: 150, count: 31)
+        let start = samples[0].timestamp
+        samples[0].invalidatedAt = start.addingTimeInterval(0.25)
+        let result = try estimate(samples)
+        #expect(abs(result.usableDuration - 29.25) < 0.000_001)
+
+        // A lost connection at one second must leave the next second unmeasured,
+        // even when a new sensor reading arrives before the usual stale timeout.
+        var sparse = (Array(0...0) + Array(2...30)).map { sample(at: Double($0), bpm: 150) }
+        sparse[0].invalidatedAt = Date(timeIntervalSince1970: 1001)
+        let resumed = try estimate(sparse)
+        #expect(resumed.usableDuration == 29)
+    }
+
+    @Test func pausesCapHeldReadingsAtTheActualPauseBoundary() throws {
+        let start = Date(timeIntervalSince1970: 1000)
+        var samples = (0...9).map { sample(at: Double($0), bpm: 150) }
+        samples += (11...20).map {
+            HeartRateSample(value: 150, timestamp: start.addingTimeInterval(Double($0 + 100)), workoutTime: Double($0))
+        }
+        let result = try estimate(samples, duration: 21, pauses: [
+            WorkoutPause(start: start.addingTimeInterval(10), end: start.addingTimeInterval(110))
+        ])
+        #expect(result.usableDuration == 20)
+    }
+
+    @Test func activeTimelineIgnoresCalendarJumpWithoutInventingTime() throws {
+        let samples = (0...30).map { index in
+            HeartRateSample(value: 150,
+                            timestamp: Date(timeIntervalSince1970: 1000 + Double(index) + (index >= 15 ? 3600 : 0)),
+                            workoutTime: Double(index))
+        }
+        let result = try estimate(samples)
+        #expect(result.usableDuration == 29)
+    }
+
+    @Test func invalidProfileNumbersNeverProduceAnAvailableEstimate() {
+        for value in [Double.nan, .infinity, -.infinity, 0, -1, 1e100] {
+            for field in 0...3 {
+                var profile = referenceProfile
+                switch field {
+                case 0: profile.weightKg = value
+                case 1: profile.heightCm = value
+                case 2: profile.rmrKcalPerDay = value
+                default: profile.vo2Max = value
+                }
+                guard case .disabled = CaloriesEstimator.estimate(samples: makeSamples(bpm: 150, count: 31), profile: profile) else {
+                    #expect(Bool(false), "Invalid profile must be disabled")
+                    continue
+                }
+            }
+        }
+    }
+
+    @Test func inconsistentHeartRateInputsAreRejected() {
+        var profile = referenceProfile
+        profile.restHeartRate = 100
+        profile.maxHeartRate = 90
+        profile.vo2Max = 50
+        guard case .disabled = CaloriesEstimator.estimate(samples: makeSamples(bpm: 150, count: 31), profile: profile) else {
+            #expect(Bool(false), "Resting HR cannot exceed maximum HR")
+            return
+        }
+    }
+
+    @Test func medicationFlagIsLoadedAndDisablesUncalibratedHREstimates() {
+        let suite = "calories-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set("80", forKey: CaloriesDefaultsKey.weightKg)
+        defaults.set("40", forKey: CaloriesDefaultsKey.ageYears)
+        defaults.set("180", forKey: CaloriesDefaultsKey.heightCm)
+        defaults.set("male", forKey: CaloriesDefaultsKey.sexAtBirth)
+        defaults.set(true, forKey: CaloriesDefaultsKey.medsAffectingHr)
+        let profile = UserEnergyProfileStore.currentProfile(defaults: defaults)
+        #expect(profile.medsAffectingHr)
+        #expect(!profile.hasRequiredInputs)
+    }
+
+    @Test func confidenceDoesNotClaimValidationFromProfileCompleteness() {
+        var profile = referenceProfile
+        profile.maxHeartRate = 190
+        profile.restHeartRate = 60
+        profile.vo2Max = 50
+        profile.rmrKcalPerDay = 1440
+        #expect(CaloriesEstimator.confidence(for: profile, method: .hrrVO2) == 0)
+        #expect(CaloriesEstimator.confidenceLabel(for: 1) == "Not validated")
+    }
+
+    private var referenceProfile: UserEnergyProfile {
+        UserEnergyProfile(weightKg: 80, ageYears: 40, sexAtBirth: .male, heightCm: 180,
+                          restHeartRate: nil, maxHeartRate: nil, vo2Max: nil,
+                          rmrKcalPerDay: nil, bodyFatPercent: nil, medsAffectingHr: false)
+    }
+
+    private func sample(at time: TimeInterval, bpm: Int, contact: HeartRateSensorContactStatus = .unsupported) -> HeartRateSample {
+        HeartRateSample(value: bpm, timestamp: Date(timeIntervalSince1970: 1000 + time),
+                        workoutTime: time, sensorContactStatus: contact)
+    }
+
+    private func estimate(_ samples: [HeartRateSample], profile: UserEnergyProfile? = nil,
+                          duration: TimeInterval? = nil, pauses: [WorkoutPause] = []) throws -> CaloriesEstimate {
+        let status = CaloriesEstimator.estimate(samples: samples, profile: profile ?? referenceProfile,
+                                               workoutDuration: duration, pauses: pauses)
+        guard case let .available(result) = status else {
+            throw EstimateFailure.unavailable
+        }
+        return result
+    }
+
+    private enum EstimateFailure: Error { case unavailable }
 
     private func makeSamples(bpm: Int, count: Int) -> [HeartRateSample] {
         let start = Date()

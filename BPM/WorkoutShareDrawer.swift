@@ -1,19 +1,15 @@
 import SwiftUI
 
-struct SavedWorkoutShareRequest: Identifiable {
-    let record: WorkoutRecord
-    let activityOption: HealthKitActivityOption
-    var id: UUID { record.id }
-}
-
-/// One share picker for saved workouts and the end-of-workout flow.
+/// Share formats opened explicitly from a saved workout.
 struct WorkoutShareDrawer: View {
     let record: WorkoutRecord
     let source: ShareAnalyticsContext.Source
     @Environment(\.dismiss) private var dismiss
     @Environment(\.verticalSizeClass) private var verticalSizeClass
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var selection: ShareFormat? = .chart
     @State private var selectedCard: WorkoutShareStyle?
+    @State private var accent: WorkoutShareAccent = .white
     @State private var sharePayload: SharePayload?
     @State private var exportError: String?
     @State private var didTrackOpen = false
@@ -56,7 +52,7 @@ struct WorkoutShareDrawer: View {
     }
 
     private var currentFormat: ShareFormat { selection ?? .chart }
-    private let coral = Color(red: 1, green: 0.39, blue: 0.34)
+    private var isCardSelected: Bool { currentFormat == .chart || currentFormat == .stats }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -82,11 +78,24 @@ struct WorkoutShareDrawer: View {
                     HStack(spacing: 20) {
                         carousel
                         ScrollView {
-                            VStack(spacing: 12) { formatHeading; pageDots; shareButton }
+                            VStack(spacing: 12) {
+                                formatHeading
+                                pageDots
+                                shareButton
+                            }
                                 .padding(.vertical, 12)
                         }
                         .frame(width: min(300, geometry.size.width * 0.4))
                         .padding(.trailing, 20)
+                    }
+                } else if dynamicTypeSize.isAccessibilitySize {
+                    ScrollView {
+                        VStack(spacing: 12) {
+                            formatHeading.padding(.top, 12)
+                            carousel.frame(height: 350)
+                            pageDots
+                            shareButton.padding(.horizontal, 20).padding(.bottom, 12)
+                        }
                     }
                 } else {
                     VStack(spacing: 12) {
@@ -108,11 +117,11 @@ struct WorkoutShareDrawer: View {
         }
         .background(Color(uiColor: .secondarySystemBackground))
         .preferredColorScheme(.dark)
-        .presentationDetents([.fraction(0.75), .large])
+        .presentationDetents(dynamicTypeSize.isAccessibilitySize ? [.large] : [.fraction(0.75), .large])
         .presentationDragIndicator(.visible)
         .presentationCornerRadius(30)
         .sheet(item: $selectedCard) { style in
-            WorkoutShareCardEditor(record: record, style: style, source: source)
+            WorkoutShareCardEditor(record: record, style: style, source: source, accent: $accent)
         }
         .sheet(item: $sharePayload) { payload in
             ShareSheet(payload: payload)
@@ -148,6 +157,8 @@ struct WorkoutShareDrawer: View {
                         preview(format)
                             .frame(width: cardWidth, height: cardWidth * 1.25)
                             .shadow(color: .black.opacity(0.3), radius: 12, y: 8)
+                            .opacity(format == currentFormat ? 1 : 0.3)
+                            .animation(.easeInOut(duration: 0.2), value: currentFormat)
                             .frame(width: pageWidth, height: geometry.size.height)
                             .id(format)
                     }
@@ -171,7 +182,7 @@ struct WorkoutShareDrawer: View {
                 selectedCard = format == .chart ? .chart : .stats
             } label: {
                 WorkoutShareCardPreview(snapshot: WorkoutShareSnapshot(record: record),
-                                        style: format == .chart ? .chart : .stats)
+                                        style: format == .chart ? .chart : .stats, accent: accent)
             }
             .buttonStyle(.plain)
             .accessibilityIdentifier(format == .chart ? "openChartCard" : "openStatsCard")
@@ -230,8 +241,8 @@ struct WorkoutShareDrawer: View {
                 .frame(maxWidth: .infinity)
         }
         .buttonStyle(.borderedProminent)
-        .tint(coral)
-        .foregroundStyle(.black)
+        .tint(isCardSelected ? accent.color : .white)
+        .foregroundStyle(isCardSelected ? accent.foregroundColor : .black)
         .controlSize(.large)
         .accessibilityIdentifier("shareSelectedWorkoutFormat")
     }

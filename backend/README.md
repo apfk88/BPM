@@ -1,6 +1,6 @@
 # BPM Sharing Backend
 
-Simple Next.js API backend for sharing heart rate data. Uses Vercel KV (Upstash Redis) for persistence.
+Next.js backend for live heart rate, workout controls, raw RR intervals, and share invitations. Uses Vercel KV (Upstash Redis) for persistence.
 
 ## Setup
 
@@ -26,11 +26,57 @@ vercel
 
 Or connect your GitHub repo to Vercel for automatic deployments.
 
+## Marketing reviews
+
+Featured App Store reviews live in `public/index.html` inside `#reviews`, directly
+after the chest strap section.
+Add a `figure.review-card` to `.review-grid` for each additional verified review.
+Show the review's star rating and complete verbatim text, with the public reviewer
+name and an App Store source link. Omit review titles and dates.
+The CSS grid automatically lays out multiple cards and stacks them on narrow screens. Reviews are static HTML, so
+they remain visible without JavaScript or an App Store API request.
+
+The first featured review is Loren Crow's five-star review (ID `14675064289`),
+posted October 16, 2026 for version 2.0.12. Its full text, author, rating,
+and date were verified against [Apple's US review feed](https://itunes.apple.com/us/rss/customerreviews/id=6754830191/sortBy=mostRecent/json)
+on October 28, 2026. Preserve the full review verbatim, including its original spelling and punctuation;
+verify new reviews before adding them. The full text was also checked against
+the review screenshot supplied by the user. Reviews are curated manually, not synced automatically.
+
+When changing `public/marketing-v2.css`, increment its `?v=` value in the HTML
+because production serves stylesheets with an immutable cache header.
+
 ## API Endpoints
 
-- `POST /api/share` - Create a new sharing session, returns `{ code, token }`
-- `POST /api/share/beat` - Update heart rate (requires `token` and `bpm` in body)
-- `GET /api/share/[code]` - Get latest heart rate for a share code, returns `{ bpm, timestamp }`
+- `POST /api/share` - Create a sharing session; returns `{ code, token }`.
+- `POST /api/share/beat` - Update heart rate and optional summaries using the host token.
+- `POST /api/share/workout` - Publish an ordered workout snapshot and acknowledge consumed controls; returns queued commands and server time. Requires the host token.
+- `POST /api/share/rr` - Publish raw RR intervals with source stream identity, interval IDs, and monotonic timestamps. Requires the host token.
+- `GET /api/share/[code]` - Read current heart rate, optional workout snapshot, and optional raw RR stream, with separate timestamps and server time. The host token is never returned.
+- `POST /api/share/control` - Request an allowed workout action using the viewer code, UUID command ID, workout ID, and current control revision. A preset payload is accepted only for `loadPreset`.
+- `DELETE /api/share` - End a session and remove its workout, RR stream, pending controls, and replay records. Requires the host token.
+- `GET /join/[code]` - Render the invite landing page for a six-digit code.
+
+Control actions are `work`, `rest`, `start`, `startIncludingHistory`, `pause`, `resume`, `end`, `reset`, `cool`, `loadPreset`, and `clearPreset`. Save remains local to the broadcaster. The server checks the snapshot's advertised actions, workout identity, revision, and five-second freshness; the broadcaster validates again before applying the command. Older snapshots without `allowedActions` retain only manual Work/Rest control support.
+
+Redis scripts atomically handle updates, command claims, acknowledgements, and replay protection. Sessions retain their original 90-minute expiry; updates cannot extend that lifetime or recreate a deleted session. See [protocol and validation](../docs/live-workout-sharing.md).
+
+Production verification on November 4, 2026: sharing deployment
+`dpl_AH8UrWd8hoHG8bXidCZMKFfDjtdt` is READY at `https://bpmtracker.app`.
+The sharing-only release passed 25 backend tests and 61 API checks on both its
+staged URL and the live domain. Legacy sessions retained their original expiry.
+Existing marketing and workout-recap code were preserved from the prior live
+source. See the protocol document for the complete test and rollout record.
+
+## App sharing workflow
+
+Device contains Start Sharing, Copy, Share Invite, Stop Sharing, and friend-code entry. Sharing and viewing are mutually exclusive: broadcasting hides friend-code entry, and the service rejects self-joining. Joining from Home, Workout, or HRV confirms ending and clearing an existing local workout, then disconnects the local monitor before entering shared mode. Invalid-code feedback stays in Device. When an established session ends, the viewer receives an alert and returns Home.
+
+Both devices navigate independently. Green heart/person and workout/person badges identify shared viewing, with no persistent code label or border. The viewer can operate the broadcaster's workout controls for the current state, but cannot save its workout or HRV result locally. Shared HRV uses a separate 120-second measurement of raw RR intervals on the monitor's source clock; rounded BPM is never treated as beat data.
+
+Share Invite sends `https://bpmtracker.app/join/{code}` through the native share sheet. The landing page's Open in BPM button uses `bpm://join?code={code}`. The app preloads Device and still requires Connect and any local-workout confirmation. The page also shows the code and an App Store link. It uses no-store caching and no-referrer metadata/headers; Vercel Analytics is omitted from join pages.
+
+The current trainer-control, raw-RR, and invite-link revision still needs its final validation and production deployment status recorded. Earlier results in the protocol document apply to superseded revisions.
 
 ## Error Contract
 
@@ -56,7 +102,7 @@ All API errors now return a stable shape:
 ## Workout voice capture
 
 `POST /api/workout-recap` accepts `{ "audio": "<base64 WAV>" }` and returns
-`{ "title": "Brief descriptive title", "description": "Detailed workout notes" }`.
+`{ "title": "Short, specific title", "description": "Shorthand workout bullets" }`.
 The iOS Save Workout form records locally, sends only on Send, and fills editable
 fields. It does not upload heart-rate samples, HealthKit data, or previous notes.
 
@@ -83,7 +129,23 @@ Defaults:
 The server checks the WAV contents: mono 16 kHz, signed 16-bit PCM, 0.5–60 seconds,
 under 1,930 KB, with a small silence check. The iOS recorder has its own 60-second
 limit. The route accepts up to 2800 KB of JSON and has a 55-second provider timeout.
-The model returns structured exercise entries; the server renders each as `- Exercise: details`, so descriptions always use bullets. English titles use the Oxford comma. Strength entries use stated sets, reps, and load; cardio entries use stated duration, distance, speed/pace, and incline. Missing units or reps are never inferred.
+The model returns structured entries; the server renders each as `- Exercise: details`, or just `- Exercise` when no details were stated, so descriptions always use bullets.
+
+Output guidance:
+
+- Titles name the main movements or activity and a useful stated distinction, such as circuit format or incline. Usually 3–7 words, aiming for at most 50 characters (80 maximum). Skip generic "Workout" or "Session" wording. English lists use the Oxford comma.
+- Descriptions use shorthand fragments: `3×8 @ 62.5 kg`, `4 sets`, or `20 min; 3 mph; 8% incline`. Preserve substantive details once, including uncertain counts, corrections, effort, and pain.
+- Group an explicitly stated circuit or superset in one bullet. State shared rounds and each movement's prescription once; keep standalone exercises separate.
+- Omit commentary about missing information, such as "reps not stated" or "unit unspecified". Never infer missing values or units; retain an unqualified load as given.
+- Keep descriptions as short as the facts allow, without narrative filler, repeated context, calculated totals, or advice.
+
+Example style for a stated 10-round circuit followed by four sets of hollow rocks:
+
+```text
+Chin-Up, Push-Up, and Squat Circuit
+- Circuit: 10 rounds × (5 chin-ups, 10 push-ups, 15 squats)
+- Hollow rocks: 4 sets
+```
 
 A failed request leaves the local recording available for retry. Dismissal,
 discard, and successful generation delete the temporary recording.

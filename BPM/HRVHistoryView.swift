@@ -30,6 +30,7 @@ struct HRVHistoryView: View {
             }
         }
         .navigationTitle("HRV History")
+        .analyticsScreen(.hrvHistory)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
@@ -139,6 +140,7 @@ private struct HRVDetailView: View {
             }
         }
         .navigationTitle("HRV Session")
+        .analyticsScreen(.hrvDetail)
     }
 
     private func detailRow(label: String, value: String?) -> some View {

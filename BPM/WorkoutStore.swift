@@ -214,7 +214,7 @@ final class WorkoutStore: ObservableObject {
     func exportAllJSON() -> String {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        encoder.dateEncodingStrategy = .iso8601
+        encoder.dateEncodingStrategy = MeasurementDateCoding.encodingStrategy
         guard let data = try? encoder.encode(workouts) else { return "[]" }
         return String(data: data, encoding: .utf8) ?? "[]"
     }
@@ -254,10 +254,10 @@ final class WorkoutStore: ObservableObject {
             try ensureDirectoryExists()
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-            encoder.dateEncodingStrategy = .iso8601
+            encoder.dateEncodingStrategy = MeasurementDateCoding.encodingStrategy
             let data = try encoder.encode(records)
             try data.write(to: storeURL, options: [.atomic])
-            persistToICloud(data: data, records: records, updatedAt: updatedAt)
+            persistToICloud(records: records, updatedAt: updatedAt)
             cachedRecords = records
             return true
         } catch {
@@ -325,7 +325,7 @@ final class WorkoutStore: ObservableObject {
         }
         let data = try Data(contentsOf: storeURL)
         let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
+        decoder.dateDecodingStrategy = MeasurementDateCoding.decodingStrategy
         let records = try decoder.decode([WorkoutRecord].self, from: data)
         let updatedAt = try? FileManager.default.attributesOfItem(atPath: storeURL.path)[.modificationDate] as? Date
         return (records, updatedAt)
@@ -336,8 +336,8 @@ final class WorkoutStore: ObservableObject {
             return ([], nil)
         }
         let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        let records = try decoder.decode([WorkoutRecord].self, from: data)
+        decoder.dateDecodingStrategy = MeasurementDateCoding.decodingStrategy
+        let records = try decoder.decode([WorkoutRecord].self, from: MeasurementDateCoding.restoringCloudPrecision(in: data))
         let updatedAtValue = iCloudStore.object(forKey: WorkoutICloudKey.updatedAt) as? TimeInterval
         let updatedAt = updatedAtValue.map { Date(timeIntervalSince1970: $0) }
         return (records, updatedAt)
@@ -366,9 +366,9 @@ final class WorkoutStore: ObservableObject {
         return Array(byId.values)
     }
 
-    private func persistToICloud(data: Data, records: [WorkoutRecord], updatedAt: Date) {
+    private func persistToICloud(records: [WorkoutRecord], updatedAt: Date) {
         let payloadData: Data
-        if data.count <= WorkoutICloudSyncLimit.targetPayloadBytes {
+        if let data = encodeForICloud(records), data.count <= WorkoutICloudSyncLimit.targetPayloadBytes {
             payloadData = data
         } else if let compact = makeICloudPayload(from: records) {
             payloadData = compact
@@ -414,8 +414,9 @@ final class WorkoutStore: ObservableObject {
     private func encodeForICloud(_ records: [WorkoutRecord]) -> Data? {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
-        encoder.dateEncodingStrategy = .iso8601
-        return try? encoder.encode(records)
+        encoder.dateEncodingStrategy = MeasurementDateCoding.encodingStrategy
+        guard let preciseData = try? encoder.encode(records) else { return nil }
+        return try? MeasurementDateCoding.legacyCompatibleCloudData(from: preciseData)
     }
 
     private func compactRecordForICloud(_ record: WorkoutRecord, maxSamples: Int) -> WorkoutRecord {
@@ -433,7 +434,7 @@ final class WorkoutStore: ObservableObject {
             hrr: record.hrr,
             caloriesTotal: record.caloriesTotal,
             caloriesActive: record.caloriesActive,
-            hrSamples: downsampledSamples(record.hrSamples, maxCount: maxSamples),
+            hrSamples: Self.downsampledSamples(record.hrSamples, maxCount: maxSamples),
             zones: record.zones,
             sets: record.sets,
             notes: record.notes,
@@ -449,28 +450,23 @@ final class WorkoutStore: ObservableObject {
         )
     }
 
-    private func downsampledSamples(_ samples: [WorkoutHeartRateSample], maxCount: Int) -> [WorkoutHeartRateSample] {
+    static func downsampledSamples(_ samples: [WorkoutHeartRateSample], maxCount: Int) -> [WorkoutHeartRateSample] {
         guard maxCount > 0 else { return [] }
         guard samples.count > maxCount else { return samples }
-
-        let step = max(1, samples.count / maxCount)
-        var reduced: [WorkoutHeartRateSample] = []
-        reduced.reserveCapacity(maxCount + 1)
-
-        var index = 0
-        while index < samples.count {
-            reduced.append(samples[index])
-            index += step
+        // Distribute points over the full recording, including both endpoints.
+        // Integer stride followed by prefix(maxCount) could discard the workout's tail.
+        let indices = maxCount == 1 ? [0] : (0..<maxCount).map {
+            $0 * (samples.count - 1) / (maxCount - 1)
         }
-
-        if let last = samples.last, reduced.last?.timestamp != last.timestamp {
-            reduced.append(last)
+        return indices.enumerated().map { position, index in
+            var retained = samples[index]
+            let next = position + 1 < indices.count ? indices[position + 1] : samples.count
+            // Reduction must preserve an explicit signal-loss boundary even when
+            // the original sample carrying it is omitted from the cloud copy.
+            retained.invalidatedAt = samples[index..<next].compactMap(\.invalidatedAt)
+                .filter { $0.timeIntervalSinceReferenceDate.isFinite }.min()
+            return retained
         }
-
-        if reduced.count > maxCount {
-            reduced = Array(reduced.prefix(maxCount))
-        }
-        return reduced
     }
 
     private func registerDefaults() {

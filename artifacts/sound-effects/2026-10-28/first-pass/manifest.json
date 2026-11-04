@@ -1,0 +1,184 @@
+{
+  "provider": "ElevenLabs",
+  "batch": "2026-10-28 first pass",
+  "sample_rate_hz": 44100,
+  "channels": 1,
+  "format": "16-bit PCM WAV",
+  "generation_sources": [
+    {
+      "id": "bpm-threshold-down",
+      "provider": "ElevenLabs",
+      "output_format": "mp3_44100_128",
+      "text": "Exactly two short rounded electronic pluck notes: higher then distinctly lower, A5 then E5. Warm sine-like timbre with a tiny glass overtone. First note 120ms, silence 60ms, second note 120ms, then silence. One descending pair for a minimalist fitness app. Gentle precise attack. Dry isolated sound. No echo, reverb, music, voice, bass thump or extra notes.",
+      "duration_seconds": 0.5,
+      "prompt_influence": 0.75,
+      "model_id": "eleven_text_to_sound_v2",
+      "loop": false,
+      "response": {
+        "status": 200,
+        "content_type": "audio/mpeg",
+        "bytes": 8820,
+        "character_cost": "3"
+      }
+    },
+    {
+      "id": "bpm-threshold-up",
+      "provider": "ElevenLabs",
+      "output_format": "mp3_44100_128",
+      "text": "Exactly two short rounded electronic pluck notes: lower then distinctly higher, E5 then A5. Warm sine-like timbre with a tiny glass overtone. First note 120ms, silence 60ms, second note 120ms, then silence. One ascending pair for a minimalist fitness app. Gentle precise attack. Dry isolated sound. No echo, reverb, music, voice, bass thump or extra notes.",
+      "duration_seconds": 0.5,
+      "prompt_influence": 0.75,
+      "model_id": "eleven_text_to_sound_v2",
+      "loop": false,
+      "response": {
+        "status": 200,
+        "content_type": "audio/mpeg",
+        "bytes": 8820,
+        "character_cost": "3"
+      }
+    },
+    {
+      "id": "hrv-complete",
+      "provider": "ElevenLabs",
+      "output_format": "mp3_44100_128",
+      "text": "One calm resolved completion chime for a minimalist fitness app. A soft warm glass chord struck once, gently blooming and decaying fully within 800 milliseconds. Restful and reassuring, clearly audible with eyes closed. Start immediately. One simultaneous consonant chord, no ascending or descending melody. Dry clean studio sound, no voice, music bed, ambience, echo or long reverb.",
+      "duration_seconds": 0.9,
+      "prompt_influence": 0.75,
+      "model_id": "eleven_text_to_sound_v2",
+      "loop": false,
+      "response": {
+        "status": 200,
+        "content_type": "audio/mpeg",
+        "bytes": 15089,
+        "character_cost": "5"
+      }
+    },
+    {
+      "id": "preset-phase-end",
+      "provider": "ElevenLabs",
+      "output_format": "mp3_44100_128",
+      "text": "One single crisp wooden-glass electronic knock with a warm body and a short clean decay, lasting 400 milliseconds. A precise interval timer marker for a minimalist fitness app. Clear over music but comfortable and restrained. One hit only, starting immediately. Dry isolated studio sound. No melody, repeated hits, alarm, voice, music, ambience, echo or long reverb.",
+      "duration_seconds": 0.5,
+      "prompt_influence": 0.75,
+      "model_id": "eleven_text_to_sound_v2",
+      "loop": false,
+      "response": {
+        "status": 200,
+        "content_type": "audio/mpeg",
+        "bytes": 8820,
+        "character_cost": "3"
+      }
+    },
+    {
+      "id": "zone-pulse",
+      "provider": "ElevenLabs",
+      "output_format": "mp3_44100_128",
+      "text": "One single rounded electronic pulse at the very beginning, about 100 milliseconds long, then complete silence. Warm mid-pitched 520Hz sine-like tone with a gentle precise attack and very short clean decay. Minimalist fitness app zone indicator, instantly countable when repeated. Only one hit. Dry isolated sound. No echo, reverb, second attack, pitch flourish, voice, music or noise.",
+      "duration_seconds": 0.5,
+      "prompt_influence": 0.75,
+      "model_id": "eleven_text_to_sound_v2",
+      "loop": false,
+      "response": {
+        "status": 200,
+        "content_type": "audio/mpeg",
+        "bytes": 8820,
+        "character_cost": "3"
+      }
+    }
+  ],
+  "reported_character_cost": 17,
+  "processing": {
+    "bpm_pair": "Both cues derived from generated bpm-threshold-up pluck, measured dominant frequency 311.22 Hz; resampled to 660 and 880 Hz, 120ms notes, 60ms gap, order swapped without reversing samples. The separately generated down candidate was not used in the finished pair.",
+    "zone": "First 100ms of generated pulse, with 6ms attack and 15ms release fades. Exactly 100ms silence between pulses.",
+    "interval": "Generated interval marker trimmed to460ms with short edge fades.",
+    "hrv": "Generated completion chime trimmed to800ms with short edge fades.",
+    "levels": "Each cue or component balanced by maximum20ms RMS to -18dBFS with a -6dBFS peak ceiling. Perceived loudness still subject to listener review."
+  },
+  "files": [
+    {
+      "file": "bpm-threshold-up.wav",
+      "seconds": 0.3,
+      "peak_dbfs": -10.93,
+      "rms_dbfs": -25.48,
+      "clipped_samples": 0
+    },
+    {
+      "file": "bpm-threshold-down.wav",
+      "seconds": 0.3,
+      "peak_dbfs": -10.93,
+      "rms_dbfs": -25.48,
+      "clipped_samples": 0
+    },
+    {
+      "file": "zone-pulse.wav",
+      "seconds": 0.1,
+      "peak_dbfs": -14.32,
+      "rms_dbfs": -18.8,
+      "clipped_samples": 0
+    },
+    {
+      "file": "preset-phase-end.wav",
+      "seconds": 0.46,
+      "peak_dbfs": -6.92,
+      "rms_dbfs": -28.92,
+      "clipped_samples": 0
+    },
+    {
+      "file": "hrv-complete.wav",
+      "seconds": 0.8,
+      "peak_dbfs": -12.98,
+      "rms_dbfs": -27.98,
+      "clipped_samples": 0
+    },
+    {
+      "file": "zone-1.wav",
+      "seconds": 0.1,
+      "peak_dbfs": -14.32,
+      "rms_dbfs": -18.8,
+      "clipped_samples": 0
+    },
+    {
+      "file": "zone-2.wav",
+      "seconds": 0.3,
+      "peak_dbfs": -14.32,
+      "rms_dbfs": -20.56,
+      "clipped_samples": 0
+    },
+    {
+      "file": "zone-3.wav",
+      "seconds": 0.5,
+      "peak_dbfs": -14.32,
+      "rms_dbfs": -21.02,
+      "clipped_samples": 0
+    },
+    {
+      "file": "zone-4.wav",
+      "seconds": 0.7,
+      "peak_dbfs": -14.32,
+      "rms_dbfs": -21.23,
+      "clipped_samples": 0
+    },
+    {
+      "file": "zone-5.wav",
+      "seconds": 0.9,
+      "peak_dbfs": -14.32,
+      "rms_dbfs": -21.35,
+      "clipped_samples": 0
+    },
+    {
+      "file": "zone-counts-1-to-5.wav",
+      "seconds": 6.2,
+      "peak_dbfs": -14.32,
+      "rms_dbfs": -24.96,
+      "clipped_samples": 0
+    },
+    {
+      "file": "bpm-up-down-comparison.wav",
+      "seconds": 3.65,
+      "peak_dbfs": -10.93,
+      "rms_dbfs": -30.31,
+      "clipped_samples": 0
+    }
+  ],
+  "status": "Audition candidates, not integrated into app"
+}

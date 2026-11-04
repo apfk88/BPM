@@ -1,0 +1,88 @@
+{
+  "status": "Bundled in BPM/Sounds for local app build",
+  "source_provider": "ElevenLabs",
+  "runtime_network_requests": false,
+  "files": [
+    {
+      "file": "bpm-threshold-up.wav",
+      "source": "second-pass/bpm-threshold-up.wav",
+      "edit": "Exact copy of auditioned file",
+      "duration_seconds": 0.3,
+      "bytes": 26504,
+      "sha256": "6fb48460a41b48c9a816de8b1518f8b27f6351af4a66b950870414c747d82e31"
+    },
+    {
+      "file": "bpm-threshold-down.wav",
+      "source": "second-pass/bpm-threshold-down.wav",
+      "edit": "Exact copy of auditioned file",
+      "duration_seconds": 0.3,
+      "bytes": 26504,
+      "sha256": "f801d7f6ab312d75115933ab3700decbcc5d5e98344859c650fdab9f5a82e156"
+    },
+    {
+      "file": "work-begins.wav",
+      "source": "fifth-pass/work-begins.wav",
+      "edit": "Exact copy of auditioned file",
+      "duration_seconds": 2.0,
+      "bytes": 176444,
+      "sha256": "33cae972d0efb407f37d4f431a38cfc5c92122a456311aedd49f796be4cbb747"
+    },
+    {
+      "file": "rest-begins.wav",
+      "source": "fourth-pass/rest-begins.wav",
+      "edit": "Exact copy of auditioned file",
+      "duration_seconds": 1.7,
+      "bytes": 149984,
+      "sha256": "2676d154dc4fbf3c89bebc8deeb8d6e7748cf946bf2ead8e6678fe0fc032d387"
+    },
+    {
+      "file": "hrv-complete.wav",
+      "source": "second-pass/hrv-meditation-complete.wav",
+      "edit": "Exact copy of auditioned file",
+      "duration_seconds": 5.35,
+      "bytes": 471914,
+      "sha256": "4bca3d107c8928995b3037776e07306a1b815cc594ef2cb0cc40da3ef5465747"
+    },
+    {
+      "file": "zone-3.wav",
+      "source": "second-pass/zone-label-3.wav",
+      "edit": "Exact copy of auditioned file",
+      "duration_seconds": 0.813288,
+      "bytes": 71776,
+      "sha256": "1e75dc6bb5c5ac27d58854430e2961b1f064e3a960abd7b44531bfebda3c1057"
+    },
+    {
+      "file": "zone-1.wav",
+      "source": "integration/source/zone-1.mp3",
+      "edit": "Trimmed silence;3ms attack,12ms end fade; target -18dBFS RMS with -3dBFS peak ceiling",
+      "duration_seconds": 0.783311,
+      "bytes": 69132,
+      "sha256": "b5ff7302b4255664ab9326abd7ca021c610061be406a244c8ad8c844f6007d2b"
+    },
+    {
+      "file": "zone-2.wav",
+      "source": "integration/source/zone-2.mp3",
+      "edit": "Trimmed silence;3ms attack,12ms end fade; target -18dBFS RMS with -3dBFS peak ceiling",
+      "duration_seconds": 0.763401,
+      "bytes": 67376,
+      "sha256": "c79850dfa50c191e3c90dca9c78148f4876253365acfe6d534ea3c7c3afee40d"
+    },
+    {
+      "file": "zone-4.wav",
+      "source": "integration/source/zone-4.mp3",
+      "edit": "Trimmed silence;3ms attack,12ms end fade; target -18dBFS RMS with -3dBFS peak ceiling",
+      "duration_seconds": 0.793333,
+      "bytes": 70016,
+      "sha256": "ae402fce636336b10be8d0dca3cecd07aa800b98f853b4964cd723c508a635f0"
+    },
+    {
+      "file": "zone-5.wav",
+      "source": "integration/source/zone-5.mp3",
+      "edit": "Trimmed silence;3ms attack,12ms end fade; target -18dBFS RMS with -3dBFS peak ceiling",
+      "duration_seconds": 0.863129,
+      "bytes": 76172,
+      "sha256": "078ccd8f9edf12b4b30cfdc090abc1e98e1c4917cd3ab1a91f7a7d0fd74d6816"
+    }
+  ],
+  "completion_mapping": "Rest bell reused for cooldown start and workout completion; HRV uses its separate selected chime."
+}

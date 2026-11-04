@@ -28,21 +28,11 @@ struct BPMApp: App {
             BPMApp.endLiveActivity()
         }
         
-        // Clean up any stale Live Activities on launch
-        // Note: Force-closed apps cannot reliably clean up Live Activities due to iOS process termination.
-        // Activities will be cleaned up on next app launch if no active session exists.
+        // The controller serializes launch cleanup with sensor/timer restoration.
+        // A delayed global end here could erase a newly restored workout.
         #if canImport(ActivityKit)
         if #available(iOS 16.1, *) {
-            Task.detached(priority: .high) {
-                // Small delay to let SharingService restore state first
-                try? await Task.sleep(nanoseconds: 200_000_000) // 0.2 seconds
-                // Only clean up if no active session (to avoid race with state restoration)
-                let isSharing = await MainActor.run { SharingService.shared.isSharing }
-                let isViewing = await MainActor.run { SharingService.shared.isViewing }
-                if !isSharing && !isViewing {
-                    await HeartRateActivityController.shared.endActivity()
-                }
-            }
+            HeartRateActivityController.shared.refreshActivity()
         }
         #endif
     }
@@ -51,7 +41,9 @@ struct BPMApp: App {
         WindowGroup {
             Group {
                 #if DEBUG
-                if ProcessInfo.processInfo.arguments.contains("--workout-share-ui-test") {
+                if ProcessInfo.processInfo.arguments.contains("--live-activity-ui-test") {
+                    LiveActivityPreviewScene()
+                } else if ProcessInfo.processInfo.arguments.contains("--workout-share-ui-test") {
                     WorkoutSharePreviewScene()
                 } else {
                     HeartRateDisplayView()
@@ -64,8 +56,18 @@ struct BPMApp: App {
             .preferredColorScheme(.dark)
         }
         .onChange(of: scenePhase) { oldPhase, newPhase in
+            #if DEBUG
+            // Keep fixture readings isolated from the real Bluetooth lifecycle.
+            if ProcessInfo.processInfo.arguments.contains("--live-activity-ui-test") { return }
+            #endif
             switch newPhase {
             case .active:
+                AppAnalytics.recordConfiguration()
+                #if canImport(ActivityKit)
+                if #available(iOS 16.1, *) {
+                    HeartRateActivityController.shared.refreshActivity()
+                }
+                #endif
                 bluetoothManager.enterForeground()
                 bluetoothManager.startScanning()
                 IdleTimer.disable()
