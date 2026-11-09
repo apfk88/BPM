@@ -29,6 +29,16 @@ enum SexAtBirth: String, CaseIterable, Identifiable {
     }
 }
 
+enum CalorieSetupState: Equatable {
+    case notStarted
+    case incomplete
+    case needsReview
+    case unavailable
+    case basic
+    case personalized
+    case complete
+}
+
 struct UserEnergyProfile {
     var weightKg: Double?
     var ageYears: Int?
@@ -41,12 +51,16 @@ struct UserEnergyProfile {
     var bodyFatPercent: Double?
     var medsAffectingHr: Bool
 
-    var missingRequiredFields: [String] {
+    private var missingBasicFields: [String] {
         var missing: [String] = []
         if !Self.valid(weightKg, in: 1...1000) { missing.append("Weight") }
         if !(1...130).contains(ageYears ?? 0) { missing.append("Age") }
-        if sexAtBirth == nil { missing.append("Sex at birth") }
-        if !Self.valid(heightCm, in: 1...300) { missing.append("Height") }
+        if sexAtBirth == nil { missing.append("Sex") }
+        return missing
+    }
+
+    var missingRequiredFields: [String] {
+        var missing = missingBasicFields
         if let restHeartRate, !(20...250).contains(restHeartRate) { missing.append("Resting HR") }
         if let maxHeartRate, !(30...250).contains(maxHeartRate) { missing.append("Max HR") }
         if let restHeartRate, let maxHeartRate, maxHeartRate <= restHeartRate {
@@ -68,6 +82,58 @@ struct UserEnergyProfile {
 
     var hasRequiredInputs: Bool {
         missingRequiredFields.isEmpty
+    }
+
+    var setupState: CalorieSetupState {
+        if !missingBasicFields.isEmpty {
+            return weightKg == nil && ageYears == nil && sexAtBirth == nil ? .notStarted : .incomplete
+        }
+        if medsAffectingHr { return .unavailable }
+        if !hasRequiredInputs { return .needsReview }
+        guard CaloriesEstimator.preferredMethod(for: self) == .hrrVO2 else { return .basic }
+        return maxHeartRate != nil && rmrKcalPerDay != nil ? .complete : .personalized
+    }
+
+    var needsCalorieSetupAttention: Bool {
+        switch setupState {
+        case .notStarted, .incomplete, .needsReview:
+            return true
+        case .unavailable, .basic, .personalized, .complete:
+            return false
+        }
+    }
+
+    var setupTitle: String {
+        switch setupState {
+        case .notStarted: return "Not set up"
+        case .incomplete: return "Setup incomplete"
+        case .needsReview: return "Check details"
+        case .unavailable: return "Unavailable"
+        case .basic: return "Basic"
+        case .personalized: return "Personalized"
+        case .complete: return "Complete"
+        }
+    }
+
+    var setupDetail: String {
+        switch setupState {
+        case .notStarted:
+            return "Add weight, age and sex to enable calorie estimates."
+        case .incomplete:
+            return "Add or correct: \(missingBasicFields.joined(separator: ", "))."
+        case .needsReview:
+            return "Review: \(missingRequiredFields.joined(separator: ", "))."
+        case .unavailable:
+            return "HR-based calorie estimates are unavailable when medication affects your heart rate."
+        case .basic:
+            return "Uses weight, age and sex."
+        case .personalized:
+            return maxHeartRate == nil
+                ? "Uses resting HR and VO2max, with max HR estimated from age."
+                : "Uses resting HR, VO2max and your entered max HR."
+        case .complete:
+            return "Uses your heart-rate range, VO2max and resting metabolic rate."
+        }
     }
 
     var derivedMaxHeartRate: Double? {

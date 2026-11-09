@@ -26,6 +26,7 @@ final class WorkoutStore: ObservableObject {
     @Published private(set) var workouts: [WorkoutRecord] = []
     @Published private(set) var lastError: String?
 
+    private let failureReporter: AppFailureReporter
     private let storeURL: URL
     private let userDefaults: UserDefaults
     private let iCloudStore: ICloudKeyValueStore
@@ -35,8 +36,10 @@ final class WorkoutStore: ObservableObject {
     init(
         storeURL: URL = WorkoutStore.defaultStoreURL(),
         userDefaults: UserDefaults = .standard,
-        iCloudStore: ICloudKeyValueStore = NSUbiquitousKeyValueStore.default
+        iCloudStore: ICloudKeyValueStore = NSUbiquitousKeyValueStore.default,
+        failureReporter: AppFailureReporter = AppFailureReporter()
     ) {
+        self.failureReporter = failureReporter
         self.storeURL = storeURL
         self.userDefaults = userDefaults
         self.iCloudStore = iCloudStore
@@ -226,6 +229,7 @@ final class WorkoutStore: ObservableObject {
                 let local = try self.loadLocalRecords()
                 let remote = try self.loadICloudRecords()
 
+                self.failureReporter.recovered(.workoutStore, .load)
                 let selected = self.preferredRecords(local: local, remote: remote)
                 let records = self.pruneRetentionInternal(records: selected.records, now: Date())
                 if local.updatedAt != nil || remote.updatedAt != nil {
@@ -240,6 +244,7 @@ final class WorkoutStore: ObservableObject {
                 }
             } catch {
                 if (error as NSError).code != NSFileReadNoSuchFileError {
+                    self.failureReporter.report(.workoutStore, .load, error: error)
                     DispatchQueue.main.async {
                         self.lastError = "Failed to load workouts"
                     }
@@ -259,8 +264,10 @@ final class WorkoutStore: ObservableObject {
             try data.write(to: storeURL, options: [.atomic])
             persistToICloud(records: records, updatedAt: updatedAt)
             cachedRecords = records
+            failureReporter.recovered(.workoutStore, .save)
             return true
         } catch {
+            failureReporter.report(.workoutStore, .save, error: error)
             DispatchQueue.main.async {
                 self.lastError = "Failed to save workouts"
             }
@@ -300,6 +307,7 @@ final class WorkoutStore: ObservableObject {
             do {
                 let local = try self.loadLocalRecords()
                 let remote = try self.loadICloudRecords()
+                self.failureReporter.recovered(.workoutStore, .sync)
                 guard let remoteUpdatedAt = remote.updatedAt else { return }
                 let localUpdatedAt = local.updatedAt
                 if localUpdatedAt == nil || remoteUpdatedAt > localUpdatedAt ?? .distantPast {
@@ -312,6 +320,7 @@ final class WorkoutStore: ObservableObject {
                     }
                 }
             } catch {
+                self.failureReporter.report(.workoutStore, .sync, error: error)
                 DispatchQueue.main.async {
                     self.lastError = "Failed to sync workouts"
                 }

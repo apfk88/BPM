@@ -10,7 +10,11 @@ enum HRVMeasurementState: Equatable {
 }
 
 final class HRVMeasurementViewModel: ObservableObject {
-    @Published var state: HRVMeasurementState = .idle
+    @Published var state: HRVMeasurementState = .idle {
+        didSet {
+            if state != oldValue { sharingRevision = UUID().uuidString }
+        }
+    }
     @Published var remainingTime: TimeInterval = 120
     @Published var hrvValue: Double?
     @Published var avgHeartRate: Int?
@@ -18,6 +22,8 @@ final class HRVMeasurementViewModel: ObservableObject {
     @Published var maxHeartRate: Int?
     @Published var currentBPM: Int?
     @Published private(set) var isRemoteMeasurement = false
+    @Published private(set) var isMirroringSharedMeasurement = false
+    private(set) var sharingRevision = UUID().uuidString
 
     private var timer: Timer?
     private var liveHeartRateTimer: Timer?
@@ -31,6 +37,7 @@ final class HRVMeasurementViewModel: ObservableObject {
     private var startTicks: TimeInterval?
     private var streamID: UUID?
     private var completedAt: Date?
+    private var measurementSensorIdentity: SensorAnalyticsIdentity?
     private let measurementDuration: TimeInterval = 120
     private let emitAnalytics: (AppAnalytics.Event, [String: String]) -> Void
     private let ticksProvider: () -> TimeInterval
@@ -45,6 +52,8 @@ final class HRVMeasurementViewModel: ObservableObject {
     /// receipt timing must not move raw beats into or out of the 120-second window.
     var measurementTicks: (() -> TimeInterval?)?
     var isRemoteSource: (() -> Bool)?
+    var startReadiness: (() -> HRVStartReadiness)?
+    var currentSensorAnalyticsIdentity: (() -> SensorAnalyticsIdentity?)?
 
     init(
         ticksProvider: @escaping () -> TimeInterval = { MeasurementClock.ticks },
@@ -66,16 +75,128 @@ final class HRVMeasurementViewModel: ObservableObject {
         return nil
     }
 
+    /// Configure acquisition at the app level so a viewer can start a host
+    /// measurement before the host has ever opened the HRV screen.
+    func configureLocalSource(_ manager: HeartRateBluetoothManager) {
+        if isMirroringSharedMeasurement { reset() }
+        currentHeartRate = { [weak manager] in manager?.freshHeartRate }
+        getRRIntervals = { [weak manager] in manager?.rrIntervals ?? [] }
+        supportsRRIntervals = { [weak manager] in manager?.supportsRRIntervals == true }
+        currentRRStreamID = { [weak manager] in
+            guard manager?.hasActiveDataSource == true else { return nil }
+            return manager?.rrStreamID
+        }
+        measurementTicks = nil
+        isRemoteSource = { false }
+        currentSensorAnalyticsIdentity = { [weak manager] in manager?.sensorAnalyticsIdentity }
+        startReadiness = { [weak manager, weak self] in
+            .local(isConnected: manager?.hasActiveDataSource == true,
+                   hasSensorContact: manager?.sensorContactStatus != .notDetected,
+                   hasFreshHeartRate: manager?.freshHeartRate != nil,
+                   supportsRR: manager?.supportsRRIntervals == true,
+                   latestRRTicks: manager?.rrIntervals.last?.receivedTicks,
+                   nowTicks: self?.ticksProvider() ?? MeasurementClock.ticks)
+        }
+        observeHeartRate(from: manager.heartRateMeasurements.eraseToAnyPublisher())
+    }
+
+    func sharedSnapshot(isPresented: Bool, allowsRemoteControl: Bool = true) -> SharedHRVSnapshot {
+        let sharedState: SharedHRVSnapshot.State
+        switch state {
+        case .idle: sharedState = .idle
+        case .countingDown: sharedState = .measuring
+        case .completed: sharedState = .completed
+        case .error: sharedState = .error
+        }
+        let readiness = startReadiness?() ?? .local(
+            isConnected: currentRRStreamID?() != nil,
+            hasSensorContact: true,
+            hasFreshHeartRate: currentHeartRate?() != nil,
+            supportsRR: supportsRRIntervals?() == true,
+            latestRRTicks: getRRIntervals?().last?.receivedTicks,
+            nowTicks: acquisitionTicks ?? .nan
+        )
+        return SharedHRVSnapshot(
+            revision: sharingRevision, isPresented: isPresented, state: sharedState,
+            remainingTime: remainingTime, hrvValue: hrvValue,
+            avgHeartRate: avgHeartRate, minHeartRate: minHeartRate, maxHeartRate: maxHeartRate,
+            currentBPM: state == .idle && !isMirroringSharedMeasurement ? currentHeartRate?() : currentBPM,
+            readinessReason: readiness.reason, errorMessage: errorMessage,
+            allowsRemoteControl: allowsRemoteControl && !isMirroringSharedMeasurement && !isRemoteMeasurement
+        )
+    }
+
+    @discardableResult
+    func applySharedControl(_ action: SharedWorkoutAction) -> Bool {
+        guard sharedSnapshot(isPresented: true).permits(action) else { return false }
+        switch action {
+        case .hrvStart: startMeasurement()
+        case .hrvCancel, .hrvReset: reset(); startLiveHeartRateUpdates()
+        default: return false
+        }
+        return true
+    }
+
+    /// Mirroring never starts acquisition, runs quality checks, emits measurement
+    /// analytics, or creates a record in the viewer's history.
+    func mirrorSharedMeasurement(_ snapshot: SharedHRVSnapshot?, age: TimeInterval = 0) {
+        if !isMirroringSharedMeasurement { reset() }
+        isMirroringSharedMeasurement = true
+        isRemoteMeasurement = true
+        timer?.invalidate()
+        timer = nil
+        stopLiveHeartRateUpdates()
+        heartRateCancellable = nil
+        guard let snapshot, snapshot.isValid else {
+            state = .idle
+            remainingTime = measurementDuration
+            hrvValue = nil
+            avgHeartRate = nil
+            minHeartRate = nil
+            maxHeartRate = nil
+            currentBPM = nil
+            return
+        }
+        remainingTime = snapshot.remainingTime(after: age)
+        hrvValue = snapshot.state == .completed ? snapshot.hrvValue : nil
+        avgHeartRate = snapshot.avgHeartRate
+        minHeartRate = snapshot.minHeartRate
+        maxHeartRate = snapshot.maxHeartRate
+        currentBPM = snapshot.currentBPM
+        switch snapshot.state {
+        case .idle: state = .idle
+        case .measuring: state = .countingDown
+        case .completed: state = .completed
+        case .error: state = .error(snapshot.errorMessage ?? "Unable to complete HRV measurement. Please try again.")
+        }
+    }
+
     func startMeasurement() {
-        guard state != .countingDown else { return }
+        guard !isMirroringSharedMeasurement, state != .countingDown else { return }
         reset()
         isRemoteMeasurement = isRemoteSource?() == true
-        guard supportsRRIntervals?() == true, currentHeartRate?() != nil || isRemoteMeasurement,
-              let currentStream = currentRRStreamID?(), let ticks = acquisitionTicks, ticks.isFinite else {
-            let message = isRemoteMeasurement
-                ? "HRV requires fresh raw beat intervals from the shared monitor. Check the monitor connection and keep sharing open."
-                : "HRV requires fresh beat intervals from your connected heart rate monitor. Check your strap connection and contact, then try again."
-            fail(reason: "sensor_unavailable", message)
+        measurementSensorIdentity = isRemoteMeasurement ? nil : currentSensorAnalyticsIdentity?()
+        if let readiness = startReadiness?(), !readiness.isReady {
+            fail(.readiness(readiness.reason), readiness.message)
+            return
+        }
+        let message = isRemoteMeasurement
+            ? "HRV requires fresh raw beat intervals from the shared monitor. Check the monitor connection and keep sharing open."
+            : "HRV requires fresh beat intervals from your connected heart rate monitor. Check your strap connection and contact, then try again."
+        guard supportsRRIntervals?() == true else {
+            fail(.start(.rrUnavailable), message)
+            return
+        }
+        guard currentHeartRate?() != nil || isRemoteMeasurement else {
+            fail(.start(.heartRateUnavailable), message)
+            return
+        }
+        guard let currentStream = currentRRStreamID?() else {
+            fail(.start(.streamUnavailable), message)
+            return
+        }
+        guard let ticks = acquisitionTicks, ticks.isFinite else {
+            fail(.start(.clockUnavailable), message)
             return
         }
         stopLiveHeartRateUpdates()
@@ -86,21 +207,35 @@ final class HRVMeasurementViewModel: ObservableObject {
         seenIntervals = Set((getRRIntervals?() ?? []).map(\.id))
         currentBPM = currentHeartRate?()
         state = .countingDown
-        emitAnalytics(.hrvStart, [:])
+        emitAnalytics(.hrvStart, sourceParameters)
         timer = Timer(timeInterval: 0.1, repeats: true) { [weak self] _ in self?.updateMeasurement() }
         RunLoop.main.add(timer!, forMode: .common)
     }
 
     /// Timer callbacks only refresh the display; monotonic time defines the window.
     func updateMeasurement() {
-        guard state == .countingDown, let startTicks else { return }
-        guard currentRRStreamID?() == streamID, supportsRRIntervals?() == true,
-              (isRemoteSource?() == true) == isRemoteMeasurement,
-              let nowTicks = acquisitionTicks, nowTicks.isFinite else {
-            let message = isRemoteMeasurement
-                ? "Shared beat data was interrupted or the monitor changed. Check the connection and measure again."
-                : "The sensor connection or contact changed during measurement. Check your strap and measure again."
-            fail(reason: "sensor_changed", message)
+        guard !isMirroringSharedMeasurement, state == .countingDown, let startTicks else { return }
+        let message = isRemoteMeasurement
+            ? "Shared beat data was interrupted or the monitor changed. Check the connection and measure again."
+            : "The sensor connection or contact changed during measurement. Check your strap and measure again."
+        guard (isRemoteSource?() == true) == isRemoteMeasurement else {
+            fail(.measurement(.sourceChanged), message)
+            return
+        }
+        guard let currentStream = currentRRStreamID?() else {
+            fail(.measurement(.streamUnavailable), message)
+            return
+        }
+        guard currentStream == streamID else {
+            fail(.measurement(.streamChanged), message)
+            return
+        }
+        guard supportsRRIntervals?() == true else {
+            fail(.measurement(.rrUnavailable), message)
+            return
+        }
+        guard let nowTicks = acquisitionTicks, nowTicks.isFinite else {
+            fail(.measurement(.clockUnavailable), message)
             return
         }
         let deadline = startTicks + measurementDuration
@@ -115,7 +250,7 @@ final class HRVMeasurementViewModel: ObservableObject {
         if nowTicks >= deadline {
             completeMeasurement()
         } else if nowTicks - (intervals.last?.receivedTicks ?? startTicks) > 5 {
-            fail(reason: "data_stopped", "Beat data stopped during measurement. Check your strap connection and measure again.")
+            fail(.dataStopped(receivedBeats: !intervals.isEmpty), "Beat data stopped during measurement. Check your strap connection and measure again.")
         }
     }
 
@@ -127,7 +262,7 @@ final class HRVMeasurementViewModel: ObservableObject {
 
     /// Capture every received sensor value; UI timer polls are not measurements.
     func recordHeartRateSample(_ sample: HeartRateSample) {
-        guard state == .countingDown, let startTicks, let startTime,
+        guard !isMirroringSharedMeasurement, state == .countingDown, let startTicks, let startTime,
               currentRRStreamID?() == streamID,
               (isRemoteSource?() == true) == isRemoteMeasurement,
               sample.value > 0, sample.sensorContactStatus != .notDetected,
@@ -146,12 +281,12 @@ final class HRVMeasurementViewModel: ObservableObject {
 
     private func completeMeasurement() {
         guard let startTicks, let startTime else { return }
-        if let error = HRVCalculator.qualityError(intervals: intervals, start: startTicks, duration: measurementDuration) {
-            fail(reason: "quality_check", error)
+        if let issue = HRVCalculator.qualityIssue(intervals: intervals, start: startTicks, duration: measurementDuration) {
+            fail(.quality(issue), issue.message)
             return
         }
         guard let result = HRVCalculator.rmssd(intervals.map(\.value)) else {
-            fail(reason: "calculation", "Unable to calculate HRV from this recording. Please measure again.")
+            fail(.calculation, "Unable to calculate HRV from this recording. Please measure again.")
             return
         }
         timer?.invalidate()
@@ -174,19 +309,67 @@ final class HRVMeasurementViewModel: ObservableObject {
         }
         completedAt = startTime.addingTimeInterval(measurementDuration)
         state = .completed
-        emitAnalytics(.hrvCompleted, [:])
+        emitAnalytics(.hrvCompleted, sourceParameters)
         playCompletionFeedback()
         startLiveHeartRateUpdates()
     }
 
-    private func fail(reason: String, _ message: String) {
-        emitAnalytics(.hrvFailed, ["reason": reason, "stage": state == .countingDown ? "measurement" : "start"])
+    private func fail(_ failure: Failure, _ message: String) {
+        emitAnalytics(.hrvFailed, sourceParameters.merging(failure.parameters) { _, new in new })
         timer?.invalidate()
         timer = nil
         hrvValue = nil
         completedAt = nil
         state = .error(message)
         startLiveHeartRateUpdates()
+    }
+
+    private var sourceParameters: [String: String] {
+        var parameters = ["source": isRemoteMeasurement ? "shared" : "local"]
+        if !isRemoteMeasurement, let measurementSensorIdentity {
+            parameters.merge(measurementSensorIdentity.parameters) { _, new in new }
+        }
+        return parameters
+    }
+
+    private enum AcquisitionFailure: String {
+        // RR availability includes freshness/contact. Do not imply the monitor
+        // lacks RR capability when the source only reports current availability.
+        case rrUnavailable = "rr_unavailable"
+        case heartRateUnavailable = "heart_rate_unavailable"
+        case streamUnavailable = "stream_unavailable"
+        case clockUnavailable = "clock_unavailable"
+        case streamChanged = "stream_changed"
+        case sourceChanged = "source_changed"
+    }
+
+    private enum Failure {
+        case readiness(HRVStartReadiness.Reason)
+        case start(AcquisitionFailure)
+        case measurement(AcquisitionFailure)
+        case dataStopped(receivedBeats: Bool)
+        case quality(HRVCalculator.QualityIssue)
+        case calculation
+
+        var parameters: [String: String] {
+            // Keep the established reason families; detail and stage provide
+            // bounded diagnostics with no readings, timing values, or IDs.
+            switch self {
+            case .readiness(let reason):
+                return ["reason": "sensor_unavailable", "stage": "start", "detail": reason.rawValue]
+            case .start(let issue):
+                return ["reason": "sensor_unavailable", "stage": "start", "detail": issue.rawValue]
+            case .measurement(let issue):
+                return ["reason": "sensor_changed", "stage": "measurement", "detail": issue.rawValue]
+            case .dataStopped(let receivedBeats):
+                return ["reason": "data_stopped", "stage": "measurement",
+                        "detail": receivedBeats ? "beat_data_stopped" : "no_beats_received"]
+            case .quality(let issue):
+                return ["reason": "quality_check", "stage": "validation", "detail": issue.rawValue]
+            case .calculation:
+                return ["reason": "calculation", "stage": "calculation", "detail": "invalid_result"]
+            }
+        }
     }
 
     private func playCompletionFeedback() {
@@ -207,6 +390,7 @@ final class HRVMeasurementViewModel: ObservableObject {
 
     func startLiveHeartRateUpdates() {
         stopLiveHeartRateUpdates()
+        guard !isMirroringSharedMeasurement else { return }
         liveHeartRateTimer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in
             guard let self, self.state != .countingDown else { return }
             self.currentBPM = self.currentHeartRate?()
@@ -220,7 +404,7 @@ final class HRVMeasurementViewModel: ObservableObject {
     }
 
     func reset() {
-        if state == .countingDown { emitAnalytics(.hrvCancelled, [:]) }
+        if state == .countingDown && !isMirroringSharedMeasurement { emitAnalytics(.hrvCancelled, sourceParameters) }
         timer?.invalidate()
         timer = nil
         state = .idle
@@ -240,6 +424,9 @@ final class HRVMeasurementViewModel: ObservableObject {
         streamID = nil
         completedAt = nil
         isRemoteMeasurement = false
+        isMirroringSharedMeasurement = false
+        sharingRevision = UUID().uuidString
+        measurementSensorIdentity = nil
     }
 
     func hrvRecord(recordId: UUID? = nil) -> HRVRecord? {

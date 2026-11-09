@@ -16,7 +16,7 @@
 	<key>NSBluetoothAlwaysUsageDescription</key>
 	<string>Connect to Bluetooth heart rate monitors.</string>
 	<key>NSHealthShareUsageDescription</key>
-	<string>Write saved workouts to Apple Health.</string>
+	<string>Read your weight, date of birth, sex, resting heart rate, and VO2 max to autofill calorie settings when you choose.</string>
 	<key>NSHealthUpdateUsageDescription</key>
 	<string>Write workout and heart rate data to Apple Health.</string>
 	<key>NSMicrophoneUsageDescription</key>

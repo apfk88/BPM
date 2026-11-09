@@ -188,7 +188,7 @@ struct WorkoutCaptureView: View {
                 isGenerating = false
             } catch {
                 guard !Task.isCancelled else { return }
-                AppAnalytics.signal(.voiceRecapFailed)
+                AppAnalytics.signal(.voiceRecapFailed, parameters: ["category": AppFailureCategory(error: error).rawValue])
                 errorMessage = (error as? URLError)?.code == .notConnectedToInternet
                     ? "You’re offline. Your recording is ready to send when you reconnect."
                     : error.localizedDescription

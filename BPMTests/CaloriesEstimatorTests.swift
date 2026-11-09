@@ -69,7 +69,7 @@ struct CaloriesEstimatorTests {
         let profile = UserEnergyProfileStore.currentProfile(defaults: defaults)
 
         #expect(profile.sexAtBirth == nil)
-        #expect(profile.missingRequiredFields.contains("Sex at birth"))
+        #expect(profile.missingRequiredFields.contains("Sex"))
     }
 
     @Test func requiredProfileWithoutRMRStillProducesEstimate() {
@@ -259,12 +259,11 @@ struct CaloriesEstimatorTests {
 
     @Test func invalidProfileNumbersNeverProduceAnAvailableEstimate() {
         for value in [Double.nan, .infinity, -.infinity, 0, -1, 1e100] {
-            for field in 0...3 {
+            for field in 0...2 {
                 var profile = referenceProfile
                 switch field {
                 case 0: profile.weightKg = value
-                case 1: profile.heightCm = value
-                case 2: profile.rmrKcalPerDay = value
+                case 1: profile.rmrKcalPerDay = value
                 default: profile.vo2Max = value
                 }
                 guard case .disabled = CaloriesEstimator.estimate(samples: makeSamples(bpm: 150, count: 31), profile: profile) else {
@@ -298,6 +297,126 @@ struct CaloriesEstimatorTests {
         let profile = UserEnergyProfileStore.currentProfile(defaults: defaults)
         #expect(profile.medsAffectingHr)
         #expect(!profile.hasRequiredInputs)
+    }
+
+    @Test func calorieSetupProgressesFromMissingBasicsToPersonalizedModel() {
+        var profile = referenceProfile
+        profile.weightKg = nil
+        profile.ageYears = nil
+        profile.sexAtBirth = nil
+        #expect(profile.setupState == .notStarted)
+        #expect(profile.setupTitle == "Not set up")
+        #expect(profile.needsCalorieSetupAttention)
+
+        profile.weightKg = 80
+        #expect(profile.setupState == .incomplete)
+        #expect(profile.setupDetail.contains("Age"))
+        #expect(profile.setupDetail.contains("Sex"))
+        #expect(!profile.setupDetail.contains("Weight"))
+        #expect(profile.needsCalorieSetupAttention)
+
+        profile.ageYears = 40
+        profile.sexAtBirth = .male
+        #expect(profile.setupState == .basic)
+        #expect(!profile.needsCalorieSetupAttention)
+
+        profile.restHeartRate = 60
+        #expect(profile.setupState == .basic)
+        profile.vo2Max = 50
+        #expect(profile.setupState == .personalized)
+        #expect(!profile.needsCalorieSetupAttention)
+        #expect(profile.setupDetail.contains("estimated from age"))
+
+        profile.maxHeartRate = 190
+        #expect(profile.setupDetail.contains("entered max HR"))
+    }
+
+    @Test func completeSetupRequiresInputsUsedByThePersonalizedModel() throws {
+        var profile = referenceProfile
+        let samples = makeSamples(bpm: 150, count: 31)
+        let basicEstimate = try estimate(samples, profile: profile)
+        profile.restHeartRate = 60
+        profile.maxHeartRate = 195
+        #expect(profile.setupState == .basic)
+        let withHeartRates = try estimate(samples, profile: profile)
+        #expect(withHeartRates.totalKcal == basicEstimate.totalKcal)
+        #expect(withHeartRates.activeKcal == basicEstimate.activeKcal)
+
+        profile.vo2Max = 50
+        #expect(profile.setupState == .personalized)
+        profile.rmrKcalPerDay = 1700
+        #expect(profile.setupState == .complete)
+        #expect(profile.setupTitle == "Complete")
+        #expect(!profile.needsCalorieSetupAttention)
+        profile.maxHeartRate = nil
+        #expect(profile.setupState == .personalized)
+        profile.restHeartRate = nil
+        #expect(profile.setupState == .basic)
+    }
+
+    @Test func invalidBasicsRemainIncompleteRatherThanReady() {
+        var profile = referenceProfile
+        profile.weightKg = 0
+        #expect(profile.setupState == .incomplete)
+        #expect(profile.setupDetail.contains("Weight"))
+        #expect(profile.needsCalorieSetupAttention)
+
+        profile.weightKg = 80
+        profile.ageYears = 0
+        #expect(profile.setupState == .incomplete)
+        #expect(profile.setupDetail.contains("Age"))
+    }
+
+    @Test func unusedHeightAndBodyFatNeverBlockCalorieSetupOrChangeEstimates() throws {
+        let samples = makeSamples(bpm: 150, count: 31)
+        let reference = try estimate(samples)
+        for value in [nil, Double.nan, .infinity, -1, 0, 1e100] as [Double?] {
+            var profile = referenceProfile
+            profile.heightCm = value
+            profile.bodyFatPercent = value
+            #expect(profile.hasRequiredInputs)
+            #expect(profile.setupState == .basic)
+            #expect(!profile.needsCalorieSetupAttention)
+            let result = try estimate(samples, profile: profile)
+            #expect(result.totalKcal == reference.totalKcal)
+            #expect(result.activeKcal == reference.activeKcal)
+        }
+    }
+
+    @Test func invalidAdvancedInputsNeedReviewAfterBasicsAreComplete() {
+        var profile = referenceProfile
+        profile.restHeartRate = 0
+        #expect(profile.setupState == .needsReview)
+        #expect(profile.needsCalorieSetupAttention)
+        #expect(profile.setupDetail.contains("Resting HR"))
+
+        profile.restHeartRate = 60
+        profile.vo2Max = .nan
+        #expect(profile.setupState == .needsReview)
+        #expect(profile.setupDetail.contains("VO2max"))
+
+        profile.vo2Max = 50
+        profile.maxHeartRate = 50
+        #expect(profile.setupState == .needsReview)
+        #expect(profile.setupDetail.contains("Max HR must exceed resting HR"))
+
+        profile.maxHeartRate = 190
+        #expect(profile.setupState == .personalized)
+        #expect(!profile.needsCalorieSetupAttention)
+    }
+
+    @Test func medicationUnavailabilityDoesNotKeepRequestingSetup() {
+        var profile = referenceProfile
+        profile.medsAffectingHr = true
+        #expect(profile.setupState == .unavailable)
+        #expect(!profile.needsCalorieSetupAttention)
+        #expect(!profile.hasRequiredInputs)
+        #expect(profile.setupDetail.contains("medication"))
+
+        // Missing basics remain actionable even when medication prevents estimates.
+        profile.weightKg = nil
+        #expect(profile.setupState == .incomplete)
+        #expect(profile.needsCalorieSetupAttention)
     }
 
     @Test func confidenceDoesNotClaimValidationFromProfileCompleteness() {

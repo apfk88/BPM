@@ -4,6 +4,10 @@ extension XCUIApplication {
     /// Leaving Workout now preserves it, so isolated tests reset explicitly.
     @MainActor
     func resetWorkoutAndReturnHome() {
+        // Idle launches open Home; an active restored workout opens directly.
+        if !buttons["workoutHome"].exists, buttons["Workout"].waitForExistence(timeout: 2) {
+            buttons["Workout"].tap()
+        }
         guard buttons["workoutHome"].waitForExistence(timeout: 2) else { return }
         let end = buttons["End"]
         if end.exists && end.isEnabled { end.tap() }

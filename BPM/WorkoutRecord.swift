@@ -150,7 +150,7 @@ extension WorkoutRecord {
             lines.append("🧊 HRR (2 min): \(hrr)")
         }
         if let total = caloriesTotal {
-            lines.append("🔥 Est. total kcal: \(Int(round(total)))")
+            lines.append("🔥 Calories: \(Int(round(total)))")
         }
         if !zones.isEmpty {
             let zoneText = zones.map { zone in

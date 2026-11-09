@@ -94,6 +94,7 @@ final class ICloudPreferencesSync {
     func syncLocalChanges() {
         guard !isApplyingRemote, !isWritingLocalMetadata else { return }
         for key in keys {
+            guard !isHealthImported(key) else { continue }
             let current = SyncedPreferenceValue(object: userDefaults.object(forKey: key))
             let previous = snapshots[key] ?? nil
             guard current != previous else { continue }
@@ -109,6 +110,7 @@ final class ICloudPreferencesSync {
     }
 
     private func syncKey(_ key: String) {
+        guard !isHealthImported(key) else { return }
         let localValue = SyncedPreferenceValue(object: userDefaults.object(forKey: key))
         let localUpdatedAt = userDefaults.object(forKey: Self.localUpdatedAtKey(for: key)) as? TimeInterval
         let remoteUpdatedAt = iCloudStore.object(forKey: Self.cloudUpdatedAtKey(for: key)) as? TimeInterval
@@ -130,6 +132,7 @@ final class ICloudPreferencesSync {
     }
 
     private func applyRemoteValue(forKey key: String, updatedAt: TimeInterval) {
+        guard !isHealthImported(key) else { return }
         isApplyingRemote = true
         defer { isApplyingRemote = false }
 
@@ -148,6 +151,7 @@ final class ICloudPreferencesSync {
     }
 
     private func pushValue(_ value: SyncedPreferenceValue, forKey key: String, at date: Date) {
+        guard !isHealthImported(key) else { return }
         iCloudStore.set(value.objectValue, forKey: Self.cloudValueKey(for: key))
         markSynced(key: key, date: date, isDeleted: false)
     }
@@ -172,6 +176,10 @@ final class ICloudPreferencesSync {
         for key in keys {
             snapshots[key] = SyncedPreferenceValue(object: userDefaults.object(forKey: key))
         }
+    }
+
+    private func isHealthImported(_ key: String) -> Bool {
+        userDefaults.bool(forKey: HealthKitImportedPreferences.localOnlyKey(for: key))
     }
 
     static func cloudValueKey(for key: String) -> String {

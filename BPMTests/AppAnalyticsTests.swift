@@ -182,7 +182,7 @@ final class AppAnalyticsTests: XCTestCase {
         session.failed()
         session.stop()
         XCTAssertEqual(events, [.streamViewerStarted, .streamViewerFailed, .streamViewerConnected, .streamViewerStopped])
-        XCTAssertEqual(parameters, [["source": "user"], ["stage": "connecting"], [:], ["connected": "true"]])
+        XCTAssertEqual(parameters, [["source": "user"], ["stage": "connecting", "reason": "unknown", "source": "user"], [:], ["connected": "true"]])
     }
 
     func testRestoredViewerDoesNotPretendToBeUserIntentOrConnected() {
@@ -206,7 +206,7 @@ final class AppAnalyticsTests: XCTestCase {
         })
         model.startMeasurement()
         XCTAssertEqual(events, [.hrvFailed])
-        XCTAssertEqual(payloads.last, ["reason": "sensor_unavailable", "stage": "start"])
+        XCTAssertEqual(payloads.last, ["reason": "sensor_unavailable", "stage": "start", "detail": "rr_unavailable", "source": "local"])
         let stream = UUID()
         model.currentHeartRate = { 65 }
         model.supportsRRIntervals = { true }
@@ -223,7 +223,7 @@ final class AppAnalyticsTests: XCTestCase {
         model.updateMeasurement()
         model.reset()
         XCTAssertEqual(events.suffix(2), [.hrvStart, .hrvFailed])
-        XCTAssertEqual(payloads.last, ["reason": "data_stopped", "stage": "measurement"])
+        XCTAssertEqual(payloads.last, ["reason": "data_stopped", "stage": "measurement", "detail": "no_beats_received", "source": "local"])
         model.stopLiveHeartRateUpdates()
     }
 
@@ -234,7 +234,7 @@ final class AppAnalyticsTests: XCTestCase {
         let stream = UUID()
         let model = HRVMeasurementViewModel(ticksProvider: { ticks }, playCompletionSound: {}, emitAnalytics: { event, payload in
             events.append(event)
-            XCTAssertTrue(payload.isEmpty)
+            XCTAssertEqual(payload, ["source": "local"])
         })
         model.currentHeartRate = { 60 }
         model.supportsRRIntervals = { true }

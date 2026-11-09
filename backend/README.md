@@ -50,14 +50,20 @@ because production serves stylesheets with an immutable cache header.
 
 - `POST /api/share` - Create a sharing session; returns `{ code, token }`.
 - `POST /api/share/beat` - Update heart rate and optional summaries using the host token.
-- `POST /api/share/workout` - Publish an ordered workout snapshot and acknowledge consumed controls; returns queued commands and server time. Requires the host token.
+- `POST /api/share/workout` - Publish an ordered workout snapshot with optional shared HRV state and acknowledge consumed controls; returns queued commands and server time. Requires the host token.
 - `POST /api/share/rr` - Publish raw RR intervals with source stream identity, interval IDs, and monotonic timestamps. Requires the host token.
 - `GET /api/share/[code]` - Read current heart rate, optional workout snapshot, and optional raw RR stream, with separate timestamps and server time. The host token is never returned.
-- `POST /api/share/control` - Request an allowed workout action using the viewer code, UUID command ID, workout ID, and current control revision. A preset payload is accepted only for `loadPreset`.
+- `POST /api/share/control` - Request an allowed workout or HRV action using the viewer code, UUID command ID, workout ID, and current control revision. A preset payload is accepted only for `loadPreset`.
 - `DELETE /api/share` - End a session and remove its workout, RR stream, pending controls, and replay records. Requires the host token.
 - `GET /join/[code]` - Render the invite landing page for a six-digit code.
 
 Control actions are `work`, `rest`, `start`, `startIncludingHistory`, `pause`, `resume`, `end`, `reset`, `cool`, `loadPreset`, and `clearPreset`. Save remains local to the broadcaster. The server checks the snapshot's advertised actions, workout identity, revision, and five-second freshness; the broadcaster validates again before applying the command. Older snapshots without `allowedActions` retain only manual Work/Rest control support.
+
+Optional `snapshot.hrv` carries the owner's HRV measurement state, readiness, countdown, result and BPM summary. It includes a UUID `revision`, `isPresented`, `state` (`idle`, `measuring`, `completed`, or `error`), `remainingTime` (0–120 seconds), optional `hrvValue` (0–5000 ms), optional `avgHeartRate`/`minHeartRate`/`maxHeartRate`/`currentBPM` (1–400 BPM), `readinessReason`, optional `errorMessage` (up to 512 characters), and `allowsRemoteControl`.
+
+Additional controls are `hrvStart`, `hrvCancel`, and `hrvReset`. The host must explicitly enable `hrv.allowsRemoteControl`. Start requires an idle or completed measurement with readiness `ready`; cancel requires `measuring`; reset requires `completed` or `error`. These controls use the existing snapshot freshness, workout identity, control revision, idempotency and command-claim checks. The host includes its HRV revision in the top-level control revision. HRV actions stay out of `allowedActions` so older viewers can still decode workout snapshots. Hosts with missing or null `hrv` do not expose HRV controls.
+
+Deploy this backend before releasing an app that publishes `hrv`: older backend validators reject unrecognized snapshot fields. The shared-HRV update was validated locally with all 29 backend tests, including the real Redis integration suite, and a production build. Its production deployment is not recorded here yet.
 
 Redis scripts atomically handle updates, command claims, acknowledgements, and replay protection. Sessions retain their original 90-minute expiry; updates cannot extend that lifetime or recreate a deleted session. See [protocol and validation](../docs/live-workout-sharing.md).
 
@@ -70,13 +76,15 @@ source. See the protocol document for the complete test and rollout record.
 
 ## App sharing workflow
 
-Device contains Start Sharing, Copy, Share Invite, Stop Sharing, and friend-code entry. Sharing and viewing are mutually exclusive: broadcasting hides friend-code entry, and the service rejects self-joining. Joining from Home, Workout, or HRV confirms ending and clearing an existing local workout, then disconnects the local monitor before entering shared mode. Invalid-code feedback stays in Device. When an established session ends, the viewer receives an alert and returns Home.
+Device contains Start Sharing, Copy, Share Invite, Stop Sharing, and friend-code entry. Sharing and viewing are mutually exclusive: broadcasting hides friend-code entry, and the service rejects self-joining. Joining from Home, Workout, or HRV confirms ending and clearing an existing local workout, then disconnects the local monitor before entering shared mode. Successful manual connections and invites close Device automatically; connection errors stay visible. When an established session ends, the viewer receives an alert and returns Home.
 
-Both devices navigate independently. Green heart/person and workout/person badges identify shared viewing, with no persistent code label or border. The viewer can operate the broadcaster's workout controls for the current state, but cannot save its workout or HRV result locally. Shared HRV uses a separate 120-second measurement of raw RR intervals on the monitor's source clock; rounded BPM is never treated as beat data.
+Both devices navigate independently. Explicit joins follow the broadcaster's Home or Workout screen, with Workout starting on the table page. Home → Workout also starts on the table page. Cold launches open Home while preserving restored sessions. Green heart/person and workout/person badges identify shared viewing, with no persistent code label or border.
 
-Share Invite sends `https://bpmtracker.app/join/{code}` through the native share sheet. The landing page's Open in BPM button uses `bpm://join?code={code}`. The app preloads Device and still requires Connect and any local-workout confirmation. The page also shows the code and an App Store link. It uses no-store caching and no-referrer metadata/headers; Vercel Analytics is omitted from join pages.
+Either person can start shared HRV. The monitor's device owns acquisition and calculation; both screens show its countdown and result. A new measurement opens HRV on connected devices, while cold restoration of an ongoing measurement keeps Home visible. Viewer Stop waits for the owner to confirm cancellation and keeps failures visible. Leave screen exits without stopping the owner; closing a completed result also leaves the owner's result intact. Only the owner can save. Raw RR transport remains available for older clients that perform a separate measurement; rounded BPM is never treated as beat data.
 
-The current trainer-control, raw-RR, and invite-link revision still needs its final validation and production deployment status recorded. Earlier results in the protocol document apply to superseded revisions.
+Share Invite sends `https://bpmtracker.app/join/{code}` through the native share sheet. Updated apps handle these Universal Links directly. The landing page's Open in BPM fallback uses `bpm://join?code={code}`. Both invite forms connect automatically, after any required local-workout confirmation. The page also shows the code and an App Store link. It uses no-store caching and no-referrer metadata/headers; Vercel Analytics is omitted from join pages.
+
+The November 5 shared-HRV and navigation revision still needs its final app validation and production deployment status recorded. Earlier results in the protocol document apply to superseded revisions.
 
 ## Error Contract
 
@@ -173,3 +181,12 @@ Sources:
 - https://developers.openai.com/api/docs/models/gpt-5.4
 - https://help.strongapp.io/article/229-my-first-workout
 - https://help.hevyapp.com/hc/en-us/articles/38279531346455-Set-Records-vs-Personal-Records
+
+## Universal Links
+
+`public/.well-known/apple-app-site-association` associates invite paths with
+`5HW85B6746.kvamme.BPM`. Vercel sets `Content-Type: application/json` and a
+five-minute cache. Serve this exact endpoint over HTTPS without redirects.
+The iOS app includes `applinks:bpmtracker.app` and handles both browsing activity
+and open-URL delivery. Valid invites connect automatically, with confirmation
+before clearing an existing local workout. See the protocol document for validation.

@@ -54,7 +54,7 @@ final class SharedWorkoutViewerUITests: XCTestCase {
         app.buttons["xmark"].tap()
         XCTAssertTrue(app.buttons["Workout"].waitForExistence(timeout: 5))
         app.buttons["Workout"].tap()
-        assertPage("chart", in: app)
+        assertPage("table", in: app)
         assertViewerControls(in: app)
 
         // The host's screen selection does not limit commands for its running workout.
@@ -78,6 +78,10 @@ final class SharedWorkoutViewerUITests: XCTestCase {
         XCTAssertNotEqual(work["id"] as? String, rest["id"] as? String)
         XCTAssertEqual(Set(server.commands.compactMap { $0["action"] as? String }), Set(["work", "rest"]))
 
+        for page in ["bpm", "stats", "chart"] {
+            app.swipeLeft()
+            assertPage(page, in: app)
+        }
         XCUIDevice.shared.orientation = .landscapeLeft
         waitUntil("Viewer rotates to landscape", in: app) { app.frame.width > app.frame.height }
         assertPage("chart", in: app)
@@ -199,11 +203,90 @@ final class SharedWorkoutViewerUITests: XCTestCase {
     }
 
     @MainActor
+    func testRunningSharedWorkoutReopensAfterBackgroundAndColdLaunchWhenHostIsHome() throws {
+        try assertSharedWorkoutReopens(paused: false)
+    }
+
+    @MainActor
+    func testPausedSharedWorkoutReopensAfterBackgroundAndColdLaunchWhenHostIsHome() throws {
+        try assertSharedWorkoutReopens(paused: true)
+    }
+
+    @MainActor
+    private func assertSharedWorkoutReopens(paused: Bool) throws {
+        continueAfterFailure = false
+        XCUIDevice.shared.orientation = .portrait
+        let server = try SharedWorkoutViewerServer()
+        server.setHostNavigation(screen: "home", page: "bpm")
+        server.setPaused(paused)
+        let app = launchViewer(baseURL: try server.start())
+        defer { app.terminate(); server.stop() }
+
+        assertPage("table", in: app)
+        assertSharedWorkoutState(paused: paused, in: app)
+        for page in ["bpm", "stats", "chart"] {
+            app.swipeLeft()
+            assertPage(page, in: app)
+        }
+
+        // In-app Home navigation stays independent while host updates arrive.
+        // A real background return then restores the active workout and page.
+        app.buttons["sharedWorkoutHome"].tap()
+        XCTAssertTrue(app.buttons["Workout"].waitForExistence(timeout: 5))
+        let polls = server.pollCount
+        waitUntil("Host updates do not interrupt viewer Home navigation", in: app) { server.pollCount >= polls + 2 }
+        XCTAssertTrue(app.buttons["Workout"].exists)
+        XCTAssertFalse(app.buttons["sharedWorkoutHome"].exists)
+
+        server.setStale(true)
+        let stalePolls = server.pollCount
+        waitUntil("Viewer's last fresh snapshot expires before reopening", in: app, timeout: 10) {
+            server.pollCount >= stalePolls + 7
+        }
+        XCUIDevice.shared.press(.home)
+        let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        XCTAssertTrue(springboard.wait(for: .runningForeground, timeout: 5))
+        app.activate()
+        XCTAssertTrue(app.buttons["Workout"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["sharedWorkoutHome"].exists, "Stale data must not consume the pending workout route")
+        server.setStale(false)
+        XCTAssertTrue(app.buttons["sharedWorkoutHome"].waitForExistence(timeout: 10))
+        assertPage("chart", in: app)
+        assertSharedWorkoutState(paused: paused, in: app)
+
+        app.buttons["sharedWorkoutHome"].tap()
+        XCTAssertTrue(app.buttons["Workout"].waitForExistence(timeout: 5))
+        app.terminate()
+        app.launch()
+        XCTAssertTrue(app.buttons["sharedWorkoutHome"].waitForExistence(timeout: 10),
+                      "An active shared workout must reopen even when the host snapshot says Home")
+        assertPage("table", in: app)
+        assertSharedWorkoutState(paused: paused, in: app)
+        XCTAssertTrue(server.commands.isEmpty, "Returning to a workout must not change its timer state")
+        captureScreenshot("\(paused ? "Paused" : "Running") shared workout restored after cold launch")
+    }
+
+    @MainActor
+    private func assertSharedWorkoutState(paused: Bool, in app: XCUIApplication) {
+        let control = app.buttons[paused ? "sharedWorkoutResume" : "sharedWorkoutPause"]
+        XCTAssertTrue(control.waitForExistence(timeout: 5))
+        expectation(for: NSPredicate(format: "enabled == true"), evaluatedWith: control)
+        waitForExpectations(timeout: 5)
+        if paused {
+            XCTAssertEqual(app.staticTexts["sharedWorkoutStatus"].label, "Paused")
+            XCTAssertFalse(app.buttons["sharedWorkSet"].isEnabled)
+        } else {
+            XCTAssertTrue(app.buttons["sharedWorkSet"].isEnabled)
+        }
+    }
+
+    @MainActor
     private func launchViewer(baseURL: URL) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["-BPM_FriendCode", "123456", "-BPM_API_BASE_URL", baseURL.absoluteString]
         app.launch()
-        XCTAssertTrue(app.buttons["sharedWorkoutHome"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["sharedWorkoutHome"].waitForExistence(timeout: 10),
+                      "Restored active sharing opens Workout once its snapshot arrives")
         return app
     }
 

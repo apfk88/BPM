@@ -37,7 +37,7 @@
       <section class="section policy-section">
         <div class="container policy-wrap">
           <h1 class="policy-title">Privacy Policy</h1>
-          <p class="policy-date">Effective date: November 4, 2026</p>
+          <p class="policy-date">Effective date: November 5, 2026</p>
 
           <div class="policy-card">
             <p>
@@ -50,7 +50,7 @@
               <li>BPM does not require an account. Optional voice notes may contain personal information you choose to record.</li>
               <li>Measured heart rate data stays on your device unless you explicitly choose to share it.</li>
               <li>Optional voice notes use a third-party AI service with your permission. See <a href="#ai-voice">Voice Notes</a> below.</li>
-              <li>If you enable sharing, live heart rate, beat intervals, and workout data are sent to the sharing backend so people with your code or invite link can view and control the workout.</li>
+              <li>If you enable sharing, live heart rate, beat intervals, HRV measurement state and results, and workout data are sent to the sharing backend so people with your code or invite link can view and control your workout and HRV measurement.</li>
               <li>We collect limited, non-personal app usage and device information through TelemetryDeck to understand app reliability and usage.</li>
             </ul>
 
@@ -59,7 +59,7 @@
             <ul>
               <li><strong>Source</strong>: Your Bluetooth LE heart rate strap via CoreBluetooth.</li>
               <li><strong>On-device use</strong>: Display and simple stats.</li>
-              <li><strong>Optional sharing</strong>: Live BPM and summaries, original beat intervals for HRV, workout timers, sets, heart-rate charts, time in zones, estimated calories, workout state, and the selected preset are associated with a random 6-digit code and a private broadcaster token. Control requests include a random request ID and the current workout revision so duplicate or outdated requests can be rejected. Saved workout titles, notes, and profile inputs are not included.</li>
+              <li><strong>Optional sharing</strong>: Live BPM and summaries, original beat intervals, current HRV readiness, countdown, result and heart-rate summary, workout timers, sets, heart-rate charts, time in zones, estimated calories, workout state, and the selected preset are associated with a random 6-digit code and a private broadcaster token. Control requests include a random request ID and the current workout/HRV revision so duplicate or outdated requests can be rejected. Saved workout titles, notes, and profile inputs are not included.</li>
             </ul>
 
             <h2>Sharing and Retention</h2>
@@ -68,8 +68,8 @@
                 <ul>
                   <li>Data is transmitted over HTTPS to your backend (default deployment: Vercel + KV/Upstash).</li>
                   <li>Share sessions expire automatically after 90 minutes.</li>
-                  <li>Anyone with your code or invite link can start, pause, end, reset, and control your workout, including loading presets. Only the broadcaster can save the workout. Viewers can measure shared HRV but cannot save it in BPM.</li>
-                  <li>The backend holds a rolling 15-second window of beat intervals. Workout, beat-interval, and control records expire with the session and are removed when sharing is stopped successfully on the backend.</li>
+                  <li>Anyone with your code or invite link can start, pause, end, reset, and control your workout, including loading presets. They can also start, stop, or reset your HRV measurement. Your device performs that measurement, and connected viewers see the same countdown and result. Only the broadcaster can save the workout or HRV result; viewers cannot save these shared measurements in BPM.</li>
+                  <li>The backend holds a rolling 15-second window of beat intervals and the latest workout/HRV state. Workout, HRV, beat-interval, and control records expire with the session and are removed when sharing is stopped successfully on the backend.</li>
                 </ul>
               </li>
               <li><strong>When sharing is OFF</strong>:
@@ -77,6 +77,13 @@
                   <li>BPM does not transmit measured heart rate samples through live sharing.</li>
                 </ul>
               </li>
+            </ul>
+
+            <h2>Apple Health and Calorie Settings</h2>
+            <ul>
+              <li>When you choose Autofill from Apple Health, BPM requests access to weight, date of birth, biological sex, resting heart rate, and VO2 max. You review the available values and their measurement dates before filling compatible empty calorie settings. Existing entries are kept. BPM calculates age from date of birth without saving the date of birth.</li>
+              <li>Imported values are stored on your device and excluded from BPM's iCloud preferences sync. They are not sent to the sharing backend, AI provider, or analytics service. BPM does not continuously refresh these values; you can autofill again or edit settings manually.</li>
+              <li>Separately, with your permission, BPM can save workouts, heart rate, and estimated active energy to Apple Health. Calorie autofill requests read access only and does not write to Apple Health.</li>
             </ul>
 
             <h2 id="ai-voice">Voice Notes</h2>
@@ -90,7 +97,7 @@
 
             <h2>Analytics</h2>
             <ul>
-              <li>TelemetryDeck receives app launch and session activity, feature and screen usage, settings choices, app version, device type, operating system, and a non-personal device identifier for analytics. Feature usage includes sharing outcomes, streaming, sounds, HRV measurement outcomes, history visits, presets, and AI voice actions. For calorie settings, analytics record which fields were edited and whether fields are filled, empty, invalid, or using a default, never the values entered.</li>
+              <li>TelemetryDeck receives app launch and session activity, feature and screen usage, settings choices, app version, device type, operating system, and a non-personal device identifier for analytics. Feature usage includes sharing outcomes, streaming, sounds, HRV measurement outcomes, history visits, presets, and AI voice actions. For calorie settings, analytics record which fields were edited and whether fields are filled, empty, invalid, or using a default, never the values entered. Reliability events include fixed failure categories and recognized heart-rate sensor brands/models, protocol capabilities, and connection outcomes. Raw Bluetooth names, sensor identifiers, serial numbers, and heart-rate or beat-interval values are not included.</li>
               <li>Analytics never include heart rate data, workout details, share codes, or other health information.</li>
               <li>Analytics data is not linked to your identity and is not used for advertising or cross-app tracking.</li>
             </ul>
@@ -106,6 +113,7 @@
             <ul>
               <li><strong>Bluetooth</strong>: Used to discover and connect to your heart rate strap.</li>
               <li><strong>Microphone</strong>: Used only when you record workout voice notes.</li>
+              <li><strong>Apple Health</strong>: Read access is requested when you choose calorie autofill; write access is requested separately for saving workouts. You can manage BPM's access in Apple Health.</li>
             </ul>
 
             <h2>Security</h2>

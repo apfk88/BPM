@@ -1,6 +1,8 @@
 import TelemetryDeck
 import SwiftUI
 import os
+import HealthKit
+import CoreBluetooth
 
 enum AppAnalytics {
     enum Event: String, CaseIterable {
@@ -11,6 +13,7 @@ enum AppAnalytics {
         case workoutStart = "workout_start"
         case workoutSave = "workout_save"
         case hrvStart = "hrv_start"
+        case hrvReadiness = "hrv_readiness"
         case sharePickerOpened = "share_picker_opened"
         case shareFormatSelected = "share_format_selected"
         case shareExportRequested = "share_export_requested"
@@ -44,6 +47,8 @@ enum AppAnalytics {
         case voiceRecapFailed = "voice_recap_failed"
         case voiceRecapCancelled = "voice_recap_cancelled"
         case healthAccessRequested = "health_access_requested"
+        case appFailure = "app_failure"
+        case sensorConnection = "sensor_connection"
     }
 
     enum Screen: String {
@@ -131,14 +136,21 @@ enum AppAnalytics {
 
 /// A viewing attempt can fail and then recover. Each outcome is counted at most once.
 final class StreamViewingAnalytics {
+    enum FailureReason: String {
+        case invalidRequest = "invalid_request", sessionNotFound = "session_not_found"
+        case network, timeout, invalidResponse = "invalid_response", serverError = "server_error"
+        case rateLimited = "rate_limited", staleData = "stale_data", unknown
+    }
     typealias Emit = (AppAnalytics.Event, [String: String]) -> Void
     private let emit: Emit
+    private let source: String
     private var connected = false
     private var reportedFailure = false
     private var stopped = false
 
     init(restored: Bool, emit: @escaping Emit = AppAnalytics.signal) {
         self.emit = emit
+        source = restored ? "restored" : "user"
         emit(.streamViewerStarted, ["source": restored ? "restored" : "user"])
     }
 
@@ -148,10 +160,10 @@ final class StreamViewingAnalytics {
         emit(.streamViewerConnected, [:])
     }
 
-    func failed() {
+    func failed(reason: FailureReason = .unknown) {
         guard !stopped, !reportedFailure else { return }
         reportedFailure = true
-        emit(.streamViewerFailed, ["stage": connected ? "streaming" : "connecting"])
+        emit(.streamViewerFailed, ["stage": connected ? "streaming" : "connecting", "reason": reason.rawValue, "source": source])
     }
 
     func stop() {
@@ -309,5 +321,111 @@ final class ShareAnalyticsSession {
         let event: AppAnalytics.Event = failed ? .shareExportFailed
             : completed ? .shareExportCompleted : .shareExportCancelled
         emit(event, context.parameters)
+    }
+}
+
+/// Bounded diagnostic labels only. Error messages, domains, paths and user content never leave the device.
+enum AppFailureCategory: String, CaseIterable {
+    case storageFull = "storage_full"
+    case permissionDenied = "permission_denied"
+    case deviceLocked = "device_locked"
+    case corruptData = "corrupt_data"
+    case unavailable, timeout, network
+    case connectionLost = "connection_lost"
+    case invalidResponse = "invalid_response"
+    case unknown
+
+    init(error: Error) {
+        if error is DecodingError || error is EncodingError { self = .corruptData; return }
+        if let error = error as? HealthKitSyncError {
+            switch error {
+            case .unavailable: self = .unavailable
+            case .notAuthorized: self = .permissionDenied
+            case .authorizationFailed, .writeFailed: self = .unknown
+            }
+            return
+        }
+        let ns = error as NSError
+        if ns.domain == NSCocoaErrorDomain {
+            switch ns.code {
+            case NSFileWriteOutOfSpaceError: self = .storageFull
+            case NSFileReadNoPermissionError, NSFileWriteNoPermissionError: self = .permissionDenied
+            case NSFileReadCorruptFileError: self = .corruptData
+            default: self = .unknown
+            }
+        } else if let url = error as? URLError {
+            switch url.code {
+            case .timedOut: self = .timeout
+            case .badServerResponse, .cannotParseResponse, .cannotDecodeContentData: self = .invalidResponse
+            default: self = .network
+            }
+        } else if ns.domain == HKErrorDomain {
+            switch HKError.Code(rawValue: ns.code) {
+            case .errorAuthorizationDenied, .errorHealthDataRestricted: self = .permissionDenied
+            case .errorHealthDataUnavailable: self = .unavailable
+            case .errorDatabaseInaccessible: self = .deviceLocked
+            default: self = .unknown
+            }
+        } else if ns.domain == CBErrorDomain {
+            switch CBError.Code(rawValue: ns.code) {
+            case .connectionTimeout: self = .timeout
+            case .peripheralDisconnected, .notConnected: self = .connectionLost
+            default: self = .unknown
+            }
+        } else {
+            self = .unknown
+        }
+    }
+
+    static func isCancellation(_ error: Error) -> Bool {
+        if error is CancellationError || (error as? URLError)?.code == .cancelled { return true }
+        let ns = error as NSError
+        return ns.domain == HKErrorDomain && ns.code == HKError.Code.errorUserCanceled.rawValue
+    }
+}
+
+/// Counts a continuous failure once per category, then allows another event after recovery.
+/// Retries and repeated Bluetooth callbacks do not inflate the failure count.
+final class AppFailureReporter {
+    enum Component: String {
+        case workoutStore = "workout_store", hrvStore = "hrv_store"
+        case healthKit = "healthkit", healthAutofill = "health_autofill", bluetooth
+    }
+    enum Operation: String {
+        case load, save, sync, authorize, connect, disconnect
+        case discoverServices = "discover_services", discoverCharacteristics = "discover_characteristics"
+        case subscribe
+    }
+    private struct Signature: Hashable {
+        let component: Component
+        let operation: Operation
+        let category: AppFailureCategory
+    }
+    private let lock = NSLock()
+    private var activeFailures: Set<Signature> = []
+    private let emit: (AppAnalytics.Event, [String: String]) -> Void
+
+    init(emit: @escaping (AppAnalytics.Event, [String: String]) -> Void = AppAnalytics.signal) {
+        self.emit = emit
+    }
+
+    func report(_ component: Component, _ operation: Operation, error: Error) {
+        guard !AppFailureCategory.isCancellation(error) else { return }
+        report(component, operation, category: AppFailureCategory(error: error))
+    }
+
+    func report(_ component: Component, _ operation: Operation, category: AppFailureCategory) {
+        let signature = Signature(component: component, operation: operation, category: category)
+        lock.lock()
+        let inserted = activeFailures.insert(signature).inserted
+        lock.unlock()
+        guard inserted else { return }
+        emit(.appFailure, ["component": component.rawValue, "operation": operation.rawValue, "category": category.rawValue])
+    }
+
+    func recovered(_ component: Component, _ operation: Operation? = nil) {
+        lock.lock()
+        activeFailures = activeFailures.filter { $0.component != component || (operation != nil && $0.operation != operation) }
+        lock.unlock()
     }
 }

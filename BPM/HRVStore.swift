@@ -12,11 +12,14 @@ final class HRVStore: ObservableObject {
     @Published private(set) var lastError: String?
 
     private var cachedRecords: [HRVRecord] = []
+    private let failureReporter: AppFailureReporter
     private let storeURL: URL
     private let userDefaults: UserDefaults
     private let queue = DispatchQueue(label: "bpm.hrv-store", qos: .utility)
 
-    init(storeURL: URL = HRVStore.defaultStoreURL(), userDefaults: UserDefaults = .standard) {
+    init(storeURL: URL = HRVStore.defaultStoreURL(), userDefaults: UserDefaults = .standard,
+         failureReporter: AppFailureReporter = AppFailureReporter()) {
+        self.failureReporter = failureReporter
         self.storeURL = storeURL
         self.userDefaults = userDefaults
         registerDefaults()
@@ -113,6 +116,7 @@ final class HRVStore: ObservableObject {
                 let decoder = JSONDecoder()
                 decoder.dateDecodingStrategy = MeasurementDateCoding.decodingStrategy
                 var records = try decoder.decode([HRVRecord].self, from: data)
+                self.failureReporter.recovered(.hrvStore, .load)
                 records = self.pruneRetentionInternal(records: records, now: Date())
                 guard self.persist(records: records) else { return }
                 DispatchQueue.main.async {
@@ -121,6 +125,7 @@ final class HRVStore: ObservableObject {
                 }
             } catch {
                 if (error as NSError).code != NSFileReadNoSuchFileError {
+                    self.failureReporter.report(.hrvStore, .load, error: error)
                     DispatchQueue.main.async {
                         self.lastError = "Failed to load HRV history"
                     }
@@ -138,8 +143,10 @@ final class HRVStore: ObservableObject {
             let data = try encoder.encode(records)
             try data.write(to: storeURL, options: [.atomic])
             cachedRecords = records
+            failureReporter.recovered(.hrvStore, .save)
             return true
         } catch {
+            failureReporter.report(.hrvStore, .save, error: error)
             DispatchQueue.main.async {
                 self.lastError = "Failed to save HRV history"
             }

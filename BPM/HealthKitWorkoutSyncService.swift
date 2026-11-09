@@ -213,12 +213,15 @@ final class HealthKitWorkoutSyncService: ObservableObject {
     @Published private(set) var authorizationState: HealthKitAuthorizationState = .unknown
 
     private let healthStore: HealthStoreWriting
+    private let failureReporter: AppFailureReporter
     private let workoutType = HKObjectType.workoutType()
     private let heartRateType = HKObjectType.quantityType(forIdentifier: .heartRate)
     private let activeEnergyType = HKObjectType.quantityType(forIdentifier: .activeEnergyBurned)
 
-    init(healthStore: HealthStoreWriting = HKHealthStoreAdapter()) {
+    init(healthStore: HealthStoreWriting = HKHealthStoreAdapter(),
+         failureReporter: AppFailureReporter = AppFailureReporter()) {
         self.healthStore = healthStore
+        self.failureReporter = failureReporter
         refreshAuthorizationState()
     }
 
@@ -242,6 +245,7 @@ final class HealthKitWorkoutSyncService: ObservableObject {
 
     func requestWriteAuthorization() async throws {
         guard healthStore.isHealthDataAvailable else {
+            failureReporter.report(.healthKit, .authorize, category: .unavailable)
             authorizationState = .unavailable
             throw HealthKitSyncError.unavailable
         }
@@ -250,21 +254,26 @@ final class HealthKitWorkoutSyncService: ObservableObject {
         do {
             try await healthStore.requestAuthorization(toShare: writeTypes(), read: nil)
         } catch let syncError as HealthKitSyncError {
+            failureReporter.report(.healthKit, .authorize, error: syncError)
             refreshAuthorizationState()
             throw syncError
         } catch {
+            failureReporter.report(.healthKit, .authorize, error: error)
             refreshAuthorizationState()
             throw HealthKitSyncError.authorizationFailed(error.localizedDescription)
         }
 
         refreshAuthorizationState()
         guard authorizationState == .authorized else {
+            failureReporter.report(.healthKit, .authorize, category: .permissionDenied)
             throw HealthKitSyncError.notAuthorized
         }
+        failureReporter.recovered(.healthKit, .authorize)
     }
 
     func syncWorkout(record: WorkoutRecord, activityType: HKWorkoutActivityType) async throws -> HealthKitSyncResult {
         guard healthStore.isHealthDataAvailable else {
+            failureReporter.report(.healthKit, .sync, category: .unavailable)
             authorizationState = .unavailable
             throw HealthKitSyncError.unavailable
         }
@@ -292,9 +301,11 @@ final class HealthKitWorkoutSyncService: ObservableObject {
                 events: Self.pauseEvents(for: record)
             )
         } catch {
+            failureReporter.report(.healthKit, .sync, error: error)
             throw HealthKitSyncError.writeFailed(error.localizedDescription)
         }
 
+        failureReporter.recovered(.healthKit, .sync)
         return HealthKitSyncResult(workoutUUID: workoutUUID)
     }
 

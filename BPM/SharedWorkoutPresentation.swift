@@ -10,7 +10,8 @@ enum SharedWorkoutPresentation {
         zoneConfig: HeartRateZoneConfig,
         primaryBPM: String,
         calories: String,
-        allowsRemoteControl: Bool = true
+        allowsRemoteControl: Bool = true,
+        hrv: SharedHRVSnapshot? = nil
     ) -> SharedWorkoutSnapshot {
         let isCooldown = timer.isInCooldownMode
         let isEmpty = timer.state == .idle && timer.sets.isEmpty
@@ -30,7 +31,7 @@ enum SharedWorkoutPresentation {
             lhs.duration == rhs.duration ? lhs.zone.rawValue > rhs.zone.rawValue : lhs.duration < rhs.duration
         }?.zone
         let zone = timer.isCompleted ? topZone : heartRate.flatMap { HeartRateZone.zone(for: $0, config: zoneConfig) }
-        let revisionSource = "\(timer.sharingWorkoutID):\(timer.sharingControlGeneration):\(timer.recoverableSessionID?.uuidString ?? "none")"
+        let revisionSource = "\(timer.sharingWorkoutID):\(timer.sharingControlGeneration):\(timer.recoverableSessionID?.uuidString ?? "none"):\(hrv?.revision ?? "none")"
         let revision = SHA256.hash(data: Data(revisionSource.utf8)).map { String(format: "%02x", $0) }.joined()
 
         return SharedWorkoutSnapshot(
@@ -66,21 +67,31 @@ enum SharedWorkoutPresentation {
             zones: zoneTimes.map { SharedWorkoutSnapshot.ZoneDuration(zone: $0.zone.rawValue, duration: $0.duration) },
             allowedActions: allowsRemoteControl ? allowedActions(for: timer) : [],
             activePreset: timer.activePreset,
-            recoverableHistorySeconds: timer.recoverableSessionID.flatMap { timer.recoverableHistoryDuration(for: $0) }
+            recoverableHistorySeconds: timer.recoverableSessionID.flatMap { timer.recoverableHistoryDuration(for: $0) },
+            hrv: hrv.map {
+                var snapshot = $0
+                snapshot.allowsRemoteControl = snapshot.allowsRemoteControl && allowsRemoteControl
+                return snapshot
+            }
         )
     }
 
     static func apply(
         _ command: SharedWorkoutCommand,
         to timer: TimerViewModel,
-        current snapshot: SharedWorkoutSnapshot
+        current snapshot: SharedWorkoutSnapshot,
+        hrv: HRVMeasurementViewModel? = nil
     ) -> Bool {
         guard command.workoutID == snapshot.workoutID,
               command.controlRevision == snapshot.controlRevision,
               snapshot.permits(command.action),
-              timer.sharingWorkoutID == snapshot.workoutID,
-              allowedActions(for: timer).contains(command.action) else { return false }
+              timer.sharingWorkoutID == snapshot.workoutID else { return false }
         guard command.action == .loadPreset || command.preset == nil else { return false }
+        if command.action.isHRVControl {
+            guard let hrv, snapshot.hrv?.revision == hrv.sharingRevision else { return false }
+            return hrv.applySharedControl(command.action)
+        }
+        guard allowedActions(for: timer).contains(command.action) else { return false }
         switch command.action {
         case .work:
             timer.captureSet()
@@ -113,6 +124,8 @@ enum SharedWorkoutPresentation {
             timer.loadPreset(preset)
         case .clearPreset:
             timer.clearPreset()
+        case .hrvStart, .hrvCancel, .hrvReset:
+            return false // Handled above without changing the workout timer.
         }
         return true
     }
@@ -128,8 +141,8 @@ enum SharedWorkoutPresentation {
             if let sessionID = timer.recoverableSessionID, (timer.recoverableHistoryDuration(for: sessionID) ?? 0) > 0 {
                 actions.append(.startIncludingHistory)
             }
-            if timer.isPresetMode { actions.append(.clearPreset) }
         }
+        if timer.canClearPreset { actions.append(.clearPreset) }
         if timer.state == .running || timer.state == .cooldown { actions.append(.pause) }
         if timer.state == .paused || timer.state == .cooldownPaused || timer.isCompleted { actions.append(.resume) }
         if timer.state != .idle { actions.append(.end) }

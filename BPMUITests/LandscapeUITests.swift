@@ -52,12 +52,12 @@ final class LandscapeUITests: XCTestCase {
         app.alerts["Reset Workout"].buttons["Reset"].tap()
         app.buttons["workoutHome"].tap()
         app.buttons["HRV"].tap()
-        XCTAssertTrue(app.buttons["Measure HRV"].waitForExistence(timeout: 5))
-        assertRightColumn(["Measure HRV"], app: app)
+        XCTAssertTrue(app.buttons["measureHRVButton"].waitForExistence(timeout: 5))
+        assertRightColumn(["measureHRVButton"], app: app)
         attachScreenshot("HRV landscape")
         rotate(.portrait, app: app)
-        XCTAssertTrue(app.buttons["Measure HRV"].isHittable)
-        for label in ["Measure HRV", "Settings", "HRV History", "Device Picker"] {
+        XCTAssertTrue(app.buttons["measureHRVButton"].isHittable)
+        for label in ["measureHRVButton", "Settings", "HRV History", "Device Picker"] {
             XCTAssertLessThanOrEqual(app.buttons[label].frame.maxX, app.frame.maxX, "\(label) must not be clipped")
         }
         attachScreenshot("HRV portrait")

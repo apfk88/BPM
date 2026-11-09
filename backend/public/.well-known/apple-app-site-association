@@ -1,0 +1,17 @@
+{
+  "applinks": {
+    "details": [
+      {
+        "appIDs": [
+          "5HW85B6746.kvamme.BPM"
+        ],
+        "components": [
+          {
+            "/": "/join/??????",
+            "comment": "Six-character invite paths; BPM validates the six-digit code before joining."
+          }
+        ]
+      }
+    ]
+  }
+}

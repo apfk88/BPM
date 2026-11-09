@@ -24,6 +24,11 @@ function rrStream(overrides: Record<string, unknown> = {}) {
   return { schemaVersion: 1, sequence: 1, streamID: 'e5ed6441-4da2-4d65-954c-80be0cce690b', supportsRRIntervals: true,
     sourceTicks: 100, intervals: [{ id: 'da4c9b07-1453-4fd3-9acd-4cc2ab544088', value: 833.984375, receivedTicks: 99 }], ...overrides };
 }
+function hrv(overrides: Record<string, unknown> = {}) {
+  return { revision: '53437c0b-4084-4834-9ba2-465ebd9622f1', isPresented: false, state: 'idle', remainingTime: 120,
+    hrvValue: null, avgHeartRate: null, minHeartRate: null, maxHeartRate: null, currentBPM: 72,
+    readinessReason: 'ready', errorMessage: null, allowsRemoteControl: true, ...overrides };
+}
 function errorStatus(status: number, code?: string) {
   return (error: unknown) => error instanceof ShareRequestError && error.status === status && (!code || error.code === code);
 }
@@ -75,6 +80,33 @@ test('raw RR transport preserves original interval values and rejects malformed 
     { intervals: [{ id: randomUUID(), value: 800, receivedTicks: 84.9 }] },
     { intervals: [{ id: randomUUID(), value: 800, receivedTicks: 99 }, { id: randomUUID(), value: 810, receivedTicks: 98 }] }]) {
     assert.throws(() => validateRRStream(rrStream(patch)), errorStatus(400));
+  }
+});
+
+test('shared HRV validation accepts optional state without widening legacy workout capabilities', () => {
+  for (const value of [undefined, null, hrv(), hrv({ state: 'measuring', remainingTime: 68.25 }),
+    hrv({ state: 'completed', remainingTime: 0, hrvValue: 47.25, avgHeartRate: 72, minHeartRate: 68, maxHeartRate: 78 }),
+    hrv({ state: 'error', errorMessage: 'Beat data was interrupted or incomplete.' })]) {
+    const valueSnapshot = snapshot({ hrv: value });
+    assert.deepEqual(validateSnapshot(valueSnapshot), valueSnapshot);
+  }
+  for (const readinessReason of ['ready', 'monitor_disconnected', 'sensor_contact_lost', 'waiting_for_heart_rate',
+    'waiting_for_rr', 'stale_rr', 'shared_data_unavailable']) {
+    assert.equal((validateSnapshot(snapshot({ hrv: hrv({ readinessReason }) })).hrv as any).readinessReason, readinessReason);
+  }
+  for (const patch of [{ revision: 'invalid' }, { state: 'countingDown' }, { isPresented: 1 }, { allowsRemoteControl: 'yes' },
+    { remainingTime: -1 }, { remainingTime: 120.01 }, { remainingTime: Infinity }, { hrvValue: -1 }, { hrvValue: 5001 },
+    { hrvValue: NaN }, { avgHeartRate: 0 }, { minHeartRate: 1.5 }, { maxHeartRate: 401 }, { currentBPM: -1 },
+    { readinessReason: 'unknown' }, { errorMessage: 'x'.repeat(513) }, { errorMessage: 'bad\nmessage' },
+    { errorMessage: 12 }, { token: 'must-not-be-shared' }]) {
+    assert.throws(() => validateSnapshot(snapshot({ hrv: hrv(patch) })), errorStatus(400));
+  }
+  for (const value of [[], true, {}, 1]) assert.throws(() => validateSnapshot(snapshot({ hrv: value })), errorStatus(400));
+  for (const action of ['hrvStart', 'hrvCancel', 'hrvReset']) {
+    assert.equal(validateControl(control('123456', { action })).action, action);
+    assert.throws(() => validateControl(control('123456', { action, preset: preset() })), errorStatus(400));
+    // Old app versions decode this array using their workout-only action enum.
+    assert.throws(() => validateSnapshot(snapshot({ allowedActions: [action] })), errorStatus(400));
   }
 });
 
@@ -194,6 +226,83 @@ test('atomic sharing protocol against isolated Redis', {
     await publish(token, { sequence: 2, state: 'paused', allowedActions: ['start'] });
     await assert.rejects(queueWorkoutControl(redis, control(code, { action: 'start' })), errorStatus(409, 'CONTROL_DISABLED'));
     await assert.rejects(queueWorkoutControl(redis, control(code, { action: 'save' })), errorStatus(400));
+  });
+
+  await t.test('shared HRV round-trips independently of heartbeat and RR traffic', async () => {
+    const { code, token } = await session();
+    const value = hrv({ state: 'completed', remainingTime: 0, hrvValue: 47.25, avgHeartRate: 72, minHeartRate: 68, maxHeartRate: 78 });
+    await publish(token, { hrv: value });
+    await Promise.all([recordHeartBeat(redis, { token, bpm: 74 }), publishRRStream(redis, { token, snapshot: rrStream() })]);
+    const result = await readSharedSession(redis, code);
+    assert.deepEqual((result.workout as any).hrv, value);
+    assert.equal(result.bpm, 74);
+    assert.deepEqual(result.rrStream, rrStream());
+    assert.equal(JSON.stringify(result).includes(token), false);
+    await assert.rejects(publish(token, { hrv: hrv({ state: 'idle' }) }), errorStatus(409, 'STALE_SNAPSHOT'));
+    assert.deepEqual(((await readSharedSession(redis, code)).workout as any).hrv, value);
+  });
+
+  await t.test('HRV controls require explicit host capability, readiness and compatible measurement state', async () => {
+    const accepted: [string, string][] = [['hrvStart', 'idle'], ['hrvStart', 'completed'], ['hrvCancel', 'measuring'],
+      ['hrvReset', 'completed'], ['hrvReset', 'error']];
+    for (const [action, state] of accepted) {
+      const { code, token } = await session();
+      // HRV capability is separate from the workout-only array, including on Home.
+      await publish(token, { screen: 'home', state: 'idle', isEmpty: true, allowedActions: [], hrv: hrv({ state }) });
+      const command = control(code, { action });
+      assert.equal((await queueWorkoutControl(redis, command)).queued, true, `${action}: ${state}`);
+      const incoming = (await publish(token, { sequence: 2, hrv: hrv({ state }) })).commands as any[];
+      assert.equal(incoming.length, 1);
+      assert.equal(incoming[0].action, action);
+    }
+    for (const action of ['hrvStart', 'hrvCancel', 'hrvReset']) {
+      for (const value of [undefined, null, hrv({ allowsRemoteControl: false })]) {
+        const { code, token } = await session();
+        await publish(token, { hrv: value });
+        await assert.rejects(queueWorkoutControl(redis, control(code, { action })), errorStatus(409, 'CONTROL_DISABLED'));
+        assert.equal((await queueWorkoutControl(redis, control(code))).queued, true, 'Legacy workout controls still work');
+      }
+      for (const state of ['idle', 'measuring', 'completed', 'error']) {
+        if (accepted.some(pair => pair[0] === action && pair[1] === state)) continue;
+        const { code, token } = await session();
+        await publish(token, { hrv: hrv({ state }) });
+        await assert.rejects(queueWorkoutControl(redis, control(code, { action })), errorStatus(409, 'CONTROL_DISABLED'));
+      }
+    }
+    for (const readinessReason of ['monitor_disconnected', 'sensor_contact_lost', 'waiting_for_heart_rate',
+      'waiting_for_rr', 'stale_rr', 'shared_data_unavailable']) {
+      const { code, token } = await session();
+      await publish(token, { hrv: hrv({ readinessReason }) });
+      await assert.rejects(queueWorkoutControl(redis, control(code, { action: 'hrvStart' })), errorStatus(409, 'CONTROL_DISABLED'));
+    }
+  });
+
+  await t.test('HRV controls retain freshness, revision, idempotency and shared command claims', async () => {
+    const { code, token } = await session();
+    await publish(token, { hrv: hrv() });
+    const start = control(code, { action: 'hrvStart' });
+    const results = await Promise.all(Array.from({ length: 8 }, () => queueWorkoutControl(redis, start)));
+    assert.equal(results.filter(result => !result.replayed).length, 1);
+    assert.equal(await redis.command('HLEN', `workout-queue:${code}`), 1);
+    await assert.rejects(queueWorkoutControl(redis, control(code)), errorStatus(409, 'CONTROL_ALREADY_CLAIMED'));
+    await assert.rejects(queueWorkoutControl(redis, { ...start, action: 'hrvReset' }), errorStatus(409, 'COMMAND_ID_REUSED'));
+
+    const measuring = { sequence: 2, controlRevision: 'revision-2', hrv: hrv({ revision: randomUUID(), state: 'measuring' }) };
+    await publish(token, measuring, [start.id]);
+    assert.equal((await queueWorkoutControl(redis, start)).replayed, true);
+    assert.equal(await redis.command('HLEN', `workout-queue:${code}`), 0);
+    await assert.rejects(queueWorkoutControl(redis, control(code, { action: 'hrvCancel' })), errorStatus(409, 'STALE_CONTROL'));
+    await assert.rejects(queueWorkoutControl(redis, control(code, { action: 'hrvCancel', controlRevision: 'revision-2',
+      workoutID: randomUUID() })), errorStatus(409, 'STALE_CONTROL'));
+    const cancel = control(code, { action: 'hrvCancel', controlRevision: 'revision-2' });
+    assert.equal((await queueWorkoutControl(redis, cancel)).queued, true);
+    await publish(token, { sequence: 3, controlRevision: 'revision-3', hrv: hrv({ revision: randomUUID(), state: 'completed' }) }, [cancel.id]);
+    const raw = JSON.parse(await redis.command('GET', `workout:${code}`));
+    raw.timestamp -= 5000;
+    await redis.command('SET', `workout:${code}`, JSON.stringify(raw), 'KEEPTTL');
+    await assert.rejects(queueWorkoutControl(redis, control(code, { action: 'hrvReset', controlRevision: 'revision-3' })), errorStatus(409, 'STALE_WORKOUT'));
+    await deleteShareSession(redis, token);
+    await assert.rejects(queueWorkoutControl(redis, control(code, { action: 'hrvStart' })), errorStatus(404, 'SESSION_NOT_FOUND'));
   });
 
   await t.test('preset commands retain exact settings and idempotency binds the full payload', async () => {

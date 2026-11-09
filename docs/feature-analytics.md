@@ -16,15 +16,18 @@ argument to disable uploads again. Release builds keep the SDK's normal behavior
 | --- | --- |
 | Are people sharing workout/HRV exports? | `share_picker_opened`, `share_format_selected`, `share_export_requested`, `share_export_presented`, `share_export_completed`, `share_export_cancelled`, `share_export_failed`; split by `source` and `format`. See [sharing analytics](sharing-analytics.md). |
 | Are people broadcasting live heart rate? | `stream_start_requested` → `share_on` (server created session) → `stream_broadcast_connected` (first nonempty heart-rate update accepted by server). `stream_start_failed` records setup failure; `share_off` records ending an active session. |
-| Are people watching a stream? | `stream_viewer_started` with `source=user/restored` → `stream_viewer_connected` on the first nonempty data response. `stream_viewer_failed` has `stage=connecting/streaming`. `stream_viewer_stopped` has `connected=true/false`. |
+| Are people watching a stream? | `stream_viewer_started` with `source=user/restored` → `stream_viewer_connected` on the first nonempty data response. `stream_viewer_failed` has `stage=connecting/streaming`, `source=user/restored` and a fixed `reason` category. `stream_viewer_stopped` has `connected=true/false`. See [reliability monitoring](reliability-monitoring.md) for categories. |
 | Are sound effects enabled? | `feature_configuration` has `bpm_alert_enabled` and `zone_alert_enabled`. `setting_changed` has `setting=bpm_alert/zone_alert` and `enabled=true/false`. Preset `workout_start`, `preset_selected`, and `preset_saved` include `sound_enabled`. |
 | Are sounds actually being used? | `sound_used` with `sound=bpm_alert/zone_alert/preset_bell/hrv_completion`, once per category per app process and UTC day. This fires after the audio player accepts playback, not proof the speaker was audible. |
-| Are people using HRV? | `screen_viewed` with `screen=hrv` → `hrv_start` → `hrv_completed` → `hrv_save`. `hrv_cancelled` means an in-progress measurement was reset. `hrv_failed` distinguishes `stage=start/measurement` and fixed `reason=sensor_unavailable/sensor_changed/data_stopped/quality_check/calculation`. No measurement values are sent. |
+| Are people using HRV? | `screen_viewed` with `screen=hrv` → `hrv_start` → `hrv_completed` → `hrv_save`. Start/completion/cancellation/failure include `source=local/shared`. `hrv_failed` distinguishes `stage=start/measurement/validation/calculation`, existing `reason=sensor_unavailable/sensor_changed/data_stopped/quality_check/calculation` and a fixed `detail`. See [reliability monitoring](reliability-monitoring.md). No measurement values are sent. |
+| Can people start HRV? | `hrv_readiness` has `state=ready/blocked`, `source=local/shared` and a fixed readiness `reason`, once per source/reason per idle screen presentation. Blocked users cannot start until fresh usable monitor data is available. These observations are not measurement attempts. |
 | Do people visit history or inspect a workout? | `screen_viewed` with `screen=workout_history/hrv_history/workout_detail/hrv_detail/workout_chart/workout_edit`. History visits count even when empty. |
 | Which calorie fields are filled in? | `feature_configuration` and `calorie_configuration`: `weight_state`, `age_state`, `sex_state`, `height_state`, `resting_hr_state`, `max_hr_state`, `vo2_max_state`, `rmr_state`, `body_fat_state`, and `calories_enabled`. |
 | Which calorie fields do people edit? | `calorie_field_edited` with `field=weight/age/sex/height/resting_hr/max_hr/vo2_max/rmr/body_fat` and `state=filled/empty/invalid/defaulted`. Emitted when leaving or backgrounding the form, once per edited field since the previous flush. No keystroke events. |
 | Which workout views and presets are used? | `workout_start` with `mode=manual/preset`; existing `workout_save`; `workout_view_selected` with `view=table/bpm/stats/chart`; `preset_selected`; `preset_saved` with `action=create/edit`. Preset names and durations are excluded. |
-| Is AI voice used? | `voice_recording_started` only after recording starts; `voice_recap_requested` → `voice_recap_completed/failed/cancelled`. These signals never contain recordings, transcripts, titles, or notes. |
+| Is AI voice used? | `voice_recording_started` only after recording starts; `voice_recap_requested` → `voice_recap_completed/failed/cancelled`. Failures add a fixed `category`. These signals never contain recordings, transcripts, titles, or notes. |
+| Are recoverable operations failing? | `app_failure` has fixed `component`, `operation`, `category` labels for workout/HRV storage, Health access/export/autofill and Bluetooth. Duplicate failures are suppressed until recovery. See [reliability monitoring](reliability-monitoring.md) for counting rules. |
+| Which monitors work or fail? | `sensor_connection` with `outcome=connected/ready/capabilities/failed/disconnected`, allowlisted `sensor_vendor/model`, `sensor_identity_source`, and observed RR/contact/battery support. Failures include fixed `stage` and `reason`. Local HRV events include sensor identity captured at attempt start; shared HRV omits local identity. No raw device names, identifiers, or readings are sent. |
 | Which other areas are opened? | `screen_viewed` with `screen=home/workout/settings/presets/workout_save/calorie_settings/calorie_accuracy/zone_settings/zone_alerts/workout_types/devices`; `health_access_requested` when the Settings Apple Health action is used. |
 
 ## Counting rules
@@ -37,9 +40,9 @@ argument to disable uploads again. Release builds keep the SDK's normal behavior
   who never open Settings. The calorie form also emits a snapshot on exit or
   backgrounding. These are adoption observations, not edit events.
 - Calorie `filled` means a positive, finite number (integer for age and heart-rate
-  fields), not clinical validation. `sex_state=defaulted` means no stored choice;
-  the form supplies its existing default. A stored choice is `filled` regardless
-  of the selected sex. `calories_enabled` follows required field completion.
+  fields), not clinical validation. Sex must be selected explicitly: an unset
+  value is `empty`, a recognized choice is `filled`, and an unrecognized value is
+  `invalid`. `calories_enabled` follows the estimator's full input validation.
 - Stream connections, viewer failures, and stop callbacks are deduplicated within
   each viewing attempt. A failed connection can later succeed. No per-poll,
   per-beat, or per-zone-change event stream is emitted. Broadcast success does
@@ -47,10 +50,21 @@ argument to disable uploads again. Release builds keep the SDK's normal behavior
 - HRV start means measurement actually began. A missing sensor can produce a
   start-stage failure without `hrv_start`. Save means local storage confirmed
   success. Resetting a completed or failed measurement is not cancellation.
+  Older builds labeled quality and calculation failures `stage=measurement`;
+  updated builds separate validation/calculation and add `detail` and `source`.
+  Filter by instrumented version/build when using these fields.
 - UIKit export completion means the native share activity reported success, not
   delivery to a recipient.
 - Debug uploads require the launch opt-in above. No new user identifiers or
   persistent telemetry stores are added.
+- Sensor connected/ready/disconnected outcomes emit once per logical user
+  connection including reconnects; failures are deduplicated by stage/category,
+  and capabilities emit only when observed categories change. A failure count
+  divided by successful connections is not an attempted-connection failure rate.
+
+The saved production [Reliability dashboard](https://dashboard.telemetrydeck.com/o/B7DA979E-CBFC-4345-8175-51DC68945633/apps/458D3F06-26F3-4929-ADFA-C1B7DF052D28/d/4F9B563E-29A8-49D4-B7CA-D185B3764F27)
+shows the last 30 days, including sensor models and failures. New-event charts
+populate after the instrumented build sends data. No alerts are configured.
 
 ## Suggested dashboard
 

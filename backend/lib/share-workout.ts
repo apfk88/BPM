@@ -4,6 +4,8 @@ const MAX_SNAPSHOT_BYTES = 1024 * 1024;
 const MAX_TIME = 7 * 24 * 60 * 60;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const WORKOUT_ACTIONS = ['work', 'rest', 'start', 'startIncludingHistory', 'pause', 'resume', 'end', 'reset', 'cool', 'loadPreset', 'clearPreset'];
+const HRV_ACTIONS = ['hrvStart', 'hrvCancel', 'hrvReset'];
+const CONTROL_ACTIONS = [...WORKOUT_ACTIONS, ...HRV_ACTIONS];
 
 export interface ShareRedis {
   get(key: string): Promise<unknown>;
@@ -63,13 +65,29 @@ export function validatePreset(value: unknown): ObjectValue {
   return preset;
 }
 
+function validateHRV(value: unknown): void {
+  const hrv = object(value);
+  exactKeys(hrv, ['revision', 'isPresented', 'state', 'remainingTime', 'hrvValue', 'avgHeartRate', 'minHeartRate',
+    'maxHeartRate', 'currentBPM', 'readinessReason', 'errorMessage', 'allowsRemoteControl']);
+  if (typeof hrv.revision !== 'string' || !UUID.test(hrv.revision)
+      || typeof hrv.isPresented !== 'boolean' || typeof hrv.allowsRemoteControl !== 'boolean'
+      || !member(hrv.state, ['idle', 'measuring', 'completed', 'error'])
+      || !number(hrv.remainingTime, 120) || !optionalNumber(hrv.hrvValue, 5000)
+      || !bpm(hrv.avgHeartRate) || !bpm(hrv.minHeartRate) || !bpm(hrv.maxHeartRate) || !bpm(hrv.currentBPM)
+      || !member(hrv.readinessReason, ['ready', 'monitor_disconnected', 'sensor_contact_lost', 'waiting_for_heart_rate',
+        'waiting_for_rr', 'stale_rr', 'shared_data_unavailable'])
+      || (hrv.errorMessage !== undefined && hrv.errorMessage !== null && !text(hrv.errorMessage, 512, 0))) {
+    invalid('Invalid shared HRV state');
+  }
+}
+
 export function validateSnapshot(value: unknown): ObjectValue {
   const snapshot = object(value);
   if (Buffer.byteLength(JSON.stringify(snapshot)) > MAX_SNAPSHOT_BYTES) invalid('Workout snapshot is too large');
   exactKeys(snapshot, ['schemaVersion', 'sequence', 'workoutID', 'controlRevision', 'screen', 'page', 'state', 'isCompleted',
     'isPresetMode', 'canWork', 'canRest', 'totalTime', 'setTime', 'totalTimeAdvances', 'setTimeDirection', 'showTenths', 'isEmpty',
     'avgWorkTime', 'avgBPM', 'maxBPM', 'minBPM', 'zone', 'setNumber', 'calories', 'primaryBPM', 'rows', 'chart', 'segments', 'chartMaxTime', 'zones',
-    'allowedActions', 'activePreset', 'recoverableHistorySeconds']);
+    'allowedActions', 'activePreset', 'recoverableHistorySeconds', 'hrv']);
   if (snapshot.schemaVersion !== 1 || !number(snapshot.sequence, Number.MAX_SAFE_INTEGER, 0, true)
       || typeof snapshot.workoutID !== 'string' || !UUID.test(snapshot.workoutID)
       || !text(snapshot.controlRevision, 128)
@@ -117,6 +135,7 @@ export function validateSnapshot(value: unknown): ObjectValue {
   }
   if (snapshot.activePreset !== undefined && snapshot.activePreset !== null) validatePreset(snapshot.activePreset);
   if (!optionalNumber(snapshot.recoverableHistorySeconds, 3600)) invalid('Invalid recoverable history duration');
+  if (snapshot.hrv !== undefined && snapshot.hrv !== null) validateHRV(snapshot.hrv);
   return snapshot;
 }
 
@@ -126,7 +145,7 @@ export function validateControl(value: unknown): ObjectValue {
   validateCode(command.code);
   if (typeof command.id !== 'string' || !UUID.test(command.id)
       || typeof command.workoutID !== 'string' || !UUID.test(command.workoutID)
-      || !text(command.controlRevision, 128) || !member(command.action, WORKOUT_ACTIONS)) invalid('Unsupported workout control');
+      || !text(command.controlRevision, 128) || !member(command.action, CONTROL_ACTIONS)) invalid('Unsupported workout control');
   if (command.action === 'loadPreset') validatePreset(command.preset);
   else if (command.preset !== undefined && command.preset !== null) invalid('Preset payload is only supported when loading a preset');
   return command;
@@ -256,7 +275,7 @@ return '{"status":200,"commands":[' .. table.concat(commands, ',') .. '],"server
 
 export const controlScript = CLOCK + SESSION + SAVE + `
 local command = cjson.decode(ARGV[1])
-local validActions = {work=true,rest=true,start=true,startIncludingHistory=true,pause=true,resume=true,['end']=true,reset=true,cool=true,loadPreset=true,clearPreset=true}
+local validActions = {work=true,rest=true,start=true,startIncludingHistory=true,pause=true,resume=true,['end']=true,reset=true,cool=true,loadPreset=true,clearPreset=true,hrvStart=true,hrvCancel=true,hrvReset=true}
 if not validActions[command.action] then return result(400,'INVALID_CONTROL','Unsupported workout control') end
 local presetFingerprint = ARGV[2] or ''
 local receipt = redis.call('HGET', KEYS[5], command.id)
@@ -297,7 +316,15 @@ end
 local state = snapshot.state
 local action = command.action
 local stateAllowed = false
-if action == 'work' or action == 'rest' then
+if action == 'hrvStart' or action == 'hrvCancel' or action == 'hrvReset' then
+  local hrv = snapshot.hrv
+  allowed = type(hrv) == 'table' and hrv.allowsRemoteControl == true
+  if allowed then
+    if action == 'hrvStart' then stateAllowed = (hrv.state == 'idle' or hrv.state == 'completed') and hrv.readinessReason == 'ready'
+    elseif action == 'hrvCancel' then stateAllowed = hrv.state == 'measuring'
+    else stateAllowed = hrv.state == 'completed' or hrv.state == 'error' end
+  end
+elseif action == 'work' or action == 'rest' then
   stateAllowed = state == 'running' and not snapshot.isPresetMode and not snapshot.isCompleted
     and ((action == 'work' and snapshot.canWork) or (action == 'rest' and snapshot.canRest))
 elseif action == 'start' or action == 'loadPreset' then stateAllowed = state == 'idle' and not snapshot.isCompleted

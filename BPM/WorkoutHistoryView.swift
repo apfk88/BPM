@@ -363,10 +363,10 @@ struct WorkoutDetailView: View {
                 detailRow(label: "Min BPM", value: record.minHr.map(String.init))
                 detailRow(label: "HRR (2 min)", value: record.hrr.map(String.init))
                 if let calories = record.caloriesActive {
-                    detailRow(label: "Est. active calories", value: "\(Int(round(calories))) kcal")
+                    detailRow(label: "Active calories", value: "\(Int(round(calories))) kcal")
                 }
                 if let calories = record.caloriesTotal {
-                    detailRow(label: "Est. total calories", value: "\(Int(round(calories))) kcal")
+                    detailRow(label: "Calories", value: "\(Int(round(calories))) kcal")
                 }
                 rule
                 detailRow(label: "Start", value: record.startAt.formatted(date: .abbreviated, time: .shortened))

@@ -215,6 +215,94 @@ final class SharedWorkoutSyncTests: XCTestCase {
     }
 
     @MainActor
+    func testViewerClearsReceivedPresetAndWaitsForOwnerConfirmation() async throws {
+        let clock = SharedWorkoutTestClock()
+        let session = makeNetworkSession()
+        defer { session.invalidateAndCancel(); WorkoutSyncURLProtocol.handler = nil }
+        let service = makeService(clock, session: session)
+        var requests = 0
+        WorkoutSyncURLProtocol.handler = { request in
+            let body = try JSONSerialization.jsonObject(with: request.bodyData()) as! [String: Any]
+            XCTAssertEqual(request.url?.path, "/api/share/control")
+            XCTAssertEqual(body["action"] as? String, "clearPreset")
+            XCTAssertEqual(body["controlRevision"] as? String, "revision")
+            XCTAssertNil(body["preset"])
+            requests += 1
+            return (200, Data("{}".utf8))
+        }
+        var loaded = snapshot()
+        loaded.state = .idle
+        loaded.isPresetMode = true
+        loaded.activePreset = TimerPreset(name: "Other device's preset")
+        loaded.allowedActions = [.start, .loadPreset, .clearPreset]
+        service.startViewing(code: "123456")
+        service.receiveFriendHeartRate(response(loaded), for: try poll(service))
+        await service.requestWorkoutControl(.clearPreset)
+        XCTAssertEqual(requests, 1)
+        XCTAssertTrue(service.isWorkoutControlPending)
+        XCTAssertEqual(service.friendWorkout?.activePreset, loaded.activePreset)
+
+        var cleared = loaded
+        cleared.sequence = 2
+        cleared.controlRevision = "cleared"
+        cleared.isPresetMode = false
+        cleared.activePreset = nil
+        cleared.allowedActions = [.start, .loadPreset]
+        service.receiveFriendHeartRate(response(cleared), for: try poll(service))
+        XCTAssertFalse(service.isWorkoutControlPending)
+        XCTAssertNil(service.friendWorkout?.activePreset)
+        await service.requestWorkoutControl(.clearPreset)
+        XCTAssertEqual(requests, 1)
+    }
+
+    @MainActor
+    func testViewerRequestsHRVOnlyFromFreshHostCapabilityAndWaitsForRevision() async throws {
+        let clock = SharedWorkoutTestClock()
+        let session = makeNetworkSession()
+        defer { session.invalidateAndCancel(); WorkoutSyncURLProtocol.handler = nil }
+        let service = makeService(clock, session: session)
+        var requests = 0
+        WorkoutSyncURLProtocol.handler = { request in
+            let body = try JSONSerialization.jsonObject(with: request.bodyData()) as! [String: Any]
+            XCTAssertEqual(body["action"] as? String, "hrvStart")
+            XCTAssertEqual(body["controlRevision"] as? String, "ready-hrv")
+            XCTAssertNil(body["preset"])
+            requests += 1
+            return (200, Data("{}".utf8))
+        }
+        service.startViewing(code: "123456")
+        service.receiveFriendHeartRate(response(snapshot()), for: try poll(service))
+        await service.requestWorkoutControl(.hrvStart)
+        XCTAssertEqual(requests, 0)
+
+        var ready = snapshot(sequence: 2, revision: "ready-hrv")
+        ready.hrv = SharedHRVSnapshot(revision: UUID().uuidString, isPresented: false, state: .idle,
+                                      remainingTime: 120, hrvValue: nil, avgHeartRate: nil, minHeartRate: nil,
+                                      maxHeartRate: nil, currentBPM: 60, readinessReason: .ready,
+                                      errorMessage: nil, allowsRemoteControl: true)
+        service.receiveFriendHeartRate(response(ready), for: try poll(service))
+        await service.requestWorkoutControl(.hrvStart)
+        XCTAssertEqual(requests, 1)
+        XCTAssertTrue(service.isWorkoutControlPending)
+        await service.requestWorkoutControl(.hrvStart)
+        XCTAssertEqual(requests, 1)
+
+        var measuring = ready
+        measuring.sequence = 3
+        measuring.controlRevision = "measuring-hrv"
+        measuring.hrv?.revision = UUID().uuidString
+        measuring.hrv?.state = .measuring
+        measuring.hrv?.isPresented = true
+        service.receiveFriendHeartRate(response(measuring), for: try poll(service))
+        XCTAssertFalse(service.isWorkoutControlPending)
+        XCTAssertEqual(service.friendWorkout?.hrv?.state, .measuring)
+        clock.seconds = 5
+        await service.requestWorkoutControl(.hrvCancel)
+        XCTAssertEqual(requests, 1)
+        XCTAssertFalse(service.friendWorkoutIsFresh)
+    }
+
+    @MainActor
     func testUnconfirmedControlExpiresWithoutAutomaticRetryAndNewRevisionClearsError() async throws {
         let clock = SharedWorkoutTestClock()
         let session = makeNetworkSession()

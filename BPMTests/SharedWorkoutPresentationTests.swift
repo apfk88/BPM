@@ -247,6 +247,101 @@ final class SharedWorkoutPresentationTests: XCTestCase {
         }
     }
 
+    func testEitherParticipantCanClearAPresetRegardlessOfWhoLoadedIt() {
+        for loadedRemotely in [false, true] {
+            for clearedRemotely in [false, true] {
+                let timer = makeTimer(Clock())
+                defer { timer.reset() }
+                let preset = TimerPreset(name: "Shared intervals", workDuration: 30, restDuration: 10,
+                                         numberOfSets: 3, includeCooldown: false, playSound: false)
+                if loadedRemotely {
+                    let empty = snapshot(timer)
+                    var load = command(.loadPreset, snapshot: empty)
+                    load.preset = preset
+                    XCTAssertTrue(SharedWorkoutPresentation.apply(load, to: timer, current: empty))
+                } else {
+                    timer.loadPreset(preset)
+                }
+
+                let loaded = snapshot(timer)
+                XCTAssertTrue(timer.canClearPreset)
+                XCTAssertTrue(loaded.permits(.clearPreset))
+                if clearedRemotely {
+                    XCTAssertTrue(SharedWorkoutPresentation.apply(command(.clearPreset, snapshot: loaded),
+                                                                 to: timer, current: loaded))
+                } else {
+                    timer.clearPreset()
+                }
+
+                let cleared = snapshot(timer)
+                XCTAssertNil(timer.activePreset)
+                XCTAssertNil(cleared.activePreset)
+                XCTAssertTrue(cleared.isEmpty)
+                XCTAssertFalse(timer.canClearPreset)
+                XCTAssertFalse(cleared.permits(.clearPreset))
+                XCTAssertNotEqual(cleared.controlRevision, loaded.controlRevision)
+            }
+        }
+    }
+
+    func testClearPresetCannotChangeAnActiveWorkoutOrItsEndedRecovery() {
+        let clock = Clock()
+        let timer = makeTimer(clock)
+        defer { timer.reset() }
+        let preset = TimerPreset(name: "Intervals", workDuration: 30, restDuration: 10,
+                                 numberOfSets: 3, includeCooldown: false, playSound: false)
+        timer.loadPreset(preset)
+        let loaded = snapshot(timer)
+        let delayedClear = command(.clearPreset, snapshot: loaded)
+        timer.startPreset()
+        clock.advance(8)
+        timer.refreshTiming()
+        let running = snapshot(timer)
+        XCTAssertFalse(timer.canClearPreset)
+        XCTAssertFalse(SharedWorkoutPresentation.apply(delayedClear, to: timer, current: running))
+        timer.clearPreset()
+        XCTAssertEqual(snapshot(timer), running)
+
+        timer.pausePreset()
+        let paused = snapshot(timer)
+        timer.clearPreset()
+        XCTAssertEqual(snapshot(timer), paused)
+        XCTAssertEqual(timer.activePreset, preset)
+
+        timer.endWorkout()
+        let ended = snapshot(timer)
+        XCTAssertTrue(ended.isCompleted)
+        XCTAssertNil(ended.activePreset)
+        timer.clearPreset()
+        XCTAssertEqual(snapshot(timer), ended)
+        timer.resumeEndedWorkout()
+        XCTAssertEqual(timer.activePreset, preset)
+        XCTAssertEqual(timer.elapsedTime, 8, accuracy: 0.001)
+    }
+
+    func testEndingPresetCountdownStillClearsWithoutStartingARecording() {
+        let clock = Clock()
+        let timer = makeTimer(clock, countdownDuration: 5)
+        defer { timer.reset() }
+        timer.loadPreset(TimerPreset(name: "Intervals", workDuration: 30, restDuration: 10,
+                                    numberOfSets: 3, includeCooldown: false, playSound: false))
+        timer.startPreset()
+        clock.advance(2)
+        timer.refreshTiming()
+        XCTAssertTrue(timer.isPresetPrestartCountdownActive)
+        XCTAssertFalse(timer.canClearPreset)
+        XCTAssertFalse(snapshot(timer).permits(.clearPreset))
+
+        timer.endWorkout()
+        clock.advance(10)
+        timer.refreshTiming()
+        XCTAssertEqual(timer.state, .idle)
+        XCTAssertNil(timer.activePreset)
+        XCTAssertFalse(timer.isPresetPrestartCountdownActive)
+        XCTAssertFalse(timer.isCompleted)
+        XCTAssertNil(timer.workoutRecord(zoneConfig: HeartRateZoneConfig(maxHeartRate: 190)))
+    }
+
     func testSavingOwnerWorkoutRejectsQueuedTrainerChangesWithoutClearingItsData() {
         let clock = Clock()
         let timer = makeTimer(clock)
@@ -312,9 +407,9 @@ final class SharedWorkoutPresentationTests: XCTestCase {
                              controlRevision: snapshot.controlRevision, action: action, createdAt: 0)
     }
 
-    private func makeTimer(_ clock: Clock) -> TimerViewModel {
+    private func makeTimer(_ clock: Clock, countdownDuration: TimeInterval = 0) -> TimerViewModel {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("shared-workout-\(UUID()).json")
-        return TimerViewModel(presetStartCountdownDuration: 0, sessionStore: ActiveWorkoutSessionStore(fileURL: url),
+        return TimerViewModel(presetStartCountdownDuration: countdownDuration, sessionStore: ActiveWorkoutSessionStore(fileURL: url),
                               nowProvider: { clock.date }, soundCueHandler: { _ in })
     }
 

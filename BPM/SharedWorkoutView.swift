@@ -23,7 +23,7 @@ struct SharedWorkoutView: View {
                     : AnyLayout(VStackLayout(spacing: 0))
                 layout {
                     VStack(spacing: 0) {
-                        TimelineView(.periodic(from: .now, by: 0.1)) { _ in
+                        TimelineView(.periodic(from: .now, by: 1)) { _ in
                             TabView(selection: $selectedPage) {
                                 ForEach(SharedWorkoutSnapshot.Page.allCases, id: \.self) { page in
                                     workoutPage(page, isLandscape: isLandscape, age: sharingService.friendWorkoutPresentationAge)
@@ -40,16 +40,16 @@ struct SharedWorkoutView: View {
                     if isLandscape {
                         GeometryReader { controlsGeometry in
                             ScrollView {
-                                controls(isLandscape: true)
+                                controls(isLandscape: true, screenWidth: geometry.size.width)
                                     .frame(minHeight: controlsGeometry.size.height, alignment: .center)
                             }
                             .scrollIndicators(.hidden)
                         }
-                        .frame(width: min(240, max(180, geometry.size.width * 0.26)))
+                        .frame(width: WorkoutControlMetrics.landscapeColumnWidth(for: geometry.size.width))
                         .padding(.trailing, 20)
                         .padding(.bottom, 8)
                     } else {
-                        controls(isLandscape: false)
+                        controls(isLandscape: false, screenWidth: geometry.size.width)
                             .padding(.bottom, geometry.safeAreaInsets.bottom)
                     }
                 }
@@ -160,13 +160,13 @@ struct SharedWorkoutView: View {
     }
 
     private func summary(isLandscape: Bool, age: TimeInterval) -> some View {
-        let total = snapshot.isEmpty ? "---" : formatTime(snapshot.totalTime(after: age), showTenths: false)
+        let total = snapshot.isEmpty ? "---" : formatTime(snapshot.totalTime(after: age))
         let set: String = {
             if snapshot.isEmpty { return "---" }
             if snapshot.isCompleted {
-                return snapshot.avgWorkTime.map { formatTime($0, showTenths: snapshot.showTenths) } ?? "---"
+                return snapshot.avgWorkTime.map { formatTime($0) } ?? "---"
             }
-            return formatTime(snapshot.setTime(after: age), showTenths: snapshot.showTenths)
+            return formatTime(snapshot.setTime(after: age))
         }()
         let metrics: [(String, String, String)] = [
             ("Total Time", total, "sharedWorkoutTotalTime"),
@@ -238,9 +238,9 @@ struct SharedWorkoutView: View {
         let bpm = snapshot.primaryBPM == "max" ? row.maxBPM : row.avgBPM
         let isEmpty = row.kind == "empty"
         let values = [row.label,
-                      isEmpty ? "---" : formatTime(row.duration + increment, showTenths: snapshot.showTenths),
+                      isEmpty ? "---" : formatTime(row.duration + increment),
                       bpm.map(String.init) ?? "---",
-                      isEmpty ? "---" : formatTime(row.totalTime + increment, showTenths: snapshot.showTenths)]
+                      isEmpty ? "---" : formatTime(row.totalTime + increment)]
         let color: Color = row.isActive ? .white : (row.kind == "placeholder" || isEmpty ? .gray.opacity(0.5) : .gray)
         return tableCells(values, color: color, fontSize: 18, weight: .medium)
             .accessibilityElement(children: .combine)
@@ -276,13 +276,13 @@ struct SharedWorkoutView: View {
         let set = snapshot.isCompleted ? snapshot.avgWorkTime : snapshot.setTime(after: age)
         let values: [(String, String, Color)] = [
             ("BPM", sharingService.friendHeartRate.map(String.init) ?? "---", .white),
-            ("Total Time", snapshot.isEmpty ? "---" : formatTime(snapshot.totalTime(after: age), showTenths: false), .white),
+            ("Total Time", snapshot.isEmpty ? "---" : formatTime(snapshot.totalTime(after: age)), .white),
             (snapshot.isCompleted ? "Work Sets" : "Set Number", snapshot.setNumber, .white),
-            (snapshot.isCompleted ? "Avg Work" : "Set Time", snapshot.isEmpty ? "---" : set.map { formatTime($0, showTenths: false) } ?? "---", .white),
+            (snapshot.isCompleted ? "Avg Work" : "Set Time", snapshot.isEmpty ? "---" : set.map { formatTime($0) } ?? "---", .white),
             ("Avg BPM", snapshot.avgBPM.map(String.init) ?? "---", .white),
             ("Max BPM", snapshot.maxBPM.map(String.init) ?? "---", .white),
             (snapshot.isCompleted ? "Top Zone" : "Zone", zoneAvailable ? zone?.displayName ?? "---" : "---", zone?.color ?? .gray),
-            ("Est. total kcal", snapshot.calories, .white)
+            ("Calories", snapshot.calories, .white)
         ]
         return LazyVGrid(columns: columns, spacing: spacing) {
             ForEach(values.indices, id: \.self) { index in
@@ -361,8 +361,9 @@ struct SharedWorkoutView: View {
         return nil
     }
 
-    private func controls(isLandscape: Bool) -> some View {
-        VStack(spacing: isLandscape ? 8 : 16) {
+    private func controls(isLandscape: Bool, screenWidth: CGFloat) -> some View {
+        let metrics = WorkoutControlMetrics(isLandscape: isLandscape, screenWidth: screenWidth)
+        return VStack(spacing: metrics.spacing) {
             Text(status?.message ?? " ")
                 .font(.footnote)
                 .foregroundStyle(status?.color ?? .secondary)
@@ -373,46 +374,40 @@ struct SharedWorkoutView: View {
                 .accessibilityIdentifier("sharedWorkoutStatus")
 
             let layout = isLandscape
-                ? AnyLayout(VStackLayout(spacing: 8))
-                : AnyLayout(HStackLayout(spacing: 16))
-            VStack(spacing: isLandscape ? 8 : 16) {
+                ? AnyLayout(VStackLayout(spacing: metrics.spacing))
+                : AnyLayout(HStackLayout(spacing: metrics.spacing))
+            VStack(spacing: metrics.spacing) {
                 layout {
                     if snapshot.isCompleted {
-                        controlButton(.reset, title: "Reset", isLandscape: isLandscape)
-                        controlButton(.resume, title: "Resume", isLandscape: isLandscape)
+                        controlButton(.reset, title: "Reset", metrics: metrics)
+                        controlButton(.resume, title: "Resume", metrics: metrics)
                     } else if snapshot.state == .idle {
-                        controlButton(.start, title: "Start", isLandscape: isLandscape)
+                        controlButton(.start, title: "Start", metrics: metrics)
                         Button { showPresetSheet = true } label: {
-                            controlLabel("Load Preset", enabled: canSend(.loadPreset), isLandscape: isLandscape)
+                            controlLabel("Load Preset", enabled: canSend(.loadPreset), metrics: metrics)
                         }
                         .disabled(!canSend(.loadPreset))
                         .frame(maxWidth: .infinity)
                         .accessibilityIdentifier("sharedWorkoutLoadPreset")
                     } else {
                         let paused = snapshot.state == .paused || snapshot.state == .cooldownPaused
-                        controlButton(paused ? .resume : .pause, title: paused ? "Resume" : "Pause", isLandscape: isLandscape)
-                        controlButton(.end, title: "End", isLandscape: isLandscape)
+                        controlButton(paused ? .resume : .pause, title: paused ? "Resume" : "Pause", metrics: metrics)
+                        controlButton(.end, title: "End", metrics: metrics)
                         if !snapshot.isPresetMode {
-                            controlButton(.cool, title: "Cool", isLandscape: isLandscape)
+                            controlButton(.cool, title: "Cool", metrics: metrics)
                         }
                     }
                 }
                 if !snapshot.isCompleted {
                     if snapshot.isPresetMode {
-                        Text("Preset: \(snapshot.activePreset?.name ?? "Intervals")")
-                            .font(.system(size: isLandscape ? 16 : 18, weight: .semibold))
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.75)
-                            .frame(maxWidth: .infinity, minHeight: 30)
-                            .accessibilityIdentifier("sharedWorkoutPresetName")
-                        if snapshot.state == .idle {
-                            controlButton(.clearPreset, title: "Clear Preset", isLandscape: isLandscape)
+                        WorkoutPresetControl(name: snapshot.activePreset?.name ?? "Custom Preset", metrics: metrics,
+                                             canClear: canSend(.clearPreset), identifierPrefix: "sharedWorkout") {
+                            send(.clearPreset)
                         }
                     } else {
                         layout {
-                            controlButton(.work, title: "Work Set", isLandscape: isLandscape)
-                            controlButton(.rest, title: "Rest Set", isLandscape: isLandscape)
+                            controlButton(.work, title: "Work Set", metrics: metrics)
+                            controlButton(.rest, title: "Rest Set", metrics: metrics)
                         }
                     }
                 }
@@ -420,8 +415,9 @@ struct SharedWorkoutView: View {
             .bpmActionStyle()
             .bpmGlassGroup()
         }
-        .padding(.horizontal, isLandscape ? 0 : 24)
-        .padding(.vertical, isLandscape ? 4 : 20)
+        .padding(.horizontal, metrics.horizontalPadding)
+        .padding(.top, isLandscape ? 4 : 20)
+        .padding(.bottom, metrics.bottomPadding)
         .background(Color.black.opacity(0.8))
     }
 
@@ -429,14 +425,14 @@ struct SharedWorkoutView: View {
         snapshot.permits(action) && sharingService.friendWorkoutIsFresh && !sharingService.isWorkoutControlPending
     }
 
-    private func controlButton(_ action: SharedWorkoutAction, title: String, isLandscape: Bool) -> some View {
+    private func controlButton(_ action: SharedWorkoutAction, title: String, metrics: WorkoutControlMetrics) -> some View {
         let enabled = canSend(action)
         return Button {
             if action == .reset { showResetAlert = true }
             else if action == .start, canSend(.startIncludingHistory), (snapshot.recoverableHistorySeconds ?? 0) > 0 { showStartAlert = true }
             else { send(action) }
         } label: {
-            controlLabel(title, enabled: enabled, isLandscape: isLandscape, showsPlus: action == .work || action == .rest)
+            controlLabel(title, enabled: enabled, metrics: metrics, showsPlus: action == .work || action == .rest)
         }
         .disabled(!enabled)
         .frame(maxWidth: .infinity)
@@ -444,7 +440,7 @@ struct SharedWorkoutView: View {
             : "sharedWorkout\(action.rawValue.prefix(1).uppercased())\(action.rawValue.dropFirst())")
     }
 
-    private func controlLabel(_ title: String, enabled: Bool, isLandscape: Bool, showsPlus: Bool = false) -> some View {
+    private func controlLabel(_ title: String, enabled: Bool, metrics: WorkoutControlMetrics, showsPlus: Bool = false) -> some View {
         HStack(spacing: 4) {
             if showsPlus { Image(systemName: "plus") }
             Text(title)
@@ -452,12 +448,12 @@ struct SharedWorkoutView: View {
                 .minimumScaleFactor(0.75)
                 .allowsTightening(true)
         }
-        .font(.system(size: isLandscape ? 16 : 18, weight: .semibold))
+        .font(.system(size: metrics.fontSize, weight: .semibold))
         .foregroundStyle(enabled ? .white : .gray.opacity(0.5))
         .frame(maxWidth: .infinity)
         .padding(.horizontal, 2)
-        .padding(.vertical, isLandscape ? 0 : 6)
-        .frame(minHeight: 30)
+        .padding(.vertical, metrics.isLandscape ? 0 : 6)
+        .frame(minHeight: metrics.minimumHeight)
     }
 
     private func send(_ action: SharedWorkoutAction, preset: TimerPreset? = nil) {
@@ -470,20 +466,17 @@ struct SharedWorkoutView: View {
         return "\(seconds)s"
     }
 
-    private func formatTime(_ time: TimeInterval, showTenths: Bool) -> String {
+    private func formatTime(_ time: TimeInterval) -> String {
         let time = time.isFinite ? max(0, time) : 0
         let seconds = Int(time)
         if seconds >= 3600 {
             return String(format: "%d:%02d:%02d", seconds / 3600, seconds / 60 % 60, seconds % 60)
         }
-        if !showTenths || seconds >= 600 {
-            return String(format: "%d:%02d", seconds / 60, seconds % 60)
-        }
-        return String(format: "%d:%02d.%d", seconds / 60, seconds % 60, Int(time.truncatingRemainder(dividingBy: 1) * 10))
+        return String(format: "%d:%02d", seconds / 60, seconds % 60)
     }
 }
 
-/// Avoid rebuilding chart data on each tenth-second timer redraw.
+/// Avoid rebuilding chart data on each presentation timer redraw.
 private struct SharedWorkoutCharts: View, Equatable {
     let snapshot: SharedWorkoutSnapshot
     let isLandscape: Bool

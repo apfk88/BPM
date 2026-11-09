@@ -16,8 +16,51 @@ struct BPMApp: App {
     private static let logger = Logger(subsystem: "com.bpmapp.client", category: "BPMApp")
     
     init() {
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("--reset-calorie-setup") {
+            let defaults = UserDefaults.standard
+            // Explicit empty values isolate the fixture from simulator-wide
+            // preferences left by defaults/simctl. Removing a container value
+            // can reveal those fallback values instead of creating a fresh user.
+            for field in CalorieAnalytics.Field.allCases {
+                defaults.set("", forKey: field.defaultsKey)
+                defaults.removeObject(forKey: HealthKitImportedPreferences.localOnlyKey(for: field.defaultsKey))
+            }
+            for key in [CaloriesDefaultsKey.medsAffectingHr,
+                        CalorieSetupDefaultsKey.promptDismissed,
+                        CalorieSetupDefaultsKey.promptEligible] {
+                defaults.set(false, forKey: key)
+            }
+            defaults.set("lb", forKey: CalorieSetupDefaultsKey.weightUnit)
+            defaults.removeObject(forKey: MaxHeartRateSuggestionStore.DefaultsKey.pending)
+            defaults.removeObject(forKey: MaxHeartRateSuggestionStore.DefaultsKey.dismissed)
+        }
+        if ProcessInfo.processInfo.arguments.contains("--calorie-setup-ui-test"),
+           ProcessInfo.processInfo.arguments.contains("--max-hr-suggestion-fixture") {
+            // Seed persistent UI-test state once, then relaunch without the fixture
+            // flag to verify that accepting or dismissing survives a cold start.
+            let defaults = UserDefaults.standard
+            defaults.set("80", forKey: CaloriesDefaultsKey.weightKg)
+            defaults.set("40", forKey: CaloriesDefaultsKey.ageYears)
+            defaults.set("male", forKey: CaloriesDefaultsKey.sexAtBirth)
+            defaults.set("195", forKey: CaloriesDefaultsKey.maxHrBpm)
+            defaults.set(true, forKey: CalorieSetupDefaultsKey.promptDismissed)
+            defaults.removeObject(forKey: MaxHeartRateSuggestionStore.DefaultsKey.dismissed)
+            var zones = HeartRateZoneConfig(maxHeartRate: 195)
+            zones.zone1Min = 90
+            zones.zone1Max = 112
+            HeartRateZoneStorage.shared.config = zones
+            defaults.set(198, forKey: MaxHeartRateSuggestionStore.DefaultsKey.pending)
+        }
+        #endif
         AppAnalytics.configure()
+        #if DEBUG
+        if !ProcessInfo.processInfo.arguments.contains("--calorie-setup-ui-test") {
+            ICloudPreferencesSync.shared.start()
+        }
+        #else
         ICloudPreferencesSync.shared.start()
+        #endif
 
         // Set up notification observers for app termination/background
         NotificationCenter.default.addObserver(

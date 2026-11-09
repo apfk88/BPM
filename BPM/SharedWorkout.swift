@@ -12,6 +12,13 @@ enum SharedWorkoutAction: String, Codable, CaseIterable {
     case cool
     case loadPreset
     case clearPreset
+    case hrvStart
+    case hrvCancel
+    case hrvReset
+
+    var isHRVControl: Bool {
+        self == .hrvStart || self == .hrvCancel || self == .hrvReset
+    }
 }
 
 struct SharedWorkoutCommand: Codable, Equatable {
@@ -92,8 +99,10 @@ struct SharedWorkoutSnapshot: Codable, Equatable {
     var allowedActions: [SharedWorkoutAction]? = nil
     var activePreset: TimerPreset? = nil
     var recoverableHistorySeconds: TimeInterval? = nil
+    var hrv: SharedHRVSnapshot? = nil
 
     func permits(_ action: SharedWorkoutAction) -> Bool {
+        if action.isHRVControl { return hrv?.permits(action) == true }
         if let allowedActions { return allowedActions.contains(action) }
         // Older broadcasters advertised only manual set controls.
         guard state == .running, !isCompleted, !isPresetMode else { return false }

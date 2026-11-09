@@ -10,6 +10,7 @@ struct DevicePickerView: View {
     var onJoinFriend: ((String) -> Void)? = nil
     @State private var pendingFriendCode: String?
     @State private var showJoinConfirmation = false
+    @State private var isConnectingFriend = false
     @State private var friendCodeInput = ""
     @State private var isFriendSectionExpanded = false
     @State private var shareNeedsMonitor = false
@@ -76,8 +77,14 @@ struct DevicePickerView: View {
             .onChange(of: sharingService.pendingJoinCode) { _, _ in
                 consumePendingJoinCode()
             }
+            .onChange(of: isConnectingFriend && sharingService.hasConnectedToFriend) { _, connected in
+                if connected { dismiss() }
+            }
             .alert("End Current Workout?", isPresented: $showJoinConfirmation) {
-                Button("Cancel", role: .cancel) { pendingFriendCode = nil }
+                Button("Cancel", role: .cancel) {
+                    pendingFriendCode = nil
+                    isConnectingFriend = false
+                }
                 Button("End Workout and Connect", role: .destructive) {
                     if let code = pendingFriendCode { joinFriend(code) }
                     pendingFriendCode = nil
@@ -97,6 +104,8 @@ struct DevicePickerView: View {
                 if isViewing {
                     isFriendSectionExpanded = true
                     friendCodeInput = sharingService.friendCode ?? ""
+                } else {
+                    isConnectingFriend = false
                 }
             }
         }
@@ -212,24 +221,40 @@ struct DevicePickerView: View {
             }
             .accessibilityIdentifier("disconnectFriendShareCode")
         } else {
-            Button("Connect") {
-                guard friendCodeInput.count == 6 else { return }
-                guard sharingService.canStartViewing(code: friendCodeInput) else { return }
-                isFriendCodeFieldFocused = false
-                if localWorkoutNeedsConfirmation {
-                    pendingFriendCode = friendCodeInput
-                    showJoinConfirmation = true
-                } else {
-                    joinFriend(friendCodeInput)
-                }
+            Button {
+                requestFriendConnection(friendCodeInput)
+            } label: {
+                Text("Connect")
+                    .font(.headline)
+                    .foregroundStyle(.black)
+                    .frame(maxWidth: .infinity, minHeight: 44)
             }
+            .bpmActionStyle(prominent: true)
+            .tint(.white)
             .disabled(friendCodeInput.count != 6)
             .accessibilityIdentifier("connectFriendShareCode")
         }
     }
 
+    private func requestFriendConnection(_ code: String) {
+        guard code.count == 6, sharingService.canStartViewing(code: code) else { return }
+        isFriendCodeFieldFocused = false
+        if sharingService.isViewing, sharingService.friendCode == code {
+            isConnectingFriend = true
+            if sharingService.hasConnectedToFriend { dismiss() }
+            return
+        }
+        if localWorkoutNeedsConfirmation {
+            pendingFriendCode = code
+            showJoinConfirmation = true
+        } else {
+            joinFriend(code)
+        }
+    }
+
     private func joinFriend(_ code: String) {
         guard sharingService.canStartViewing(code: code) else { return }
+        isConnectingFriend = true
         AppAnalytics.signal(.connectFriendsCode)
         if let onJoinFriend {
             onJoinFriend(code)
@@ -243,6 +268,7 @@ struct DevicePickerView: View {
         friendCodeInput = code
         isFriendSectionExpanded = true
         sharingService.pendingJoinCode = nil
+        requestFriendConnection(code)
     }
 
     @ViewBuilder

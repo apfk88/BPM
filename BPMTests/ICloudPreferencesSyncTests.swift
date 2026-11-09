@@ -3,6 +3,47 @@ import Testing
 @testable import BPM
 
 struct ICloudPreferencesSyncTests {
+    @Test @MainActor func healthAutofillValuesAreNeverUploadedToPreferencesCloud() {
+        let suite = "health-local-only-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let key = CaloriesDefaultsKey.weightKg
+        let cloud = InMemoryICloudKeyValueStore()
+        let sync = ICloudPreferencesSync(keys: [key], userDefaults: defaults, iCloudStore: cloud)
+        sync.start()
+        let snapshot = CalorieHealthAutofillSnapshot(entries: [
+            CalorieHealthAutofillEntry(field: .weight, value: "74", sampleDate: Date())
+        ])
+
+        #expect(snapshot.fillMissingValues(in: defaults) == [.weight])
+        sync.syncLocalChanges()
+        sync.syncNow()
+
+        #expect(defaults.string(forKey: key) == "74")
+        #expect(cloud.object(forKey: ICloudPreferencesSync.cloudValueKey(for: key)) == nil)
+        #expect(cloud.object(forKey: ICloudPreferencesSync.cloudUpdatedAtKey(for: key)) == nil)
+    }
+
+    @Test func remotePreferencesCannotReplaceHealthImportedValues() {
+        let suite = "health-local-only-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let key = CaloriesDefaultsKey.weightKg
+        defaults.set(true, forKey: HealthKitImportedPreferences.localOnlyKey(for: key))
+        defaults.set("74", forKey: key)
+        let cloud = InMemoryICloudKeyValueStore()
+        cloud.set("90", forKey: ICloudPreferencesSync.cloudValueKey(for: key))
+        cloud.set(Date().timeIntervalSince1970 + 60, forKey: ICloudPreferencesSync.cloudUpdatedAtKey(for: key))
+        let sync = ICloudPreferencesSync(keys: [key], userDefaults: defaults, iCloudStore: cloud)
+
+        sync.syncNow()
+        defaults.set("75", forKey: key)
+        sync.syncLocalChanges()
+
+        #expect(defaults.string(forKey: key) == "75")
+        #expect(cloud.string(forKey: ICloudPreferencesSync.cloudValueKey(for: key)) == "90")
+    }
+
     @Test func firstLaunchWithoutLocalOrRemoteDoesNotPublishDeletion() {
         let key = "BPM_Test_Prefs_\(UUID().uuidString)"
         let defaults = makeDefaults()

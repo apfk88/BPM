@@ -7,8 +7,10 @@
 import Foundation
 import SwiftUI
 struct SettingsView: View {
-    private let feedbackEmail = "vibecodeinc@proton.me"
+    private let feedbackEmail = "bpm-support@proton.me"
     @Environment(\.dismiss) private var dismiss
+    @CalorieProfileStorage private var calorieProfile
+    @ObservedObject private var maxHRSuggestion = MaxHeartRateSuggestionStore.shared
     @AppStorage(WorkoutVoiceConsent.defaultsKey) private var hasVoiceConsent = false
     @AppStorage(HeartRateAlertDefaultsKey.heartRateEnabled) private var isHeartRateAlertEnabled = false
     @AppStorage(HeartRateAlertDefaultsKey.heartRateThreshold) private var heartRateAlertThreshold = 160
@@ -27,16 +29,32 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack {
             List {
+                if let maximum = maxHRSuggestion.pendingMaxHeartRate {
+                    Section {
+                        VStack(alignment: .leading, spacing: 12) {
+                            Label("New max detected: \(maximum) BPM", systemImage: "heart.fill")
+                                .font(.subheadline.weight(.semibold))
+                                .accessibilityIdentifier("newMaxHRSuggestion")
+                            Text("Update Max HR in settings?")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                            HStack(spacing: 12) {
+                                Button("Yes, update") { maxHRSuggestion.accept() }
+                                    .buttonStyle(.borderedProminent)
+                                    .accessibilityIdentifier("acceptNewMaxHR")
+                                Button("No") { maxHRSuggestion.dismiss() }
+                                    .buttonStyle(.bordered)
+                                    .accessibilityIdentifier("dismissNewMaxHR")
+                            }
+                        }
+                        .padding(.vertical, 4)
+                    }
+                }
                 Section {
                     NavigationLink {
                         ZoneSettingsView()
                     } label: {
                         Text("Zone Settings")
-                    }
-                    NavigationLink {
-                        CalorieSettingsView()
-                    } label: {
-                        Text("Calorie Settings")
                     }
                     NavigationLink {
                         HealthKitWorkoutTypesSettingsView()
@@ -88,7 +106,7 @@ struct SettingsView: View {
                 Section(
                     header: VStack(alignment: .leading, spacing: 4) {
                         Text("BPM Alert")
-                        Text("Alert triggers when your heart rate crosses the threshold.")
+                        Text("Alerts above your threshold.")
                             .font(.footnote)
                             .foregroundColor(.secondary)
                     }
@@ -98,7 +116,7 @@ struct SettingsView: View {
                         set: { isHeartRateAlertEnabled = $0; AppAnalytics.setting(.bpmAlert, enabled: $0) }
                     ))
                     HStack {
-                        Text("BPM Alert")
+                        Text("Threshold")
                         Spacer()
                         TextField("Threshold", text: $heartRateAlertThresholdText)
                             .accessibilityLabel("BPM alert threshold")
@@ -124,6 +142,28 @@ struct SettingsView: View {
                         Text("HRV History")
                     }
                 }
+                Section {
+                    NavigationLink {
+                        CalorieSettingsView()
+                    } label: {
+                        HStack(spacing: 12) {
+                            Text("Calorie Settings")
+                                .foregroundStyle(.primary)
+                            Spacer(minLength: 8)
+                            Text(calorieProfile.setupTitle)
+                                .font(.subheadline)
+                                .foregroundStyle(calorieProfile.needsCalorieSetupAttention ? .orange : .secondary)
+                            if calorieProfile.needsCalorieSetupAttention {
+                                Image(systemName: "exclamationmark.circle.fill")
+                                    .foregroundStyle(.orange)
+                            }
+                        }
+                    }
+                    .accessibilityLabel("Calorie Settings")
+                    .accessibilityValue(calorieProfile.setupTitle)
+                    .accessibilityHint(calorieProfile.setupDetail)
+                    .accessibilityIdentifier("calorieSettingsLink")
+                }
                 Section(header: Text("Integrations")) {
                     Button {
                         Task {
@@ -146,6 +186,9 @@ struct SettingsView: View {
                     .disabled(!hasVoiceConsent)
                 }
                 Section(header: Text("Support")) {
+                    Link(destination: feedbackEmailURL) {
+                        Label("Contact Support", systemImage: "envelope")
+                    }
                     Link(destination: appStoreReviewURL) {
                         HStack {
                             Text("Rate BPM")
@@ -308,216 +351,6 @@ struct SettingsView: View {
         let clamped = min(max(value, 40), 240)
         heartRateAlertThreshold = clamped
         heartRateAlertThresholdText = String(clamped)
-    }
-}
-
-private struct ZoneSettingsView: View {
-    @ObservedObject private var zoneStorage = HeartRateZoneStorage.shared
-
-    @State private var maxHeartRate: String = ""
-    @State private var zone1Min: String = ""
-    @State private var zone1Max: String = ""
-    @State private var zone2Min: String = ""
-    @State private var zone2Max: String = ""
-    @State private var zone3Min: String = ""
-    @State private var zone3Max: String = ""
-    @State private var zone4Min: String = ""
-    @State private var zone4Max: String = ""
-    @State private var zone5Min: String = ""
-    @State private var zone5Max: String = ""
-    @State private var didLoadConfig = false
-
-    var body: some View {
-        List {
-            Section(
-                header: Text("Max Heart Rate"),
-                footer: Text("If you don't know your max heart rate, use 220 minus your age.")
-            ) {
-                HStack {
-                    TextField("", text: numericBinding($maxHeartRate, maxDigits: 3))
-                        .keyboardType(.numberPad)
-                        .font(.system(size: 18, weight: .medium, design: .monospaced))
-                        .multilineTextAlignment(.center)
-                        .frame(width: 72)
-                        .textFieldStyle(.roundedBorder)
-                        .onChange(of: maxHeartRate) { _, newValue in
-                            if let hrMax = Int(newValue), hrMax > 0 {
-                                recalculateZones(from: hrMax)
-                            }
-                        }
-                    Text("BPM")
-                        .foregroundColor(.secondary)
-                }
-            }
-
-            Section(
-                header: Text("Zone Ranges"),
-                footer: Text("Zones are auto-calculated from max HR. You can override values.")
-            ) {
-                zoneRow(zone: .zone1, minValue: $zone1Min, maxValue: $zone1Max)
-                zoneRow(zone: .zone2, minValue: $zone2Min, maxValue: $zone2Max)
-                zoneRow(zone: .zone3, minValue: $zone3Min, maxValue: $zone3Max)
-                zoneRow(zone: .zone4, minValue: $zone4Min, maxValue: $zone4Max)
-                zoneRow(zone: .zone5, minValue: $zone5Min, maxValue: $zone5Max)
-            }
-
-            Section {
-                Button("Reset Defaults") {
-                    zoneStorage.config = nil
-                    loadExistingConfiguration()
-                }
-                .foregroundColor(.red)
-            }
-        }
-        .navigationTitle("Zone Settings")
-        .analyticsScreen(.zones)
-        .onAppear {
-            if !didLoadConfig {
-                loadExistingConfiguration()
-                didLoadConfig = true
-            }
-        }
-        .onChange(of: maxHeartRate) { _, _ in
-            applyZoneConfigIfValid()
-        }
-        .onChange(of: zone1Min) { _, _ in applyZoneConfigIfValid() }
-        .onChange(of: zone1Max) { _, _ in applyZoneConfigIfValid() }
-        .onChange(of: zone2Min) { _, _ in applyZoneConfigIfValid() }
-        .onChange(of: zone2Max) { _, _ in applyZoneConfigIfValid() }
-        .onChange(of: zone3Min) { _, _ in applyZoneConfigIfValid() }
-        .onChange(of: zone3Max) { _, _ in applyZoneConfigIfValid() }
-        .onChange(of: zone4Min) { _, _ in applyZoneConfigIfValid() }
-        .onChange(of: zone4Max) { _, _ in applyZoneConfigIfValid() }
-        .onChange(of: zone5Min) { _, _ in applyZoneConfigIfValid() }
-        .onChange(of: zone5Max) { _, _ in applyZoneConfigIfValid() }
-    }
-
-    private func zoneRow(zone: HeartRateZone, minValue: Binding<String>, maxValue: Binding<String>) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 8) {
-                Circle()
-                    .fill(zone.color)
-                    .frame(width: 8, height: 8)
-                Text(zone.fullName)
-                    .font(.subheadline)
-                Spacer()
-                Text(zone.percentageRange)
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
-
-            HStack(spacing: 12) {
-                TextField("Min", text: numericBinding(minValue))
-                    .keyboardType(.numberPad)
-                    .font(.system(size: 18, weight: .medium, design: .monospaced))
-                    .multilineTextAlignment(.center)
-                    .frame(width: 72)
-                    .textFieldStyle(.roundedBorder)
-
-                Text("-")
-                    .foregroundColor(.secondary)
-
-                TextField("Max", text: numericBinding(maxValue))
-                    .keyboardType(.numberPad)
-                    .font(.system(size: 18, weight: .medium, design: .monospaced))
-                    .multilineTextAlignment(.center)
-                    .frame(width: 72)
-                    .textFieldStyle(.roundedBorder)
-
-                Text("BPM")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
-        }
-    }
-
-    private var isValidConfiguration: Bool {
-        guard let hrMax = Int(maxHeartRate), hrMax > 0 else { return false }
-        guard let z1Min = Int(zone1Min), let z1Max = Int(zone1Max) else { return false }
-        guard let z2Min = Int(zone2Min), let z2Max = Int(zone2Max) else { return false }
-        guard let z3Min = Int(zone3Min), let z3Max = Int(zone3Max) else { return false }
-        guard let z4Min = Int(zone4Min), let z4Max = Int(zone4Max) else { return false }
-        guard let z5Min = Int(zone5Min), let z5Max = Int(zone5Max) else { return false }
-
-        guard z1Min < z1Max, z2Min < z2Max, z3Min < z3Max, z4Min < z4Max, z5Min < z5Max else {
-            return false
-        }
-        guard z2Min >= z1Max, z3Min >= z2Max, z4Min >= z3Max, z5Min >= z4Max else {
-            return false
-        }
-
-        return true
-    }
-
-    private func loadExistingConfiguration() {
-        let config = zoneStorage.config ?? zoneStorage.effectiveConfig
-
-        maxHeartRate = String(config.maxHeartRate)
-        zone1Min = String(config.zone1Min)
-        zone1Max = String(config.zone1Max)
-        zone2Min = String(config.zone2Min)
-        zone2Max = String(config.zone2Max)
-        zone3Min = String(config.zone3Min)
-        zone3Max = String(config.zone3Max)
-        zone4Min = String(config.zone4Min)
-        zone4Max = String(config.zone4Max)
-        zone5Min = String(config.zone5Min)
-        zone5Max = String(config.zone5Max)
-    }
-
-    private func recalculateZones(from hrMax: Int) {
-        let config = HeartRateZoneConfig(maxHeartRate: hrMax)
-        zone1Min = String(config.zone1Min)
-        zone1Max = String(config.zone1Max)
-        zone2Min = String(config.zone2Min)
-        zone2Max = String(config.zone2Max)
-        zone3Min = String(config.zone3Min)
-        zone3Max = String(config.zone3Max)
-        zone4Min = String(config.zone4Min)
-        zone4Max = String(config.zone4Max)
-        zone5Min = String(config.zone5Min)
-        zone5Max = String(config.zone5Max)
-    }
-
-    private func applyZoneConfigIfValid() {
-        guard let hrMax = Int(maxHeartRate),
-              let z1Min = Int(zone1Min), let z1Max = Int(zone1Max),
-              let z2Min = Int(zone2Min), let z2Max = Int(zone2Max),
-              let z3Min = Int(zone3Min), let z3Max = Int(zone3Max),
-              let z4Min = Int(zone4Min), let z4Max = Int(zone4Max),
-              let z5Min = Int(zone5Min), let z5Max = Int(zone5Max) else {
-            return
-        }
-
-        var config = HeartRateZoneConfig(maxHeartRate: hrMax)
-        config.zone1Min = z1Min
-        config.zone1Max = z1Max
-        config.zone2Min = z2Min
-        config.zone2Max = z2Max
-        config.zone3Min = z3Min
-        config.zone3Max = z3Max
-        config.zone4Min = z4Min
-        config.zone4Max = z4Max
-        config.zone5Min = z5Min
-        config.zone5Max = z5Max
-
-        if isValidConfiguration {
-            zoneStorage.config = config
-        }
-    }
-
-    private func numericBinding(_ binding: Binding<String>, maxDigits: Int? = nil) -> Binding<String> {
-        Binding(
-            get: { binding.wrappedValue },
-            set: { newValue in
-                let filtered = newValue.filter { $0.isNumber }
-                if let maxDigits {
-                    binding.wrappedValue = String(filtered.prefix(maxDigits))
-                } else {
-                    binding.wrappedValue = filtered
-                }
-            }
-        )
     }
 }
 

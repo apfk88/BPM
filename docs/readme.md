@@ -31,7 +31,7 @@ BPM is a minimalist heart rate display app. We respect your privacy and are comm
 
 ## Analytics
 
-- TelemetryDeck receives app launch and session activity, feature and screen usage, settings choices, app version, device type, operating system, and a non-personal device identifier for analytics. Feature usage includes sharing outcomes, streaming, sounds, HRV measurement outcomes, history visits, presets, and AI voice actions. For calorie settings, analytics record which fields were edited and whether fields are filled, empty, invalid, or using a default, never the values entered.
+- TelemetryDeck receives app launch and session activity, feature and screen usage, settings choices, app version, device type, operating system, and a non-personal device identifier for analytics. Feature usage includes sharing outcomes, streaming, sounds, HRV measurement outcomes, history visits, presets, and AI voice actions. For calorie settings, analytics record which fields were edited and whether fields are filled, empty, invalid, or using a default, never the values entered. Reliability events include fixed failure categories and recognized heart-rate sensor brands/models, protocol capabilities, and connection outcomes. Raw Bluetooth names, sensor identifiers, serial numbers, and heart-rate or beat-interval values are not included.
 - Analytics never include heart rate data, workout details, share codes, or other health information.
 - Analytics data is not linked to your identity and is not used for advertising or cross-app tracking.
 

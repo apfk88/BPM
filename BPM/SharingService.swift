@@ -116,7 +116,7 @@ class SharingService: ObservableObject {
     @Published var errorContext: ErrorContext?
     @Published var viewingStoppedMessage: String?
     @Published var pendingJoinCode: String?
-    private var hasConnectedToFriend = false
+    @Published private(set) var hasConnectedToFriend = false
     private let disconnectLocalMonitor: () -> Void
     private var viewingAnalytics: StreamViewingAnalytics?
     private var broadcastUsage = AnalyticsOncePerSession<String>()
@@ -913,7 +913,7 @@ class SharingService: ObservableObject {
         let deadline = friendReadingExpiresAtTicks
             ?? (lastFreshDataTicks ?? viewingStartTicks).map { $0 + viewingTimeoutInterval }
         if let deadline, nowTicks >= deadline {
-            setViewingError("Shared connection lost. You might need to start a new session.")
+            setViewingError("Shared connection lost. You might need to start a new session.", reason: .timeout)
         }
     }
 
@@ -954,7 +954,7 @@ class SharingService: ObservableObject {
         let sourceAge = nowProvider().timeIntervalSince1970 - Double(response.timestamp) / 1000
         guard sourceAge.isFinite, sourceAge >= -1, sourceAge < viewingTimeoutInterval,
               response.bpm.map({ $0 > 0 }) ?? true else {
-            setViewingError("Shared heart rate data is out of date. Waiting for a fresh reading.")
+            setViewingError("Shared heart rate data is out of date. Waiting for a fresh reading.", reason: .staleData)
             return
         }
         lastServerTimestamp = response.timestamp
@@ -978,7 +978,8 @@ class SharingService: ObservableObject {
         updateFriendActivity()
     }
 
-    func receiveFriendHeartRateError(_ message: String, for poll: FriendHeartRatePoll, sessionEnded: Bool = false) {
+    func receiveFriendHeartRateError(_ message: String, for poll: FriendHeartRatePoll, sessionEnded: Bool = false,
+                                     reason: StreamViewingAnalytics.FailureReason = .unknown) {
         guard claimPoll(poll) else { return }
         if sessionEnded {
             if hasConnectedToFriend {
@@ -990,7 +991,7 @@ class SharingService: ObservableObject {
         } else {
             freezeFriendWorkout()
         }
-        setViewingError(message)
+        setViewingError(message, reason: sessionEnded ? .sessionNotFound : reason)
     }
 
     private func receiveFriendWorkout(_ response: HeartRateResponse, transportAge: TimeInterval) {
@@ -1074,10 +1075,10 @@ class SharingService: ObservableObject {
         friendSupportsRRIntervals = false
     }
 
-    private func setViewingError(_ message: String) {
+    private func setViewingError(_ message: String, reason: StreamViewingAnalytics.FailureReason) {
         errorMessage = message
         errorContext = .viewing
-        viewingAnalytics?.failed()
+        viewingAnalytics?.failed(reason: reason)
         clearFriendMeasurement()
     }
 
@@ -1123,7 +1124,7 @@ class SharingService: ObservableObject {
         Task {
             guard let url = URL(string: "\(baseURL)/api/share/\(poll.code)") else {
                 await MainActor.run {
-                    self.receiveFriendHeartRateError("Invalid share code. Please check the code and try again.", for: poll)
+                    self.receiveFriendHeartRateError("Invalid share code. Please check the code and try again.", for: poll, reason: .invalidRequest)
                 }
                 return
             }
@@ -1135,7 +1136,7 @@ class SharingService: ObservableObject {
                 let (data, response) = try await networkSession.data(for: request)
                 guard let httpResponse = response as? HTTPURLResponse else {
                     await MainActor.run {
-                        self.receiveFriendHeartRateError("Connection error. Please check your internet connection.", for: poll)
+                        self.receiveFriendHeartRateError("Connection error. Please check your internet connection.", for: poll, reason: .invalidResponse)
                     }
                     return
                 }
@@ -1145,7 +1146,8 @@ class SharingService: ObservableObject {
                             ? "Sharing session expired or ended. Ask the sharer to start a new session."
                             : "Unable to connect to sharing session. Please try again.")
                     await MainActor.run {
-                        self.receiveFriendHeartRateError(message, for: poll, sessionEnded: httpResponse.statusCode == 404)
+                        self.receiveFriendHeartRateError(message, for: poll, sessionEnded: httpResponse.statusCode == 404,
+                            reason: httpResponse.statusCode == 429 ? .rateLimited : (httpResponse.statusCode >= 500 ? .serverError : .invalidRequest))
                     }
                     return
                 }
@@ -1160,7 +1162,11 @@ class SharingService: ObservableObject {
                     } else {
                         message = "Unable to connect. The sharing session may have ended."
                     }
-                    self.receiveFriendHeartRateError(message, for: poll)
+                    let reason: StreamViewingAnalytics.FailureReason
+                    if let urlError = error as? URLError { reason = urlError.code == .timedOut ? .timeout : .network }
+                    else if error is DecodingError { reason = .invalidResponse }
+                    else { reason = .unknown }
+                    self.receiveFriendHeartRateError(message, for: poll, reason: reason)
                 }
             }
         }

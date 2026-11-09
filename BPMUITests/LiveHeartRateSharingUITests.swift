@@ -10,6 +10,132 @@ final class LiveHeartRateSharingUITests: XCTestCase {
     private let genericConnectionMessage = "No device connected. Tap Device to connect."
 
     @MainActor
+    func testManualFriendConnectionClosesPickerAndStartsOnFirstWorkoutPage() throws {
+        continueAfterFailure = false
+        XCUIDevice.shared.orientation = .portrait
+        let server = try LoopbackSharingServer(acceptsFriend: true, friendWorkoutPage: "chart")
+        let app = launchHome(additionalArguments: ["-BPM_API_BASE_URL", try server.start().absoluteString])
+        defer { app.terminate(); server.stop() }
+
+        openDeviceMenu(in: app)
+        app.buttons["View a Friend's BPM"].tap()
+        let code = app.textFields["friendShareCode"]
+        XCTAssertTrue(code.waitForExistence(timeout: 5))
+        code.tap()
+        code.typeText("123456")
+        app.buttons["connectFriendShareCode"].tap()
+
+        XCTAssertTrue(app.navigationBars["Select Device"].waitForNonExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["sharedWorkoutHome"].waitForExistence(timeout: 5))
+        XCTAssertEqual(app.buttons[deviceIdentifier].value as? String, "Viewing shared BPM")
+        let page = app.descendants(matching: .any).matching(identifier: "sharedWorkoutPage").firstMatch
+        XCTAssertTrue(page.waitForExistence(timeout: 5))
+        expectation(for: NSPredicate(format: "value == %@", "table"), evaluatedWith: page)
+        waitForExpectations(timeout: 5)
+
+        // Opening Device after connection remains useful for reviewing or disconnecting.
+        openDeviceMenu(in: app)
+        XCTAssertTrue(app.buttons["disconnectFriendShareCode"].exists)
+        closeDeviceMenu(in: app)
+        captureScreenshot("Friend connection opens the first workout page")
+    }
+
+    @MainActor
+    func testInviteReceivedWhileSettingsIsOpenConnectsAfterDismissal() throws {
+        continueAfterFailure = false
+        let server = try LoopbackSharingServer(acceptsFriend: true)
+        let app = launchHome(additionalArguments: ["-BPM_API_BASE_URL", try server.start().absoluteString])
+        defer { app.terminate(); server.stop() }
+
+        app.buttons["settingsButton"].tap()
+        let settings = app.navigationBars["Settings"]
+        XCTAssertTrue(settings.waitForExistence(timeout: 5))
+        XCUIDevice.shared.system.open(URL(string: "bpm://join?code=123456")!)
+        XCTAssertTrue(app.wait(for: .runningForeground, timeout: 5))
+        if settings.exists { settings.buttons["Done"].tap() }
+
+        let joined = NSPredicate(format: "value == %@", "Viewing shared BPM")
+        expectation(for: joined, evaluatedWith: app.buttons[deviceIdentifier])
+        waitForExpectations(timeout: 10)
+        XCTAssertTrue(app.navigationBars["Select Device"].waitForNonExistence(timeout: 5))
+        XCTAssertGreaterThan(server.requestCount(method: "GET", path: "/api/share/123456"), 0)
+    }
+
+    @MainActor
+    func testUniversalInviteConnectsAutomaticallyAndDisconnectsOwnMonitor() throws {
+        continueAfterFailure = false
+        let server = try LoopbackSharingServer(acceptsFriend: true)
+        let app = launchHome(additionalArguments: ["-BPM_API_BASE_URL", try server.start().absoluteString])
+        defer { app.terminate(); server.stop() }
+        openDeviceMenu(in: app)
+        connectSimulator(in: app)
+        XCUIDevice.shared.system.open(URL(string: "https://bpmtracker.app/join/123456")!)
+        XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10))
+        captureScreenshot("HTTPS invite delivered by iOS")
+        let device = app.buttons[deviceIdentifier]
+        let joined = NSPredicate(format: "value == %@", "Viewing shared BPM")
+        expectation(for: joined, evaluatedWith: device)
+        waitForExpectations(timeout: 10)
+        XCTAssertTrue(app.navigationBars["Select Device"].waitForNonExistence(timeout: 5))
+        XCTAssertGreaterThan(server.requestCount(method: "GET", path: "/api/share/123456"), 0)
+        openDeviceMenu(in: app)
+        XCTAssertFalse(app.buttons["Disconnect Monitor"].exists)
+        XCTAssertTrue(app.buttons["disconnectFriendShareCode"].exists)
+        app.buttons["disconnectFriendShareCode"].tap()
+        closeDeviceMenu(in: app)
+        XCTAssertEqual(device.value as? String, "Not connected")
+        // Exercise delivery during a cold launch as well as the system's warm routing.
+        app.terminate()
+        app.open(URL(string: "https://bpmtracker.app/join/123456")!)
+        expectation(for: joined, evaluatedWith: device)
+        waitForExpectations(timeout: 10)
+        XCTAssertTrue(app.navigationBars["Select Device"].waitForNonExistence(timeout: 5))
+    }
+
+    @MainActor
+    func testInviteAutomaticallyRequestsWorkoutConfirmationAndCancelPreservesWorkout() throws {
+        continueAfterFailure = false
+        let server = try LoopbackSharingServer(acceptsFriend: true)
+        let app = launchHome(additionalArguments: ["-BPM_API_BASE_URL", try server.start().absoluteString])
+        defer { app.terminate(); server.stop() }
+        app.buttons["Workout"].tap()
+        app.buttons["Start"].tap()
+        if app.alerts["Start Workout"].waitForExistence(timeout: 1) {
+            app.alerts["Start Workout"].buttons["Start from now"].tap()
+        }
+        XCTAssertTrue(app.buttons["Pause"].waitForExistence(timeout: 5))
+        let invite = URL(string: "bpm://join?code=123456")!
+        // Deliver to the running app. XCUIApplication.open launches a fresh
+        // instance, which intentionally lands on Home after session restoration.
+        XCUIDevice.shared.system.open(invite)
+        XCTAssertTrue(app.wait(for: .runningForeground, timeout: 5))
+        let confirmation = app.alerts["End Current Workout?"]
+        XCTAssertTrue(confirmation.waitForExistence(timeout: 5))
+        XCTAssertEqual(server.requestCount(method: "GET", path: "/api/share/123456"), 0)
+        confirmation.buttons["Cancel"].tap()
+        closeDeviceMenu(in: app)
+        XCTAssertTrue(app.buttons["Pause"].exists)
+
+        // A cold invitation must also leave the restored workout intact on Cancel.
+        app.terminate()
+        app.open(invite)
+        XCTAssertTrue(confirmation.waitForExistence(timeout: 5))
+        confirmation.buttons["Cancel"].tap()
+        closeDeviceMenu(in: app)
+        XCTAssertTrue(app.buttons["Workout"].waitForExistence(timeout: 5))
+        app.buttons["Workout"].tap()
+        XCTAssertTrue(app.buttons["Pause"].waitForExistence(timeout: 5))
+
+        XCUIDevice.shared.system.open(invite)
+        XCTAssertTrue(confirmation.waitForExistence(timeout: 5))
+        confirmation.buttons["End Workout and Connect"].tap()
+        XCTAssertTrue(app.navigationBars["Select Device"].waitForNonExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["Workout"].waitForExistence(timeout: 5))
+        XCTAssertEqual(app.buttons[deviceIdentifier].value as? String, "Viewing shared BPM")
+        XCTAssertEqual(app.buttons["Workout"].value as? String, "No active workout")
+    }
+
+    @MainActor
     func testDisconnectedHomeSharingShowsOneStableConnectPrompt() {
         continueAfterFailure = false
         XCUIDevice.shared.orientation = .portrait
@@ -480,8 +606,12 @@ private final class LoopbackSharingServer: @unchecked Sendable {
     private var startupError: NWError?
     private var connections: [NWConnection] = []
     private var stopped = false
+    private let acceptsFriend: Bool
+    private let friendWorkoutPage: String?
 
-    init() throws {
+    init(acceptsFriend: Bool = false, friendWorkoutPage: String? = nil) throws {
+        self.acceptsFriend = acceptsFriend
+        self.friendWorkoutPage = friendWorkoutPage
         let parameters = NWParameters.tcp
         parameters.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: .any)
         listener = try NWListener(using: parameters)
@@ -574,6 +704,29 @@ private final class LoopbackSharingServer: @unchecked Sendable {
         let body: String
         let status: String
         switch key {
+        case "GET /api/share/123456" where acceptsFriend:
+            status = "200 OK"
+            let now = Int64(Date().timeIntervalSince1970 * 1000)
+            var response: [String: Any] = ["bpm": 120, "timestamp": now]
+            if let friendWorkoutPage {
+                response["serverTime"] = now
+                response["workoutTimestamp"] = now
+                response["workout"] = [
+                    "schemaVersion": 1, "sequence": now,
+                    "workoutID": "manual-friend-connection", "controlRevision": "revision-0",
+                    "screen": "workout", "page": friendWorkoutPage,
+                    "state": "running", "isCompleted": false, "isPresetMode": false,
+                    "canWork": true, "canRest": true, "totalTime": 60, "setTime": 15,
+                    "totalTimeAdvances": true, "setTimeDirection": 1, "showTenths": false,
+                    "isEmpty": false, "avgBPM": 120, "maxBPM": 125, "minBPM": 115,
+                    "setNumber": "1", "calories": "10", "primaryBPM": "avg",
+                    "rows": [["id": "work-1", "label": "1", "kind": "work", "isActive": true,
+                              "duration": 15, "totalTime": 60, "avgBPM": 120, "maxBPM": 125, "minBPM": 115]],
+                    "chart": [], "segments": [], "chartMaxTime": 60, "zones": []
+                ] as [String: Any]
+            }
+            let data = try! JSONSerialization.data(withJSONObject: response)
+            body = String(decoding: data, as: UTF8.self)
         case "POST /api/share":
             status = "200 OK"
             body = "{\"code\":\"123456\",\"token\":\"ui-test-token\"}"

@@ -52,6 +52,93 @@ struct HeartRateZoneConfig: Codable, Equatable {
     }
 }
 
+/// Edits remain local until Save, including confirmed recalculation and reset.
+struct HeartRateZoneDraft: Equatable {
+    struct Range: Equatable {
+        var minimum: String
+        var maximum: String
+    }
+
+    var maxHeartRate: String {
+        didSet { resetsStoredConfiguration = false }
+    }
+    var ranges: [Range] {
+        didSet { resetsStoredConfiguration = false }
+    }
+    private(set) var resetsStoredConfiguration = false
+
+    init(config: HeartRateZoneConfig) {
+        maxHeartRate = String(config.maxHeartRate)
+        ranges = [
+            Range(minimum: String(config.zone1Min), maximum: String(config.zone1Max)),
+            Range(minimum: String(config.zone2Min), maximum: String(config.zone2Max)),
+            Range(minimum: String(config.zone3Min), maximum: String(config.zone3Max)),
+            Range(minimum: String(config.zone4Min), maximum: String(config.zone4Max)),
+            Range(minimum: String(config.zone5Min), maximum: String(config.zone5Max))
+        ]
+    }
+
+    var validMaxHeartRate: Int? {
+        guard let value = Int(maxHeartRate), (30...250).contains(value) else { return nil }
+        return value
+    }
+
+    var validationError: String? {
+        guard validMaxHeartRate != nil else { return "Enter a max heart rate from 30 to 250 BPM." }
+        guard ranges.count == HeartRateZone.allCases.count else { return "Enter all five zone ranges." }
+
+        var previousMaximum: Int?
+        for (index, range) in ranges.enumerated() {
+            let zone = index + 1
+            guard let minimum = Int(range.minimum), let maximum = Int(range.maximum) else {
+                return "Enter both values for Zone \(zone)."
+            }
+            guard (0...300).contains(minimum), (1...300).contains(maximum) else {
+                return "Zone \(zone) values must be between 0 and 300 BPM."
+            }
+            guard minimum < maximum else { return "Zone \(zone) minimum must be below its maximum." }
+            if let previousMaximum, minimum < previousMaximum {
+                return "Zone \(zone) overlaps Zone \(index). Raise its minimum or lower the previous maximum."
+            }
+            previousMaximum = maximum
+        }
+        return nil
+    }
+
+    var configuration: HeartRateZoneConfig? {
+        guard validationError == nil, let maxHeartRate = validMaxHeartRate else { return nil }
+        let values = ranges.compactMap { range -> (Int, Int)? in
+            guard let minimum = Int(range.minimum), let maximum = Int(range.maximum) else { return nil }
+            return (minimum, maximum)
+        }
+        guard values.count == 5 else { return nil }
+        var config = HeartRateZoneConfig(maxHeartRate: maxHeartRate)
+        (config.zone1Min, config.zone1Max) = values[0]
+        (config.zone2Min, config.zone2Max) = values[1]
+        (config.zone3Min, config.zone3Max) = values[2]
+        (config.zone4Min, config.zone4Max) = values[3]
+        (config.zone5Min, config.zone5Max) = values[4]
+        return config
+    }
+
+    mutating func recalculateZones() {
+        guard let maxHeartRate = validMaxHeartRate else { return }
+        self = HeartRateZoneDraft(config: HeartRateZoneConfig(maxHeartRate: maxHeartRate))
+    }
+
+    mutating func resetToDefaults() {
+        self = HeartRateZoneDraft(config: HeartRateZoneConfig(maxHeartRate: 190))
+        resetsStoredConfiguration = true
+    }
+
+    @discardableResult
+    func save(to storage: HeartRateZoneStorage) -> Bool {
+        guard let configuration else { return false }
+        storage.config = resetsStoredConfiguration ? nil : configuration
+        return true
+    }
+}
+
 enum HeartRateZone: Int, CaseIterable {
     case zone1 = 1
     case zone2 = 2

@@ -95,6 +95,7 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
     @Published var connectionStatus: String = "Not connected"
     @Published var connectionMessage: String?
     @Published var supportsRRIntervals: Bool = false
+    @Published private(set) var sensorAnalyticsIdentity: SensorAnalyticsIdentity = .unknown
     @Published private(set) var rrIntervals: [RRInterval] = []
     private(set) var rrStreamID = UUID()
     let heartRateMeasurements = PassthroughSubject<HeartRateSample, Never>()
@@ -113,6 +114,15 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
     private var centralManager: CBCentralManager!
     private let heartRateServiceUUID = CBUUID(string: "180D")
     private let heartRateMeasurementCharacteristicUUID = CBUUID(string: "2A37")
+    private let deviceInformationServiceUUID = CBUUID(string: "180A")
+    private let manufacturerNameCharacteristicUUID = CBUUID(string: "2A29")
+    private let modelNumberCharacteristicUUID = CBUUID(string: "2A24")
+    private let batteryServiceUUID = CBUUID(string: "180F")
+    private let batteryLevelCharacteristicUUID = CBUUID(string: "2A19")
+    private var sensorCompatibility: SensorCompatibilityAnalytics?
+    private var sensorAdvertisedName: String?
+    private var sensorManufacturerName: String?
+    private var sensorModelNumber: String?
     private var pendingScanRequest = false
     private let centralRestoreIdentifier = "com.bpmapp.client.central"
     private var backgroundTaskIdentifier: UIBackgroundTaskIdentifier = .invalid
@@ -134,6 +144,7 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
     private var hasReceivedDataSinceConnect = false
     private var preserveConnectionMessageOnDisconnect = false
     private var alertState = HeartRateAlertState()
+    private let failureReporter = AppFailureReporter()
 
     // Sharing integration
     private let sharingService = SharingService.shared
@@ -154,6 +165,7 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
     private var fakeHeartRateBase: Int = 75 // Starting baseline
     private var fakeHeartRateDirection: Int = 1 // 1 for increasing, -1 for decreasing
     private let fakeDataUpdateInterval: TimeInterval = 2.0 // Update every 2 seconds
+    private var fakeRRGenerator = SimulatorRRIntervalGenerator()
     private let simulatorDeviceIdentifier = UUID() // Fixed identifier for simulator device
 
     static let defaultHeartRateFreshnessInterval: TimeInterval = 3.0
@@ -370,6 +382,10 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
     }
 
     private func prepareForConnection(to device: CBPeripheral) {
+        if connectedDevice?.identifier != device.identifier || sensorCompatibility == nil {
+            sensorCompatibility?.disconnected(userInitiated: true)
+            beginSensorCompatibility(for: device)
+        }
         if let previous = connectedDevice, previous.identifier != device.identifier {
             centralManager.cancelPeripheralConnection(previous)
         }
@@ -397,6 +413,23 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
         }
     }
 
+    private func beginSensorCompatibility(for device: CBPeripheral) {
+        sensorAdvertisedName = availableDevices.first { $0.id == device.identifier }?.advertisedName ?? device.name
+        sensorManufacturerName = nil
+        sensorModelNumber = nil
+        sensorAnalyticsIdentity = .classify(advertisedName: sensorAdvertisedName)
+        sensorCompatibility = SensorCompatibilityAnalytics(identity: sensorAnalyticsIdentity)
+    }
+
+    private func updateSensorCompatibilityIdentity() {
+        sensorAnalyticsIdentity = .classify(
+            advertisedName: sensorAdvertisedName,
+            manufacturerName: sensorManufacturerName,
+            modelNumber: sensorModelNumber
+        )
+        sensorCompatibility?.updateIdentity(sensorAnalyticsIdentity)
+    }
+
     /// A reconnect always starts a new RR sequence. A different sensor also starts
     /// a new live-history session so its readings cannot inherit another person's data.
     func beginMeasurementStream(for deviceID: UUID) {
@@ -420,6 +453,8 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
     }
 
     private func handleConnectedPeripheral(_ peripheral: CBPeripheral) {
+        if sensorCompatibility == nil { beginSensorCompatibility(for: peripheral) }
+        sensorCompatibility?.connected()
         reconnectAttempts = 0
         cancelReconnectTimer()
         isUserInitiatedDisconnect = false
@@ -464,6 +499,13 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
             disconnectSimulator()
             return
         }
+
+        sensorCompatibility?.disconnected(userInitiated: true)
+        sensorCompatibility = nil
+        sensorAnalyticsIdentity = .unknown
+        sensorAdvertisedName = nil
+        sensorManufacturerName = nil
+        sensorModelNumber = nil
 
         invalidateLastHeartRateMeasurement()
 
@@ -1064,6 +1106,8 @@ extension HeartRateBluetoothManager: CBCentralManagerDelegate {
                 peripheral.delegate = self
 
                 if connectedDevice == nil || connectedDevice?.identifier == peripheral.identifier {
+                    if sensorCompatibility == nil { beginSensorCompatibility(for: peripheral) }
+                    if peripheral.state == .connected { sensorCompatibility?.connected() }
                     beginMeasurementStream(for: peripheral.identifier)
                     connectedDevice = peripheral
                     lastConnectedPeripheralIdentifier = peripheral.identifier
@@ -1161,7 +1205,11 @@ extension HeartRateBluetoothManager: CBCentralManagerDelegate {
         // A cancelled old sensor can report its disconnection after a new sensor
         // is selected. It must not end or otherwise change the active session.
         guard wasConnectedDevice else { return }
+        sensorCompatibility?.disconnected(userInitiated: isUserInitiatedDisconnect)
         invalidateLastHeartRateMeasurement()
+        if !isUserInitiatedDisconnect {
+            failureReporter.report(.bluetooth, .disconnect, category: .connectionLost)
+        }
         let willAttemptReconnect = HeartRateConnectionState.shouldAutoReconnectAfterDisconnect(
             isUserInitiatedDisconnect: isUserInitiatedDisconnect,
             lastConnectedDeviceID: lastConnectedPeripheralIdentifier,
@@ -1215,6 +1263,9 @@ extension HeartRateBluetoothManager: CBCentralManagerDelegate {
 
     func centralManager(_ central: CBCentralManager, didFailToConnect peripheral: CBPeripheral, error: Error?) {
         guard connectedDevice?.identifier == peripheral.identifier else { return }
+        sensorCompatibility?.failed(stage: .connect, category: error.map(AppFailureCategory.init(error:)) ?? .unknown)
+        if let error { failureReporter.report(.bluetooth, .connect, error: error) }
+        else { failureReporter.report(.bluetooth, .connect, category: .unknown) }
         let msg = HeartRateConnectionState.connectionFailureMessage(errorDescription: error?.localizedDescription)
 
         print(msg)
@@ -1249,12 +1300,16 @@ extension HeartRateBluetoothManager: CBPeripheralDelegate {
     func peripheral(_ peripheral: CBPeripheral, didDiscoverServices error: Error?) {
         guard connectedDevice?.identifier == peripheral.identifier else { return }
         guard error == nil else {
+            sensorCompatibility?.failed(stage: .services, category: error.map(AppFailureCategory.init(error:)) ?? .unknown)
+            if let error { failureReporter.report(.bluetooth, .discoverServices, error: error) }
             let msg = "Error discovering services: \(error?.localizedDescription ?? "unknown")"
             print(msg)
             addDebugMessage(msg)
             return
         }
         guard let services = peripheral.services else {
+            sensorCompatibility?.failed(stage: .services, category: .unavailable)
+            failureReporter.report(.bluetooth, .discoverServices, category: .unavailable)
             let msg = "No services found on peripheral"
             print(msg)
             addDebugMessage(msg)
@@ -1263,6 +1318,7 @@ extension HeartRateBluetoothManager: CBPeripheralDelegate {
 
         // Look for the Heart Rate Service
         let heartRateService = services.first { $0.uuid == heartRateServiceUUID }
+        sensorCompatibility?.observedBatteryService(present: services.contains { $0.uuid == batteryServiceUUID })
         
         if let heartRateService = heartRateService {
             let msg = "Found Heart Rate Service, discovering characteristics..."
@@ -1270,6 +1326,8 @@ extension HeartRateBluetoothManager: CBPeripheralDelegate {
             addDebugMessage(msg)
             peripheral.discoverCharacteristics([heartRateMeasurementCharacteristicUUID], for: heartRateService)
         } else {
+            sensorCompatibility?.failed(stage: .services, category: .unavailable)
+            failureReporter.report(.bluetooth, .discoverServices, category: .unavailable)
             let msg = "Heart Rate Service not found. Available services: \(services.map { $0.uuid.uuidString }.joined(separator: ", "))"
             print(msg)
             addDebugMessage(msg)
@@ -1279,19 +1337,45 @@ extension HeartRateBluetoothManager: CBPeripheralDelegate {
             if connectedDevice?.identifier == peripheral.identifier {
                 centralManager.cancelPeripheralConnection(peripheral)
             }
+            return
+        }
+        // Read only standard manufacturer/model strings and battery capability.
+        // Serial numbers, firmware identifiers and arbitrary characteristics are never read.
+        if let information = services.first(where: { $0.uuid == deviceInformationServiceUUID }) {
+            peripheral.discoverCharacteristics([manufacturerNameCharacteristicUUID, modelNumberCharacteristicUUID], for: information)
+        }
+        if let battery = services.first(where: { $0.uuid == batteryServiceUUID }) {
+            peripheral.discoverCharacteristics([batteryLevelCharacteristicUUID], for: battery)
         }
     }
 
     func peripheral(_ peripheral: CBPeripheral, didDiscoverCharacteristicsFor service: CBService, error: Error?) {
-        guard connectedDevice?.identifier == peripheral.identifier,
-              service.uuid == heartRateServiceUUID else { return }
+        guard connectedDevice?.identifier == peripheral.identifier else { return }
+        if service.uuid == deviceInformationServiceUUID || service.uuid == batteryServiceUUID {
+            // Optional metadata failing must never interrupt heart-rate collection.
+            guard error == nil else { return }
+            for characteristic in service.characteristics ?? [] {
+                let isExpected = service.uuid == deviceInformationServiceUUID
+                    ? [manufacturerNameCharacteristicUUID, modelNumberCharacteristicUUID].contains(characteristic.uuid)
+                    : characteristic.uuid == batteryLevelCharacteristicUUID
+                if isExpected, characteristic.properties.contains(.read) {
+                    peripheral.readValue(for: characteristic)
+                }
+            }
+            return
+        }
+        guard service.uuid == heartRateServiceUUID else { return }
         guard error == nil else {
+            sensorCompatibility?.failed(stage: .characteristics, category: error.map(AppFailureCategory.init(error:)) ?? .unknown)
+            if let error { failureReporter.report(.bluetooth, .discoverCharacteristics, error: error) }
             let msg = "Error discovering characteristics: \(error?.localizedDescription ?? "unknown")"
             print(msg)
             addDebugMessage(msg)
             return
         }
         guard let characteristics = service.characteristics else {
+            sensorCompatibility?.failed(stage: .characteristics, category: .unavailable)
+            failureReporter.report(.bluetooth, .discoverCharacteristics, category: .unavailable)
             let msg = "No characteristics found for service"
             print(msg)
             addDebugMessage(msg)
@@ -1306,6 +1390,8 @@ extension HeartRateBluetoothManager: CBPeripheralDelegate {
             addDebugMessage(msg)
             peripheral.setNotifyValue(true, for: heartRateCharacteristic)
         } else {
+            sensorCompatibility?.failed(stage: .characteristics, category: .unavailable)
+            failureReporter.report(.bluetooth, .discoverCharacteristics, category: .unavailable)
             let msg = "Heart Rate Measurement Characteristic not found. Available: \(characteristics.map { $0.uuid.uuidString }.joined(separator: ", "))"
             print(msg)
             addDebugMessage(msg)
@@ -1315,10 +1401,27 @@ extension HeartRateBluetoothManager: CBPeripheralDelegate {
     func peripheral(_ peripheral: CBPeripheral, didUpdateValueFor characteristic: CBCharacteristic, error: Error?) {
         // CoreBluetooth is configured on the main queue. Process in callback order,
         // before another disconnect or device switch can change the active source.
-        guard connectedDevice?.identifier == peripheral.identifier,
-              characteristic.uuid == heartRateMeasurementCharacteristicUUID,
+        guard connectedDevice?.identifier == peripheral.identifier else { return }
+        if characteristic.service?.uuid == deviceInformationServiceUUID {
+            guard error == nil, let data = characteristic.value, data.count <= 128,
+                  let value = String(data: data, encoding: .utf8) else { return }
+            if characteristic.uuid == manufacturerNameCharacteristicUUID { sensorManufacturerName = value }
+            else if characteristic.uuid == modelNumberCharacteristicUUID { sensorModelNumber = value }
+            else { return }
+            updateSensorCompatibilityIdentity()
+            return
+        }
+        if characteristic.service?.uuid == batteryServiceUUID,
+           characteristic.uuid == batteryLevelCharacteristicUUID {
+            if error == nil, let data = characteristic.value, data.count == 1, let value = data.first {
+                sensorCompatibility?.observedBatteryLevel(value)
+            }
+            return
+        }
+        guard characteristic.uuid == heartRateMeasurementCharacteristicUUID,
               characteristic.service?.uuid == heartRateServiceUUID else { return }
         guard error == nil, let data = characteristic.value else {
+            sensorCompatibility?.failed(stage: .measurement, category: error.map(AppFailureCategory.init(error:)) ?? .invalidResponse)
             handleInvalidHeartRateMeasurement()
             return
         }
@@ -1327,8 +1430,18 @@ extension HeartRateBluetoothManager: CBPeripheralDelegate {
 
     func receiveHeartRateMeasurement(_ measurement: HeartRateMeasurementData) {
         guard let heartRate = measurement.heartRate else {
+            if connectedDevice != nil, !isSimulatorConnected {
+                sensorCompatibility?.failed(stage: .measurement, category: .invalidResponse)
+            }
             handleInvalidHeartRateMeasurement()
             return
+        }
+        if connectedDevice != nil, !isSimulatorConnected {
+            sensorCompatibility?.receivedMeasurement(
+                hasRRIntervals: measurement.hasRRIntervals && !measurement.rrIntervals.isEmpty,
+                contactSupported: measurement.sensorContactStatus != .unsupported,
+                hasUsableHeartRate: heartRate > 0 && measurement.sensorContactStatus != .notDetected
+            )
         }
         if heartRate > 0 && measurement.sensorContactStatus != .notDetected && measurement.hasRRIntervals {
             supportsRRIntervals = true
@@ -1341,6 +1454,9 @@ extension HeartRateBluetoothManager: CBPeripheralDelegate {
         }
         addHeartRateSample(heartRate, sensorContactStatus: measurement.sensorContactStatus)
         if heartRate > 0 && measurement.sensorContactStatus != .notDetected {
+            if connectedDevice != nil && !isSimulatorConnected {
+                failureReporter.recovered(.bluetooth)
+            }
             connectionStatus = "Connected - Receiving data"
         }
     }
@@ -1350,6 +1466,8 @@ extension HeartRateBluetoothManager: CBPeripheralDelegate {
               characteristic.uuid == heartRateMeasurementCharacteristicUUID,
               characteristic.service?.uuid == heartRateServiceUUID else { return }
         if let error = error {
+            sensorCompatibility?.failed(stage: .subscribe, category: AppFailureCategory(error: error))
+            failureReporter.report(.bluetooth, .subscribe, error: error)
             handleInvalidHeartRateMeasurement()
             let msg = "Error updating notification state: \(error.localizedDescription)"
             print(msg)
@@ -1501,6 +1619,7 @@ extension HeartRateBluetoothManager: CBPeripheralDelegate {
             
             // Reset fake data state
             self.fakeHeartRateBase = 100
+            self.fakeRRGenerator = SimulatorRRIntervalGenerator()
             self.heartRateSamples.removeAll()
             self.heartRateSessionID = UUID()
             self.rrIntervals.removeAll()
@@ -1550,23 +1669,13 @@ extension HeartRateBluetoothManager: CBPeripheralDelegate {
     }
     
     private func generateFakeRRIntervals(for heartRate: Int) {
-        // Generate 1-3 RR intervals per update to simulate realistic data
-        // RR interval = 60000 / BPM (in milliseconds)
-        let baseRR = 60000.0 / Double(heartRate)
-        let numIntervals = Int.random(in: 1...3)
         let now = measurementClock.now()
-        
-        for _ in 0..<numIntervals {
-            // Add some realistic variation (±5% of base RR interval)
-            let variation = Double.random(in: -0.05...0.05)
-            let rrValue = baseRR * (1.0 + variation)
-            let interval = RRInterval(value: rrValue, timestamp: now)
-            rrIntervals.append(interval)
-        }
-        
-        // Keep only last hour of RR intervals
-        let cutoff = now.addingTimeInterval(-3600)
-        rrIntervals.removeAll { $0.timestamp < cutoff }
+        let ticks = MeasurementClock.ticks
+        let values = fakeRRGenerator.intervals(at: ticks, heartRate: heartRate)
+        rrIntervals.append(contentsOf: values.map {
+            RRInterval(value: $0, timestamp: now, receivedTicks: ticks)
+        })
+        rrIntervals.removeAll { ticks - $0.receivedTicks > 3600 }
     }
     
     private func manufacturerIdentifier(from data: Data?) -> UInt16? {

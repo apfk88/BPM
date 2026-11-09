@@ -73,41 +73,85 @@ struct HRVHistoryView: View {
 }
 
 private struct HRVHistoryRow: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     let record: HRVRecord
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text(dateString(record.startAt))
-                    .font(.headline)
-                Spacer()
-                if let hrv = record.hrvValue {
-                    Text("\(Int(hrv.rounded())) ms")
+        let layout = dynamicTypeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 12))
+            : AnyLayout(HStackLayout(alignment: .center, spacing: 16))
+
+        layout {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(alignment: .firstTextBaseline, spacing: 4) {
+                    Text(record.hrvValue.map { String(Int($0.rounded())) } ?? "---")
+                        .font(.title2.weight(.semibold))
+                        .monospacedDigit()
+                        .foregroundStyle(.primary)
+                    Text("ms")
                         .font(.subheadline)
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
                 }
+
+                ViewThatFits(in: .horizontal) {
+                    heartRateSummary
+                    VStack(alignment: .leading, spacing: 4) {
+                        statLabel("Avg", value: record.avgHr)
+                        statLabel("Min", value: record.minHr)
+                        statLabel("Max", value: record.maxHr)
+                    }
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .monospacedDigit()
             }
 
-            HStack(spacing: 12) {
-                statChip(label: "Avg", value: record.avgHr)
-                statChip(label: "Min", value: record.minHr)
-                statChip(label: "Max", value: record.maxHr)
+            if !dynamicTypeSize.isAccessibilitySize {
+                Spacer(minLength: 0)
             }
+
+            VStack(alignment: dynamicTypeSize.isAccessibilitySize ? .leading : .trailing, spacing: 4) {
+                Text(record.startAt, format: dateFormat)
+                    .font(.subheadline.weight(.medium))
+                Text(record.startAt, format: .dateTime.hour().minute())
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .fixedSize(horizontal: !dynamicTypeSize.isAccessibilitySize, vertical: true)
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, 6)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(accessibilitySummary)
     }
 
-    private func statChip(label: String, value: Int?) -> some View {
+    private var heartRateSummary: some View {
+        HStack(spacing: 6) {
+            statLabel("Avg", value: record.avgHr)
+            Text("·")
+            statLabel("Min", value: record.minHr)
+            Text("·")
+            statLabel("Max", value: record.maxHr)
+        }
+        .fixedSize()
+    }
+
+    private func statLabel(_ label: String, value: Int?) -> some View {
         Text("\(label) \(value.map(String.init) ?? "---")")
-            .font(.subheadline)
-            .foregroundColor(.secondary)
     }
 
-    private func dateString(_ date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.dateStyle = .medium
-        formatter.timeStyle = .short
-        return formatter.string(from: date)
+    private var dateFormat: Date.FormatStyle {
+        if Calendar.current.isDate(record.startAt, equalTo: Date(), toGranularity: .year) {
+            return .dateTime.month(.abbreviated).day()
+        }
+        return .dateTime.month(.abbreviated).day().year()
+    }
+
+    private var accessibilitySummary: String {
+        let hrv = record.hrvValue.map { "\(Int($0.rounded())) milliseconds" } ?? "unavailable"
+        let average = record.avgHr.map(String.init) ?? "unavailable"
+        let minimum = record.minHr.map(String.init) ?? "unavailable"
+        let maximum = record.maxHr.map(String.init) ?? "unavailable"
+        return "\(record.startAt.formatted(date: .abbreviated, time: .shortened)), HRV \(hrv), average heart rate \(average), minimum \(minimum), maximum \(maximum) beats per minute"
     }
 }
 

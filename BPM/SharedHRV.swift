@@ -147,3 +147,48 @@ final class SharedRRStreamBuffer {
         supportsIntervals = false
     }
 }
+
+/// The monitor's device owns acquisition and the result. Viewers display this
+/// bounded presentation snapshot and request transitions through shared controls.
+struct SharedHRVSnapshot: Codable, Equatable {
+    enum State: String, Codable { case idle, measuring, completed, error }
+
+    var revision: String
+    var isPresented: Bool
+    var state: State
+    var remainingTime: TimeInterval
+    var hrvValue: Double?
+    var avgHeartRate: Int?
+    var minHeartRate: Int?
+    var maxHeartRate: Int?
+    var currentBPM: Int?
+    var readinessReason: HRVStartReadiness.Reason
+    var errorMessage: String?
+    var allowsRemoteControl: Bool
+
+    func permits(_ action: SharedWorkoutAction) -> Bool {
+        guard allowsRemoteControl, isValid else { return false }
+        switch action {
+        case .hrvStart: return (state == .idle || state == .completed) && readinessReason == .ready
+        case .hrvCancel: return state == .measuring
+        case .hrvReset: return state == .completed || state == .error
+        default: return false
+        }
+    }
+
+    func remainingTime(after age: TimeInterval) -> TimeInterval {
+        guard remainingTime.isFinite else { return 120 }
+        let boundedAge = age.isFinite ? min(5, max(0, age)) : 0
+        return max(0, min(120, remainingTime) - (state == .measuring ? boundedAge : 0))
+    }
+
+    var isValid: Bool {
+        UUID(uuidString: revision) != nil
+            && remainingTime.isFinite && (0...120).contains(remainingTime)
+            && (hrvValue.map { $0.isFinite && (0...5000).contains($0) } ?? true)
+            && [avgHeartRate, minHeartRate, maxHeartRate, currentBPM].allSatisfy {
+                $0.map { (1...400).contains($0) } ?? true
+            }
+            && (errorMessage.map { $0.count <= 512 } ?? true)
+    }
+}

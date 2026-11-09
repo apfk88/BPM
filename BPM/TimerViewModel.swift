@@ -43,7 +43,12 @@ struct SetRecord: Identifiable {
 final class TimerViewModel: ObservableObject {
     @Published var state: TimerState = .idle {
         didSet {
-            if state != oldValue { sharingControlGeneration &+= 1 }
+            if state != oldValue {
+                sharingControlGeneration &+= 1
+                Task { @MainActor in
+                    MaxHeartRateSuggestionStore.shared.resetConfirmation()
+                }
+            }
             updateLiveActivityElapsed(force: true)
         }
     }
@@ -73,6 +78,11 @@ final class TimerViewModel: ObservableObject {
 
     var isPresetMode: Bool {
         activePreset != nil
+    }
+
+    /// Clearing changes the upcoming workout plan, never an active recording.
+    var canClearPreset: Bool {
+        isPresetMode && state == .idle && !isCompleted
     }
 
     // Returns placeholder rows for preset preview (works during idle and execution)
@@ -1071,7 +1081,9 @@ final class TimerViewModel: ObservableObject {
     }
 
     func clearPreset() {
-        if isPresetPrestartCountdownActive && startTime == nil {
+        let canCancelCountdown = isPresetPrestartCountdownActive && startTime == nil
+        guard canClearPreset || canCancelCountdown else { return }
+        if canCancelCountdown {
             state = .idle
         }
         stopPresetStartCountdownTimer()
@@ -1390,11 +1402,20 @@ final class TimerViewModel: ObservableObject {
                 $0.timestamp >= manager.heartRateSessionStartedAt
             })
         }
-        heartRateCancellable = manager.heartRateMeasurements.sink { [weak self] sample in
-            self?.recordHeartRateSample(sample)
+        heartRateCancellable = manager.heartRateMeasurements.sink { [weak self, weak manager] sample in
+            guard let self, let manager else { return }
+            self.recordHeartRateSample(sample)
+            let isActive = (self.state == .running && !self.isPresetPrestartCountdownActive) || self.state == .cooldown
+            let isSimulated = manager.isSimulatorConnected || manager.connectedDevice == nil
+            Task { @MainActor in
+                MaxHeartRateSuggestionStore.shared.record(sample, isLocalWorkoutActive: isActive, isSimulated: isSimulated)
+            }
         }
         heartRateInvalidationCancellable = manager.heartRateInvalidations.sink { [weak self] _ in
             self?.recordHeartRateInvalidation()
+            Task { @MainActor in
+                MaxHeartRateSuggestionStore.shared.resetConfirmation()
+            }
         }
     }
 

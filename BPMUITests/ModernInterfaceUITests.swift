@@ -16,8 +16,13 @@ final class ModernInterfaceUITests: XCTestCase {
 
         app.buttons["Device"].tap()
         XCTAssertTrue(app.navigationBars["Select Device"].waitForExistence(timeout: 5))
-        app.buttons["View a Friend's BPM"].tap()
+        let friendDisclosure = app.buttons["View a Friend's BPM"]
+        for _ in 0..<4 where !friendDisclosure.isHittable || friendDisclosure.frame.maxY > app.frame.maxY - 40 {
+            app.swipeUp()
+        }
+        friendDisclosure.tap()
         let codeField = app.textFields["Friend code"]
+        for _ in 0..<4 where !codeField.isHittable { app.swipeUp() }
         XCTAssertTrue(codeField.waitForExistence(timeout: 3))
         codeField.tap()
         codeField.typeText("12345")
@@ -36,7 +41,13 @@ final class ModernInterfaceUITests: XCTestCase {
         waitForExpectations(timeout: 5)
         settings.tap()
         XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 5))
-        app.buttons["Calorie Settings"].tap()
+        let calorieSettings = app.buttons["calorieSettingsLink"]
+        let settingsList = app.collectionViews.firstMatch
+        for _ in 0..<12 where !calorieSettings.isHittable {
+            settingsList.swipeUp()
+        }
+        XCTAssertTrue(calorieSettings.isHittable)
+        calorieSettings.tap()
         XCTAssertTrue(app.navigationBars["Calorie Settings"].waitForExistence(timeout: 5))
         screenshot("Settings navigation with accessibility text")
     }
@@ -152,6 +163,8 @@ final class ModernInterfaceUITests: XCTestCase {
 
     @MainActor
     private func launchHome(_ app: XCUIApplication) {
+        // A previous sharing test may leave a persisted viewer code behind.
+        app.launchArguments += ["-BPM_FriendCode", ""]
         app.launch()
         app.resetWorkoutAndReturnHome()
     }
