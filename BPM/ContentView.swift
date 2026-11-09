@@ -2150,7 +2150,9 @@ struct HeartRateDisplayView: View {
                     Button {
                         if isPresetMode {
                             timerViewModel.startPreset()
-                        } else if let sessionID = timerViewModel.recoverableSessionID {
+                        } else if let sessionID = timerViewModel.recoverableSessionID,
+                                  let duration = timerViewModel.recoverableHistoryDuration(for: sessionID),
+                                  duration > 60 {
                             pendingRecoverySessionID = sessionID
                             showWorkoutStartAlert = true
                         } else {

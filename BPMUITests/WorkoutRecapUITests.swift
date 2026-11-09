@@ -1,7 +1,7 @@
 import XCTest
 
 final class WorkoutRecapUITests: XCTestCase {
-    @MainActor func testRecoveryCancelAndRecapReviewSavePersistence() {
+    @MainActor func testShortHistoryStartsImmediatelyAndRecapReviewSavePersistence() {
         continueAfterFailure = false
         let app = XCUIApplication()
         app.launchArguments = ["--workout-voice-ui-test"]
@@ -24,16 +24,8 @@ final class WorkoutRecapUITests: XCTestCase {
         // The simulator's synthetic monitor emits once per second.
         sleep(3)
         app.buttons["Start"].tap()
-        let start = app.alerts["Start Workout"]
-        XCTAssertTrue(start.waitForExistence(timeout: 3))
-        start.buttons["Cancel"].tap()
-        XCTAssertTrue(app.buttons["Start"].exists)
-        app.buttons["Start"].tap()
-        let includeHistory = start.buttons["includePreviousMeasurements"]
-        XCTAssertTrue(includeHistory.waitForExistence(timeout: 3))
-        XCTAssertTrue(includeHistory.label.hasPrefix("Include last "))
-        includeHistory.tap()
         XCTAssertTrue(app.buttons["End"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.alerts["Start Workout"].exists)
         app.buttons["End"].tap()
         app.buttons["Save Workout"].tap()
         XCTAssertTrue(app.staticTexts["Favorites"].exists)

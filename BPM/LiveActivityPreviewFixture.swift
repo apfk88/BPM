@@ -77,6 +77,23 @@ struct LiveActivityPreviewScene: View {
                 }
 
                 Section("Layout and cleanup") {
+                    action("Changing readings") {
+                        let backgroundTask = UIApplication.shared.beginBackgroundTask(withName: "Live Activity layout check")
+                        defer { UIApplication.shared.endBackgroundTask(backgroundTask) }
+                        controller.endViewing()
+                        controller.updateTimer(elapsedSeconds: nil, isRunning: false)
+                        isViewing = false
+                        // Repeated values exercise refreshes that change only the stats;
+                        // crossing 100 exercises the two-to-three-digit layout boundary.
+                        for (index, bpm) in [71, 71, 72, 78, 88, 98, 99, 100, 101, 111, 188, 220].enumerated() {
+                            controller.updateActivity(
+                                bpm: bpm, average: 100 + index, maximum: 220, minimum: 71,
+                                heartRateExpiresAt: Date().addingTimeInterval(300)
+                            )
+                            await controller.waitForPendingUpdates()
+                            try? await Task.sleep(for: .seconds(2))
+                        }
+                    }
                     action("Second activity") {
                         await controller.waitForPendingUpdates()
                         let state = HeartRateActivityAttributes.ContentState(

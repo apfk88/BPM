@@ -65,6 +65,8 @@ private struct IslandLeadingValue: View {
             } else {
                 Text(isStale ? "--" : (content.bpm.map { "\($0)" } ?? "--"))
                     .accessibilityLabel(isStale ? "Heart rate unavailable" : (content.bpm.map { "\($0) beats per minute" } ?? "Heart rate unavailable"))
+                    .contentTransition(.identity)
+                    .transition(.identity)
             }
         }
         // iOS 27 also constrains compact views when another Live Activity is
@@ -72,10 +74,12 @@ private struct IslandLeadingValue: View {
         .font(.system(size: usesSmallLayout ? 13 : 18, weight: .bold, design: .monospaced))
         .lineLimit(1)
         .minimumScaleFactor(0.7)
-        .allowsTightening(true)
-        .padding(.horizontal, 2)
-        .frame(maxWidth: usesSmallLayout ? 26 : 38, maxHeight: usesSmallLayout ? 18 : 22)
+        .padding(.horizontal, usesSmallLayout ? 1 : 2)
+        // Reserve a stable three-digit slot instead of resizing on each update.
+        .frame(width: usesSmallLayout ? 26 : 38, height: usesSmallLayout ? 18 : 22)
         .foregroundColor(content.showsWorkoutTimer(isStale: isStale) ? .white : content.readingColor)
+        .animation(nil, value: content)
+        .animation(nil, value: isStale)
     }
 }
 
