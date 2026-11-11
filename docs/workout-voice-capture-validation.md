@@ -1,5 +1,40 @@
 # Inline workout voice capture
 
+## November 11 persistent voice button (local)
+
+One native primary button keeps its position and size throughout capture:
+
+| State | Header | Supporting text | Tap action |
+| --- | --- | --- | --- |
+| Idle | Record workout notes | AI turns your words into notes. | Start recording |
+| Recording | Recording… | Tap to send · elapsed / 1:00 | Stop and request sending |
+| Stopped | Send recording | Tap to create your workout notes. | Request sending |
+| Processing | Processing… | Creating your workout notes. | Disabled |
+| Complete | Notes ready | Tap to rerecord. | Start another recording |
+
+The button uses a recording symbol, a processing spinner, and a completion
+checkmark within the same leading icon area. Stop, Record again, and Cancel
+request are small text actions below the button, beside the muted Voice privacy
+link. Each keeps a 44-point tap target. Idle shows the 60-second limit; completion
+shows Undo AI changes in that same footer slot. Accessibility text wraps and stacks
+the footer; VoiceOver exposes the elapsed recording duration.
+
+First-use consent still precedes upload. Cancelling consent or generation keeps
+the recording available to send. Rerecording retains current notes until a new
+result arrives. Undo restores the previous fields and returns the button to
+its idle state.
+
+The final simulator build and updated end-to-end UI test passed in an isolated
+copy of HEAD containing these exact view and test changes. The test checks the
+button's position and size across states, processing disablement, consent,
+cancellation, retry, undo, completed-to-rerecord behavior, and saved-note
+persistence. Result: `/private/tmp/BPM-PersistentVoiceButton-Final.xcresult`.
+Screenshots of all states were visually inspected and saved in
+`build/voice-ui-validation/persistent-final/`. Generation uses the simulator
+fixture. Shared working-copy build attempts were blocked by concurrent
+workout-page sharing changes; the latest attempt failed on summary initialization
+in `WorkoutPageExport.swift:184`. No release or device installation was performed.
+
 ## October 28 disclosure simplification (local)
 
 Routine controls retain “AI voice,” “Undo AI changes,” “Reset AI voice
@@ -43,8 +78,8 @@ Undo AI changes restores the prior fields. Errors and request cancellation keep
 the recording available to retry. Save is disabled during recording and loading.
 Manual entry remains available without AI.
 
-The recording controls share one row: Stop changes to Record again after capture,
-and Send uses a borderless icon-and-text button. There is no separate discard row.
+Stop changes to Record again after capture, below the persistent voice button.
+There is no separate discard row.
 Recording again replaces the audio while preserving the title and description.
 
 The iOS app records mono 16 kHz PCM WAV and posts it to `/api/workout-recap` on the

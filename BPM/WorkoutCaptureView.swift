@@ -3,6 +3,7 @@ import SwiftUI
 /// The complete save form owns recording and generation so no second screen is needed.
 struct WorkoutCaptureView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Binding var title: String
     @Binding var notes: String
     @AppStorage(WorkoutVoiceConsent.defaultsKey) private var hasVoiceConsent = false
@@ -29,6 +30,7 @@ struct WorkoutCaptureView: View {
     }
 
     private enum Field: Hashable { case title, notes }
+    private enum VoiceState { case idle, starting, recording, ready, processing, complete }
     private var isBusy: Bool { isSaving || isGenerating || recorder.isRecording || recorder.isRequestingPermission }
 
     var body: some View {
@@ -48,22 +50,27 @@ struct WorkoutCaptureView: View {
                 }
                 .disabled(isGenerating || isSaving)
                 Section {
-                    voiceControls.disabled(isSaving)
+                    voiceControls
+                        .disabled(isSaving)
+                        .listRowBackground(Color.clear)
+                        .listRowInsets(EdgeInsets())
                     if let message = errorMessage ?? recorder.message {
                         Text(message).font(.footnote).foregroundStyle(.secondary)
                             .accessibilityIdentifier("voiceCaptureMessage")
                     }
-                    if previousFields != nil {
-                        Button("Undo AI changes", systemImage: "arrow.uturn.backward") {
-                            if let previousFields {
-                                title = previousFields.title
-                                notes = previousFields.description
-                            }
-                            previousFields = nil
-                        }.disabled(isBusy)
-                    }
                 } footer: {
-                    Link("Voice privacy", destination: URL(string: "https://bpmtracker.app/privacy.html#ai-voice")!)
+                    adaptiveControlLayout {
+                        voiceSecondaryControl
+                        if !dynamicTypeSize.isAccessibilitySize { Spacer() }
+                        Link(destination: URL(string: "https://bpmtracker.app/privacy.html#ai-voice")!) {
+                            Text("Voice privacy")
+                                .frame(minHeight: 44)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 }
             }
             .scrollDismissesKeyboard(.interactively)
@@ -110,52 +117,148 @@ struct WorkoutCaptureView: View {
         }
     }
 
-    @ViewBuilder private var voiceControls: some View {
-        if isGenerating {
-            HStack {
-                ProgressView()
-                Text("Loading title and description…")
-            }.accessibilityIdentifier("voiceCaptureLoading")
-            Button("Cancel request") {
-                AppAnalytics.signal(.voiceRecapCancelled)
-                generationTask?.cancel()
-                generationTask = nil
-                isGenerating = false
-            }
-        } else if recorder.isRecording || recorder.audioURL != nil {
-            HStack {
-                Image(systemName: recorder.isRecording ? "record.circle" : "waveform")
-                    .foregroundStyle(recorder.isRecording ? .red : .secondary)
-                Text(recorder.isRecording ? "Recording" : "Ready to send")
-                Spacer()
-                Text("\(recordingTime(recorder.duration)) / \(recordingTime(WorkoutDictation.maximumDuration))")
-                    .monospacedDigit().foregroundStyle(.secondary)
-            }
-            HStack {
-                if recorder.isRecording {
-                    Button("Stop", systemImage: "stop.fill") { recorder.finishRecording() }
-                } else {
-                    Button("Record again", systemImage: "arrow.counterclockwise") { startRecording() }
-                }
-                Spacer()
-                Button(action: requestSendRecording) {
-                    Label("Send", systemImage: "arrow.up.circle")
-                        .labelStyle(.titleAndIcon)
-                }
-                .disabled(recorder.duration < 0.5)
-            }.buttonStyle(.borderless)
-        } else {
-            Button(action: startRecording) {
-                HStack {
-                    Label("AI voice", systemImage: "waveform")
-                    Spacer()
-                    if recorder.isRequestingPermission { ProgressView() }
-                    else { Text("Up to \(Int(WorkoutDictation.maximumDuration)) sec").font(.subheadline).foregroundStyle(.secondary) }
-                }
-            }
-            .accessibilityLabel("Record workout with AI voice")
-            .disabled(recorder.isRequestingPermission)
+    private var voiceState: VoiceState {
+        if isGenerating { return .processing }
+        if recorder.isRequestingPermission { return .starting }
+        if recorder.isRecording { return .recording }
+        if recorder.audioURL != nil { return .ready }
+        if previousFields != nil { return .complete }
+        return .idle
+    }
+
+    private var voiceActionTitle: String {
+        switch voiceState {
+        case .idle: return "Record workout notes"
+        case .starting: return "Starting recording…"
+        case .recording: return "Recording…"
+        case .ready: return "Send recording"
+        case .processing: return "Processing…"
+        case .complete: return "Notes ready"
         }
+    }
+
+    private var voiceActionSubtitle: String {
+        switch voiceState {
+        case .idle: return "AI turns your words into notes."
+        case .starting: return "Waiting for microphone access."
+        case .recording: return "Tap to send · \(recordingTime(recorder.duration)) / \(recordingTime(WorkoutDictation.maximumDuration))"
+        case .ready: return "Tap to create your workout notes."
+        case .processing: return "Creating your workout notes."
+        case .complete: return "Tap to rerecord."
+        }
+    }
+
+    private var voiceActionIcon: String {
+        switch voiceState {
+        case .idle, .starting: return "waveform"
+        case .recording: return "record.circle"
+        case .ready: return "arrow.up"
+        case .processing: return "waveform"
+        case .complete: return "checkmark"
+        }
+    }
+
+    private var voiceActionHint: String {
+        switch voiceState {
+        case .idle: return "Record up to \(Int(WorkoutDictation.maximumDuration)) seconds to create a workout title and description."
+        case .starting: return "Waiting for microphone access."
+        case .recording: return "Stops recording and sends it to create your workout notes."
+        case .ready: return "Sends your recording to create a workout title and description."
+        case .processing: return "Creating your workout notes."
+        case .complete: return "Starts a new recording. Your current notes stay until the new result is ready."
+        }
+    }
+
+    private var voiceControls: some View {
+        Button {
+            switch voiceState {
+            case .idle, .complete:
+                startRecording()
+            case .recording, .ready:
+                requestSendRecording()
+            case .starting, .processing:
+                break
+            }
+        } label: {
+            HStack(spacing: 12) {
+                Group {
+                    if voiceState == .processing || voiceState == .starting {
+                        ProgressView().tint(.black)
+                    } else {
+                        Image(systemName: voiceActionIcon)
+                            .font(.title3.weight(.semibold))
+                    }
+                }
+                .frame(width: 24)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(voiceActionTitle).font(.headline)
+                    Text(voiceActionSubtitle)
+                        .font(.caption)
+                        .monospacedDigit()
+                        .foregroundStyle(.black.opacity(0.7))
+                }
+                .multilineTextAlignment(.leading)
+                .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 0)
+            }
+            .foregroundStyle(.black)
+            .frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)
+        }
+        .bpmActionStyle(prominent: true)
+        .tint(.white)
+        .disabled(isGenerating || recorder.isRequestingPermission || (recorder.isRecording && recorder.duration < 0.5))
+        .accessibilityLabel(voiceActionTitle)
+        .accessibilityValue(voiceState == .recording || voiceState == .ready
+            ? "\(Int(recorder.duration)) of \(Int(WorkoutDictation.maximumDuration)) seconds recorded"
+            : "")
+        .accessibilityHint(voiceActionHint)
+        .accessibilityIdentifier("voiceCaptureAction")
+    }
+
+    @ViewBuilder private var voiceSecondaryControl: some View {
+        Group {
+            switch voiceState {
+            case .recording:
+                voiceSecondaryButton("Stop") { recorder.finishRecording() }
+            case .ready:
+                voiceSecondaryButton("Record again") { startRecording() }
+            case .processing:
+                voiceSecondaryButton("Cancel request") {
+                    AppAnalytics.signal(.voiceRecapCancelled)
+                    generationTask?.cancel()
+                    generationTask = nil
+                    isGenerating = false
+                }
+            case .complete:
+                voiceSecondaryButton("Undo AI changes") {
+                    if let previousFields {
+                        title = previousFields.title
+                        notes = previousFields.description
+                    }
+                    previousFields = nil
+                }
+            case .idle, .starting:
+                Text("Up to \(Int(WorkoutDictation.maximumDuration)) seconds")
+            }
+        }
+        .buttonStyle(.plain)
+        .frame(minHeight: 44)
+        .disabled(isSaving)
+    }
+
+    private func voiceSecondaryButton(_ title: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .foregroundStyle(.tint)
+                .frame(minHeight: 44)
+                .contentShape(Rectangle())
+        }
+    }
+
+    private var adaptiveControlLayout: AnyLayout {
+        dynamicTypeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 4))
+            : AnyLayout(HStackLayout(spacing: 16))
     }
 
     private func recordingTime(_ duration: TimeInterval) -> String {
