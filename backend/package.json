@@ -11,8 +11,13 @@
   },
   "dependencies": {
     "@vercel/analytics": "^1.5.0",
+    "@vercel/blob": "2.4.0",
     "@vercel/kv": "^0.2.1",
-    "next": "14.2.35",
+    "asn1js": "3.0.10",
+    "cbor": "10.0.11",
+    "next": "15.5.29",
+    "node-app-attest": "^1.0.1",
+    "pkijs": "3.4.0",
     "react": "^18",
     "react-dom": "^18"
   },
@@ -21,5 +26,10 @@
     "@types/react": "^18",
     "@types/react-dom": "^18",
     "typescript": "^5"
+  },
+  "overrides": {
+    "next": {
+      "postcss": "8.5.32"
+    }
   }
 }

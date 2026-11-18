@@ -16,6 +16,9 @@ struct BPMApp: App {
     private static let logger = Logger(subsystem: "com.bpmapp.client", category: "BPMApp")
     
     init() {
+        #if DEBUG && targetEnvironment(simulator)
+        RetrospectiveWorkoutUITestFixture.seedIfRequested()
+        #endif
         #if DEBUG
         if ProcessInfo.processInfo.arguments.contains("--reset-calorie-setup") {
             let defaults = UserDefaults.standard

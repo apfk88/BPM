@@ -49,11 +49,13 @@ enum JSONLogFile {
 
 struct ShareSheet: View {
     let payload: SharePayload
+    var onCompleted: (() -> Void)? = nil
 
     static func appIconImage() -> UIImage? { NativeShareSheet.appIconImage() }
 
     var body: some View {
-        NativeShareSheet(items: payload.items, subject: payload.subject, analytics: payload.analytics)
+        NativeShareSheet(items: payload.items, subject: payload.subject, analytics: payload.analytics,
+                         onCompleted: onCompleted)
             .onAppear { payload.analytics.presented() }
     }
 }
@@ -62,6 +64,7 @@ private struct NativeShareSheet: UIViewControllerRepresentable {
     let items: [Any]
     let subject: String?
     let analytics: ShareAnalyticsSession
+    let onCompleted: (() -> Void)?
     @Environment(\.dismiss) private var dismiss
 
     func makeCoordinator() -> ShareAnalyticsSession { analytics }
@@ -87,6 +90,7 @@ private struct NativeShareSheet: UIViewControllerRepresentable {
         }
         controller.completionWithItemsHandler = { _, completed, _, error in
             analytics.finish(completed: completed, failed: error != nil)
+            if completed && error == nil { onCompleted?() }
             dismiss()
         }
         return controller

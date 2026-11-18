@@ -112,9 +112,7 @@ final class SharedWorkoutViewerUITests: XCTestCase {
             status.label == "Waiting for workout updates…" && !app.buttons["sharedWorkSet"].isEnabled
         }
         XCTAssertFalse(app.buttons["sharedRestSet"].isEnabled)
-        XCTAssertFalse(app.buttons["sharedWorkoutPause"].isEnabled)
-        XCTAssertFalse(app.buttons["sharedWorkoutEnd"].isEnabled)
-        XCTAssertFalse(app.buttons["sharedWorkoutCool"].isEnabled)
+        assertOwnerControlsAbsent(in: app)
         let frozenTotal = app.staticTexts["sharedWorkoutTotalTime"].label
         let frozenSet = app.staticTexts["sharedWorkoutSetTime"].label
         let stalePolls = server.pollCount
@@ -143,23 +141,37 @@ final class SharedWorkoutViewerUITests: XCTestCase {
         waitUntil("Fresh running workout restores set controls", in: app) {
             app.buttons["sharedWorkSet"].isEnabled && app.buttons["sharedRestSet"].isEnabled
         }
+
+        server.blockViewerSetLogging(true)
+        waitUntil("Host blocks viewer set logging", in: app) {
+            !app.buttons["sharedWorkSet"].isEnabled && !app.buttons["sharedRestSet"].isEnabled
+        }
+        let runningTime = app.staticTexts["sharedWorkoutTotalTime"].label
+        waitUntil("Viewer timer keeps advancing", in: app) { app.staticTexts["sharedWorkoutTotalTime"].label != runningTime }
+        server.blockViewerSetLogging(false)
+        waitUntil("Host restores viewer set logging", in: app) {
+            app.buttons["sharedWorkSet"].isEnabled && app.buttons["sharedRestSet"].isEnabled
+        }
+        XCTAssertTrue(server.commands.isEmpty)
     }
 
     @MainActor
-    func testTrainerCanPauseResumeEndResetStartAndCoolWithoutSaving() throws {
+    func testOnlyOwnerCanPauseOrEndWhileViewerCanResumeAndStart() throws {
         continueAfterFailure = false
         XCUIDevice.shared.orientation = .portrait
         let server = try SharedWorkoutViewerServer()
         let app = launchViewer(baseURL: try server.start())
         defer { app.terminate(); server.stop() }
 
-        app.buttons["sharedWorkoutPause"].tap()
-        waitUntil("Host confirms pause", in: app) { app.buttons["sharedWorkoutResume"].isEnabled }
+        assertOwnerControlsAbsent(in: app)
+        server.setPaused(true)
+        waitUntil("Host pauses workout", in: app) { app.buttons["sharedWorkoutResume"].isEnabled }
+        assertOwnerControlsAbsent(in: app)
         XCTAssertFalse(app.buttons["sharedWorkSet"].isEnabled)
         app.buttons["sharedWorkoutResume"].tap()
-        waitUntil("Host confirms resume", in: app) { app.buttons["sharedWorkoutPause"].isEnabled }
-        app.buttons["sharedWorkoutEnd"].tap()
-        waitUntil("Host confirms end", in: app) { app.buttons["sharedWorkoutReset"].isEnabled }
+        waitUntil("Host confirms resume", in: app) { app.buttons["sharedWorkSet"].isEnabled }
+        server.endWorkout()
+        waitUntil("Host ends workout", in: app) { app.buttons["sharedWorkoutReset"].isEnabled }
         XCTAssertFalse(app.buttons["Save Workout"].exists)
         app.buttons["sharedWorkoutReset"].tap()
         XCTAssertTrue(app.alerts["Reset Workout"].waitForExistence(timeout: 5))
@@ -167,13 +179,9 @@ final class SharedWorkoutViewerUITests: XCTestCase {
         waitUntil("Host confirms reset", in: app) { app.buttons["sharedWorkoutStart"].isEnabled }
         XCTAssertTrue(app.buttons["sharedWorkoutLoadPreset"].isEnabled)
         app.buttons["sharedWorkoutStart"].tap()
-        waitUntil("Host confirms start", in: app) { app.buttons["sharedWorkoutCool"].isEnabled }
-        app.buttons["sharedWorkoutCool"].tap()
-        waitUntil("Host confirms cooldown", in: app) {
-            server.commands.last?["action"] as? String == "cool" && app.buttons["sharedWorkoutPause"].isEnabled
-                && !app.buttons["sharedWorkoutCool"].isEnabled
-        }
-        XCTAssertEqual(server.commands.compactMap { $0["action"] as? String }, ["pause", "resume", "end", "reset", "start", "cool"])
+        waitUntil("Host confirms start", in: app) { app.buttons["sharedWorkSet"].isEnabled }
+        assertOwnerControlsAbsent(in: app)
+        XCTAssertEqual(server.commands.compactMap { $0["action"] as? String }, ["resume", "reset", "start"])
         XCTAssertFalse(app.buttons["Save Workout"].exists)
         captureScreenshot("Trainer controls owner workout without a Save action")
     }
@@ -268,7 +276,7 @@ final class SharedWorkoutViewerUITests: XCTestCase {
 
     @MainActor
     private func assertSharedWorkoutState(paused: Bool, in app: XCUIApplication) {
-        let control = app.buttons[paused ? "sharedWorkoutResume" : "sharedWorkoutPause"]
+        let control = app.buttons[paused ? "sharedWorkoutResume" : "sharedWorkSet"]
         XCTAssertTrue(control.waitForExistence(timeout: 5))
         expectation(for: NSPredicate(format: "enabled == true"), evaluatedWith: control)
         waitForExpectations(timeout: 5)
@@ -303,9 +311,14 @@ final class SharedWorkoutViewerUITests: XCTestCase {
         XCTAssertFalse(app.buttons["Save Workout"].exists, "Only the owner saves their workout")
         XCTAssertTrue(app.buttons["sharedWorkSet"].exists)
         XCTAssertTrue(app.buttons["sharedRestSet"].exists)
-        XCTAssertTrue(app.buttons["sharedWorkoutEnd"].isEnabled)
-        XCTAssertTrue(app.buttons["sharedWorkoutCool"].isEnabled)
-        XCTAssertTrue(app.buttons["sharedWorkoutPause"].exists || app.buttons["sharedWorkoutResume"].exists)
+        assertOwnerControlsAbsent(in: app)
+    }
+
+    @MainActor
+    private func assertOwnerControlsAbsent(in app: XCUIApplication) {
+        for id in ["sharedWorkoutPause", "sharedWorkoutEnd", "sharedWorkoutCool", "sharedWorkoutReset"] {
+            XCTAssertFalse(app.buttons[id].exists, id)
+        }
     }
 
     @MainActor
@@ -371,6 +384,7 @@ private final class SharedWorkoutViewerServer: @unchecked Sendable {
     private var paused = false
     private var stale = false
     private var resting = false
+    private var setLoggingBlocked = false
     private var workoutState = "running"
     private var completed = false
     private var sharingEnded = false
@@ -449,6 +463,13 @@ private final class SharedWorkoutViewerServer: @unchecked Sendable {
         self.stale = stale
     }
 
+    func blockViewerSetLogging(_ blocked: Bool) {
+        lock.lock()
+        defer { lock.unlock() }
+        setLoggingBlocked = blocked
+        revision += 1
+    }
+
     func setPaused(_ paused: Bool) {
         lock.lock()
         defer { lock.unlock() }
@@ -460,6 +481,16 @@ private final class SharedWorkoutViewerServer: @unchecked Sendable {
         }
         self.paused = paused
         workoutState = paused ? "paused" : "running"
+        revision += 1
+    }
+
+    func endWorkout() {
+        lock.lock()
+        defer { lock.unlock() }
+        if !paused { pausedElapsed = Date().timeIntervalSince(startedAt) }
+        paused = true
+        completed = true
+        workoutState = "idle"
         revision += 1
     }
 
@@ -562,6 +593,7 @@ private final class SharedWorkoutViewerServer: @unchecked Sendable {
         connection.send(content: response, completion: .contentProcessed { _ in connection.cancel() })
     }
 
+    /// Models an older broadcaster that advertises Pause, End, Cool and active Reset.
     /// Called while holding the state lock.
     private var allowedActions: [String] {
         switch workoutState {
@@ -569,6 +601,7 @@ private final class SharedWorkoutViewerServer: @unchecked Sendable {
         case "paused": return ["resume", "end", "reset", "cool"]
         case "cooldownPaused": return ["resume", "end", "reset"]
         case "cooldown": return ["pause", "end", "reset"]
+        case "running" where setLoggingBlocked: return []
         default: return ["work", "pause", "end", "reset", "cool"] + (resting ? [] : ["rest"])
         }
     }

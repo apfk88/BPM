@@ -102,6 +102,12 @@ struct SharedWorkoutSnapshot: Codable, Equatable {
     var hrv: SharedHRVSnapshot? = nil
 
     func permits(_ action: SharedWorkoutAction) -> Bool {
+        // Older broadcasters can still advertise controls that stop a live workout.
+        switch action {
+        case .pause, .end, .cool: return false
+        case .reset where state != .idle: return false
+        default: break
+        }
         if action.isHRVControl { return hrv?.permits(action) == true }
         if let allowedActions { return allowedActions.contains(action) }
         // Older broadcasters advertised only manual set controls.

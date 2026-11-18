@@ -156,6 +156,7 @@ struct HeartRateDisplayView: View {
     @State private var isHRVMode = false
     @State private var didResolveInitialMode = false
     @State private var showResetAlert = false
+    @State private var pendingSetUndo: ManualSetChange?
     @State private var showWorkoutStartAlert = false
     @State private var showViewingStoppedAlert = false
     @State private var pendingRecoverySessionID: UUID?
@@ -167,6 +168,7 @@ struct HeartRateDisplayView: View {
     @State private var heartRateExtremumDisplay: HeartRateExtremumDisplay = .max
     @State private var collapsedStatDisplay: CollapsedStatDisplay = .max
     @AppStorage(ViewDefaultsKey.timerMode) private var timerViewModeRawValue = TimerViewMode.table.rawValue
+    @AppStorage(SharedWorkoutPresentation.blockViewerSetLoggingKey) private var blockViewerSetLogging = false
     @AppStorage(HealthKitWorkoutTypeDefaultsKey.quickSelection)
     private var healthKitQuickTypesRawValue = HealthKitWorkoutTypeSettings.defaultQuickSelectionRawValue()
     @State private var showPresetSheet = false
@@ -211,6 +213,12 @@ struct HeartRateDisplayView: View {
         if isHRVMode { return .hrv }
         if isViewingShared { return sharedViewerScreen == .workout ? .workout : .home }
         return isTimerMode ? .workout : .home
+    }
+
+    private var sharingAlertBlocked: Bool {
+        showDevicePicker || showPresetSheet || showSettings || showCalorieSetup || showWorkoutHistory
+            || showWorkoutTitlePrompt || selectedSavedWorkout != nil || showWorkoutTypePicker
+            || showWorkoutStartAlert || showResetAlert || pendingSetUndo != nil
     }
 
     private var isViewingShared: Bool {
@@ -329,6 +337,9 @@ struct HeartRateDisplayView: View {
                 healthKitSyncBannerState = nil
             }
         }
+        .onChange(of: blockViewerSetLogging) { _, _ in
+            timerViewModel.invalidateSharedWorkoutControls()
+        }
         .onChange(of: isTimerMode) { _, isActive in
             setConfirmation = nil
             if isActive && !hasChangedTimerViewModeInSession {
@@ -356,7 +367,8 @@ struct HeartRateDisplayView: View {
             )
         }
         .sheet(isPresented: $showSettings) {
-            SettingsView()
+            SettingsView(currentWorkoutInterval: { timerViewModel.currentWorkoutInterval },
+                         onRecoverWorkout: { timerViewModel.didRecoverWorkout(through: $0.endAt) })
         }
         .sheet(isPresented: $showCalorieSetup) {
             NavigationStack {
@@ -430,6 +442,7 @@ struct HeartRateDisplayView: View {
             if sharingService.pendingJoinCode != nil { showDevicePicker = true }
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
+            Task { await sharingService.refreshSharingSession() }
             guard didResolveInitialMode else { return }
             // Reopening the app returns to the session. Transient interruptions,
             // such as Control Center or permission prompts, keep the current screen.
@@ -449,10 +462,21 @@ struct HeartRateDisplayView: View {
             guard message != nil else { return }
             returnHomeAfterViewingStopped()
         }
+        .onChange(of: sharingService.sharingStoppedMessage) { _, message in
+            guard message != nil else { return }
+            showDevicePicker = false
+            presentSharingStoppedAlert()
+        }
+        .onChange(of: sharingAlertBlocked) { _, blocked in
+            if !blocked { presentSharingStoppedAlert() }
+        }
         .alert("Sharing Stopped", isPresented: $showViewingStoppedAlert) {
-            Button("OK") { sharingService.viewingStoppedMessage = nil }
+            Button("OK") {
+                sharingService.viewingStoppedMessage = nil
+                sharingService.sharingStoppedMessage = nil
+            }
         } message: {
-            Text(sharingService.viewingStoppedMessage ?? "Your friend stopped sharing.")
+            Text(sharingService.sharingStoppedMessage ?? sharingService.viewingStoppedMessage ?? "Your friend stopped sharing.")
         }
         .onChange(of: appMode) { oldMode, newMode in
             if newMode == .myDevice {
@@ -622,7 +646,7 @@ struct HeartRateDisplayView: View {
     }
 
     private var heartButtonColor: Color {
-        if isViewingShared {
+        if isViewingShared || sharingService.hasConnectedViewer {
             return .green
         } else if bluetoothManager.hasActiveDataSource {
             return .green
@@ -632,11 +656,12 @@ struct HeartRateDisplayView: View {
     }
 
     private var heartIconName: String {
-        isViewingShared || bluetoothManager.hasActiveDataSource ? "heart.fill" : "heart"
+        isViewingShared || sharingService.hasConnectedViewer || bluetoothManager.hasActiveDataSource ? "heart.fill" : "heart"
     }
 
     private var deviceConnectionAccessibilityValue: String {
         if isViewingShared { return "Viewing shared BPM" }
+        if sharingService.hasConnectedViewer { return "Sharing BPM, viewer connected" }
         return bluetoothManager.hasActiveDataSource ? "Monitor connected" : "Not connected"
     }
 
@@ -1099,7 +1124,8 @@ struct HeartRateDisplayView: View {
             showDevicePicker = true
         } label: {
             (isLandscape || dynamicTypeSize.isAccessibilitySize ? AnyLayout(HStackLayout(spacing: 8)) : AnyLayout(VStackLayout(spacing: 4))) {
-                SharedConnectionIcon(symbol: heartIconName, isShared: isViewingShared, size: scaledButtonSize)
+                SharedConnectionIcon(symbol: heartIconName,
+                                     isShared: isViewingShared || sharingService.hasConnectedViewer, size: scaledButtonSize)
                     .frame(height: scaledButtonSize + 3)
                 Text("Device")
                     .font(.caption.weight(.medium))
@@ -1320,6 +1346,17 @@ struct HeartRateDisplayView: View {
         }
     }
 
+    private func presentSharingStoppedAlert() {
+        guard sharingService.sharingStoppedMessage != nil, !sharingAlertBlocked else { return }
+        Task { @MainActor in
+            // Preserve edits in other sheets and let Device finish dismissing.
+            try? await Task.sleep(for: .milliseconds(400))
+            if sharingService.sharingStoppedMessage != nil, !sharingAlertBlocked {
+                showViewingStoppedAlert = true
+            }
+        }
+    }
+
     private func makeSharedWorkoutSnapshot() -> SharedWorkoutSnapshot {
         SharedWorkoutPresentation.snapshot(
             timer: timerViewModel,
@@ -1431,7 +1468,9 @@ struct HeartRateDisplayView: View {
                     Button {
                         showDevicePicker = true
                     } label: {
-                        SharedConnectionIcon(symbol: heartIconName, isShared: isViewingShared, size: TopBarLayout.iconFontSize)
+                        SharedConnectionIcon(symbol: heartIconName,
+                                             isShared: isViewingShared || sharingService.hasConnectedViewer,
+                                             size: TopBarLayout.iconFontSize)
                             .foregroundStyle(heartButtonColor)
                             .frame(width: TopBarLayout.iconSize, height: TopBarLayout.iconSize)
                             .bpmCircleSurface()
@@ -1547,6 +1586,18 @@ struct HeartRateDisplayView: View {
         .transaction { transaction in
             transaction.animation = nil
         }
+        .alert("Undo current set?", isPresented: Binding(
+            get: { pendingSetUndo != nil },
+            set: { if !$0 { pendingSetUndo = nil } }
+        ), presenting: pendingSetUndo) { change in
+            Button("Undo Set") { timerViewModel.undoSetChange(id: change.id) }
+            Button("Cancel", role: .cancel) {}
+        } message: { _ in
+            Text("The time and heart-rate readings from this set will count toward the previous set.")
+        }
+        .onChange(of: timerViewModel.undoableSetChange?.id) { _, currentID in
+            if let pendingSetUndo, pendingSetUndo.id != currentID { self.pendingSetUndo = nil }
+        }
     }
 
     private func timerPages(size: CGSize, isLandscape: Bool) -> some View {
@@ -1568,6 +1619,10 @@ struct HeartRateDisplayView: View {
 
                 Spacer(minLength: 0)
             }
+            .contentShape(Rectangle())
+            .highPriorityGesture(TapGesture(count: 3).onEnded {
+                pendingSetUndo = timerViewModel.undoableSetChange
+            })
             .tag(TimerViewMode.table)
 
             GeometryReader { proxy in
@@ -1778,7 +1833,7 @@ struct HeartRateDisplayView: View {
                                         .frame(width: columnWidth, alignment: .center)
                                 }
 
-                                Text(formatTime(totalTime, showTenths: showTenths))
+                                Text(formatTime(totalTime, showTenths: false))
                                     .font(.system(size: fontSize, weight: .medium, design: .monospaced))
                                     .foregroundColor(rowColor)
                                     .frame(width: columnWidth, alignment: .center)
@@ -1786,6 +1841,8 @@ struct HeartRateDisplayView: View {
                             .padding(.horizontal, 12)
                             .padding(.vertical, 8)
                             .id(set.id)
+                            .accessibilityElement(children: .combine)
+                            .accessibilityIdentifier(isActiveRestSet ? "activeWorkoutSet" : "completedWorkoutSet")
                         }
 
                         if showDefaultEmptyRow {
@@ -1875,7 +1932,7 @@ struct HeartRateDisplayView: View {
                                         .frame(width: columnWidth, alignment: .center)
                                 }
                                 
-                                Text(formatTime(timerViewModel.elapsedTime, showTenths: showTenths))
+                                Text(formatTime(timerViewModel.elapsedTime, showTenths: false))
                                     .font(.system(size: fontSize, weight: .medium, design: .monospaced))
                                     .foregroundColor(.white)
                                     .frame(width: columnWidth, alignment: .center)
@@ -1883,6 +1940,8 @@ struct HeartRateDisplayView: View {
                             .padding(.horizontal, 12)
                             .padding(.vertical, 8)
                             .id("active")
+                            .accessibilityElement(children: .combine)
+                            .accessibilityIdentifier("activeWorkoutSet")
                         }
                         
                         // Active rest row (if in cooldown)
@@ -1925,7 +1984,7 @@ struct HeartRateDisplayView: View {
                                         .frame(width: columnWidth, alignment: .center)
                                 }
                                 
-                                Text(formatTime(totalTime, showTenths: showTenths))
+                                Text(formatTime(totalTime, showTenths: false))
                                     .font(.system(size: fontSize, weight: .medium, design: .monospaced))
                                     .foregroundColor(.white)
                                     .frame(width: columnWidth, alignment: .center)
@@ -1933,6 +1992,8 @@ struct HeartRateDisplayView: View {
                             .padding(.horizontal, 12)
                             .padding(.vertical, 8)
                             .id("activeRest")
+                            .accessibilityElement(children: .combine)
+                            .accessibilityIdentifier("activeWorkoutSet")
 
                             if nextCooldownNumber == 1 {
                                 let upcomingCooldownSet = SetRecord(
@@ -1966,6 +2027,7 @@ struct HeartRateDisplayView: View {
                         }
                     }
                 }
+                .accessibilityIdentifier("workoutSetsTable")
 
                 // Pinned header
                         HStack(spacing: columnSpacing) {
@@ -1988,6 +2050,7 @@ struct HeartRateDisplayView: View {
                                     guard !isLandscape else { return }
                                     setTableBpmDisplay.toggle()
                                 }
+                                .accessibilityIdentifier("workoutSetBPMColumn")
                             
                             if isLandscape {
                                 Text("Min BPM")
@@ -2011,29 +2074,16 @@ struct HeartRateDisplayView: View {
                 .background(Color.black.opacity(0.9))
             }
             .onChange(of: timerViewModel.sets.count) { _, _ in
-                if isLandscape {
-                    // In landscape, always scroll to active row
-                    scrollToActiveRow(proxy: proxy, isLandscape: isLandscape)
-                } else {
-                    // In portrait, scroll to most recent set
-                    if let lastSet = timerViewModel.sets.last {
-                        withAnimation {
-                            proxy.scrollTo(lastSet.id, anchor: .bottom)
-                        }
-                    }
-                }
+                scrollToActiveRow(proxy: proxy)
             }
             .onChange(of: timerViewModel.state) { _, _ in
-                scrollToActiveRow(proxy: proxy, isLandscape: isLandscape)
+                scrollToActiveRow(proxy: proxy)
             }
             .onChange(of: timerViewModel.isTimingRestSet) { _, _ in
-                scrollToActiveRow(proxy: proxy, isLandscape: isLandscape)
+                scrollToActiveRow(proxy: proxy)
             }
             .onAppear {
-                // Scroll to active row when view appears in landscape
-                if isLandscape {
-                    scrollToActiveRow(proxy: proxy, isLandscape: isLandscape)
-                }
+                scrollToActiveRow(proxy: proxy)
             }
         }
         .lineLimit(1)
@@ -2041,22 +2091,25 @@ struct HeartRateDisplayView: View {
         .frame(maxHeight: isLandscape ? 600 : 700)
     }
     
-    private func scrollToActiveRow(proxy: ScrollViewProxy, isLandscape: Bool) {
-        guard isLandscape else { return }
-        
-        withAnimation {
-            if timerViewModel.state == .cooldown || timerViewModel.state == .cooldownPaused {
-                proxy.scrollTo("activeRest", anchor: .center)
-            } else if timerViewModel.state == .running || timerViewModel.state == .paused {
-                if timerViewModel.isTimingRestSet {
-                    // Find the active rest set
-                    if let activeRestSet = timerViewModel.sets.first(where: { timerViewModel.isActiveRestSet($0) }) {
-                        proxy.scrollTo(activeRestSet.id, anchor: .center)
+    private func scrollToActiveRow(proxy: ScrollViewProxy) {
+        // The new row must be laid out before the scroll view resolves its ID.
+        DispatchQueue.main.async {
+            withAnimation(.easeOut(duration: 0.2)) {
+                if timerViewModel.state == .cooldown || timerViewModel.state == .cooldownPaused {
+                    proxy.scrollTo("activeRest", anchor: .bottom)
+                } else if timerViewModel.state == .running || timerViewModel.state == .paused {
+                    if timerViewModel.isTimingRestSet {
+                        // Find the active rest set
+                        if let activeRestSet = timerViewModel.sets.first(where: { timerViewModel.isActiveRestSet($0) }) {
+                            proxy.scrollTo(activeRestSet.id, anchor: .bottom)
+                        } else {
+                            proxy.scrollTo("active", anchor: .bottom)
+                        }
                     } else {
-                        proxy.scrollTo("active", anchor: .center)
+                        proxy.scrollTo("active", anchor: .bottom)
                     }
-                } else {
-                    proxy.scrollTo("active", anchor: .center)
+                } else if let lastSet = timerViewModel.sets.last {
+                    proxy.scrollTo(lastSet.id, anchor: .bottom)
                 }
             }
         }
@@ -2512,7 +2565,7 @@ struct HeartRateDisplayView: View {
                                 timerViewModel.toggleCooldown()
                             } else {
                                 if timerViewModel.state == .running || timerViewModel.state == .paused {
-                                    timerViewModel.captureSet()
+                                    timerViewModel.captureSet(allowUndo: false)
                                 }
                                 timerViewModel.end()
                             }
@@ -2627,7 +2680,7 @@ struct HeartRateDisplayView: View {
                     .frame(width: columnWidth, alignment: .center)
             }
 
-            Text(formatTime(set.totalTime, showTenths: showTenths))
+            Text(formatTime(set.totalTime, showTenths: false))
                 .font(.system(size: fontSize, weight: .medium, design: .monospaced))
                 .foregroundColor(rowColor)
                 .frame(width: columnWidth, alignment: .center)

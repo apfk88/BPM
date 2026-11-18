@@ -11,7 +11,7 @@ final class WorkoutShareCardUITests: XCTestCase {
         XCTAssertTrue(carousel.waitForExistence(timeout: 5))
         XCTAssertEqual(app.staticTexts["workoutShareFormat"].label, "Chart Card")
         capture("Workout share drawer chart")
-        app.buttons["shareSelectedWorkoutFormat"].tap()
+        app.buttons["customizeWorkoutCard"].tap()
 
         XCTAssertTrue(app.navigationBars["Chart Card"].waitForExistence(timeout: 5))
         let editor = app.scrollViews["workoutCardEditorScroll"]
@@ -42,7 +42,11 @@ final class WorkoutShareCardUITests: XCTestCase {
         capture("Chart card editor title and range")
         app.buttons["shareWorkoutImage"].tap()
         copyFromNativeSheet(app, expectsImage: true)
-        app.buttons["resetWorkoutCard"].tap()
+        assertSharingClosed(app)
+        app.buttons["openWorkoutShareDrawer"].tap()
+        app.buttons["openChartCard"].tap()
+        XCTAssertTrue(title.waitForExistence(timeout: 5))
+        // A completed share discards the temporary card edits.
         XCTAssertFalse(app.buttons["resetWorkoutCard"].isEnabled)
         XCTAssertEqual(title.value as? String, "Morning intervals")
         XCTAssertEqual(app.sliders["workoutRangeStart"].value as? String, "0:00")
@@ -56,16 +60,18 @@ final class WorkoutShareCardUITests: XCTestCase {
         XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: statsSelected,
                          object: app.staticTexts["workoutShareFormat"])], timeout: 5), .completed)
         capture("Workout share drawer stats")
-        app.buttons["openStatsCard"].tap()
+        app.buttons["customizeWorkoutCard"].tap()
         XCTAssertTrue(app.navigationBars["Stats Card"].waitForExistence(timeout: 5))
         XCTAssertEqual(app.textFields["workoutCardTitleField"].value as? String, "Morning intervals")
         XCTAssertFalse(app.segmentedControls["workoutCardStyle"].exists)
         capture("Stats card editor")
         app.buttons["shareWorkoutImage"].tap()
         copyFromNativeSheet(app, expectsImage: true)
-        app.buttons["closeWorkoutCardEditor"].tap()
+        assertSharingClosed(app)
+        app.buttons["openWorkoutShareDrawer"].tap()
 
         app.buttons["shareFormat2"].tap()
+        XCTAssertFalse(app.buttons["customizeWorkoutCard"].exists)
         let summary = app.staticTexts["workoutTextSummary"]
         XCTAssertTrue(summary.waitForExistence(timeout: 5))
         XCTAssertTrue(summary.label.contains("Morning intervals"))
@@ -73,11 +79,76 @@ final class WorkoutShareCardUITests: XCTestCase {
         capture("Workout share drawer plain text")
         app.buttons["shareSelectedWorkoutFormat"].tap()
         copyFromNativeSheet(app, expectsImage: false)
+        assertSharingClosed(app)
+        app.buttons["openWorkoutShareDrawer"].tap()
         app.buttons["shareFormat3"].tap()
+        XCTAssertFalse(app.buttons["customizeWorkoutCard"].exists)
         capture("Workout share drawer logs")
         app.buttons["shareSelectedWorkoutFormat"].tap()
         XCTAssertTrue(app.cells["Copy"].firstMatch.waitForExistence(timeout: 10))
         capture("JSON logs in native share sheet")
+        app.cells["Copy"].firstMatch.tap()
+        assertSharingClosed(app)
+    }
+
+    @MainActor func testChartAndStatsShareDirectlyWithoutOpeningEditor() {
+        let app = launchWorkout()
+        for format in [0, 1] {
+            app.buttons["openWorkoutShareDrawer"].tap()
+            app.buttons["shareFormat\(format)"].tap()
+            let customize = app.buttons["customizeWorkoutCard"]
+            let share = app.buttons["shareSelectedWorkoutFormat"]
+            XCTAssertTrue(customize.waitForExistence(timeout: 5))
+            XCTAssertTrue(customize.isHittable)
+            XCTAssertLessThan(customize.frame.width, share.frame.width)
+            XCTAssertEqual(customize.frame.midY, share.frame.midY, accuracy: 2)
+            capture(format == 0 ? "Chart direct share and customize actions" : "Stats direct share and customize actions")
+            share.tap()
+            XCTAssertTrue(app.cells["Copy"].firstMatch.waitForExistence(timeout: 10))
+            XCTAssertFalse(app.buttons["closeWorkoutCardEditor"].exists)
+            XCTAssertFalse(app.textFields["workoutCardTitleField"].exists)
+            copyFromNativeSheet(app, expectsImage: true)
+            assertSharingClosed(app)
+        }
+    }
+
+    @MainActor func testCancelingDirectShareKeepsSelectedFormatAndDrawer() {
+        let app = launchWorkout()
+        app.buttons["openWorkoutShareDrawer"].tap()
+        app.buttons["shareFormat1"].tap()
+        app.buttons["shareSelectedWorkoutFormat"].tap()
+        XCTAssertTrue(app.cells["Copy"].firstMatch.waitForExistence(timeout: 10))
+        XCTAssertFalse(app.buttons["closeWorkoutCardEditor"].exists)
+        cancelNativeShare(app)
+        XCTAssertTrue(app.buttons["closeWorkoutShareDrawer"].waitForExistence(timeout: 5))
+        XCTAssertEqual(app.staticTexts["workoutShareFormat"].label, "Stats Card")
+        XCTAssertTrue(app.buttons["customizeWorkoutCard"].isHittable)
+        XCTAssertTrue(app.buttons["shareSelectedWorkoutFormat"].isHittable)
+        app.buttons["customizeWorkoutCard"].tap()
+        XCTAssertTrue(app.navigationBars["Stats Card"].waitForExistence(timeout: 5))
+    }
+
+    @MainActor func testCancelingNativeSharePreservesCardEditsAndDrawer() {
+        let app = launchWorkout()
+        app.buttons["openWorkoutShareDrawer"].tap()
+        app.buttons["openChartCard"].tap()
+        let title = app.textFields["workoutCardTitleField"]
+        reveal(title, in: app.scrollViews["workoutCardEditorScroll"])
+        replaceText(title, with: "Keep this draft")
+        title.typeText("\n")
+        app.buttons["shareWorkoutImage"].tap()
+        XCTAssertTrue(app.cells["Copy"].firstMatch.waitForExistence(timeout: 10))
+        cancelNativeShare(app)
+        XCTAssertTrue(app.buttons["shareWorkoutImage"].waitForExistence(timeout: 5))
+        XCTAssertEqual(title.value as? String, "Keep this draft")
+        app.buttons["closeWorkoutCardEditor"].tap()
+        XCTAssertTrue(app.buttons["closeWorkoutShareDrawer"].waitForExistence(timeout: 5))
+    }
+
+    @MainActor private func assertSharingClosed(_ app: XCUIApplication) {
+        XCTAssertTrue(app.buttons["closeWorkoutCardEditor"].waitForNonExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["closeWorkoutShareDrawer"].waitForNonExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["openWorkoutShareDrawer"].isHittable)
     }
 
     @MainActor func testSavedWorkoutDetailsPersistAndCardTitleStaysTemporary() {
@@ -133,11 +204,21 @@ final class WorkoutShareCardUITests: XCTestCase {
     }
 
     @MainActor func testCardControlsRemainUsableInLandscapeAndLargerText() {
-        XCUIDevice.shared.orientation = .landscapeLeft
+        XCUIDevice.shared.orientation = .portrait
         defer { XCUIDevice.shared.orientation = .portrait }
         let app = launchWorkout(largeText: true)
         app.buttons["openWorkoutShareDrawer"].tap()
-        app.buttons["openChartCard"].tap()
+        revealDrawerActions(app, stacked: true)
+        capture("Portrait share and customize actions with accessibility text")
+        app.buttons["customizeWorkoutCard"].tap()
+        XCTAssertTrue(app.navigationBars["Chart Card"].waitForExistence(timeout: 5))
+        app.buttons["closeWorkoutCardEditor"].tap()
+
+        XCUIDevice.shared.orientation = .landscapeLeft
+        waitForLandscape(app)
+        revealDrawerActions(app, stacked: true)
+        capture("Landscape share and customize actions with accessibility text")
+        app.buttons["customizeWorkoutCard"].tap()
         let end = app.sliders["workoutRangeEnd"]
         XCTAssertTrue(end.waitForExistence(timeout: 5))
         capture("Landscape card editor before scrolling")
@@ -151,6 +232,67 @@ final class WorkoutShareCardUITests: XCTestCase {
         XCTAssertTrue(app.buttons["shareWorkoutImage"].isHittable)
         capture("Landscape card editor with accessibility text")
         app.buttons["closeWorkoutCardEditor"].tap()
+        revealDrawerActions(app, stacked: true)
+        app.buttons["shareSelectedWorkoutFormat"].tap()
+        XCTAssertTrue(app.cells["Copy"].firstMatch.waitForExistence(timeout: 10))
+        XCTAssertFalse(app.buttons["closeWorkoutCardEditor"].exists)
+        copyFromNativeSheet(app, expectsImage: true)
+        assertSharingClosed(app)
+    }
+
+    @MainActor func testDrawerActionsRemainUsableInLandscape() {
+        let app = launchWorkout()
+        defer { XCUIDevice.shared.orientation = .portrait }
+        XCUIDevice.shared.orientation = .landscapeLeft
+        waitForLandscape(app)
+        app.buttons["openWorkoutShareDrawer"].tap()
+        revealDrawerActions(app, stacked: false)
+        capture("Landscape share and customize actions")
+        app.buttons["customizeWorkoutCard"].tap()
+        XCTAssertTrue(app.navigationBars["Chart Card"].waitForExistence(timeout: 5))
+        app.buttons["closeWorkoutCardEditor"].tap()
+        revealDrawerActions(app, stacked: false)
+        app.buttons["shareSelectedWorkoutFormat"].tap()
+        XCTAssertTrue(app.cells["Copy"].firstMatch.waitForExistence(timeout: 10))
+        XCTAssertFalse(app.buttons["closeWorkoutCardEditor"].exists)
+        copyFromNativeSheet(app, expectsImage: true)
+        assertSharingClosed(app)
+    }
+
+    @MainActor private func waitForLandscape(_ app: XCUIApplication) {
+        let landscape = NSPredicate { _, _ in app.frame.width > app.frame.height }
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: landscape, object: nil)],
+                                     timeout: 5), .completed)
+    }
+
+    @MainActor private func revealDrawerActions(_ app: XCUIApplication, stacked: Bool) {
+        let share = app.buttons["shareSelectedWorkoutFormat"]
+        let customize = app.buttons["customizeWorkoutCard"]
+        let scroll = app.scrollViews.containing(.button, identifier: "shareSelectedWorkoutFormat").firstMatch
+        XCTAssertTrue(customize.waitForExistence(timeout: 5))
+        XCTAssertTrue(scroll.exists)
+        let visible = scroll.frame.intersection(app.frame).insetBy(dx: 0, dy: 4)
+        for _ in 0..<10 {
+            if share.isHittable && customize.isHittable &&
+                visible.contains(share.frame) && visible.contains(customize.frame) { break }
+            let start = scroll.coordinate(withNormalizedOffset: CGVector(dx: 0.8, dy: 0.8))
+            let end = scroll.coordinate(withNormalizedOffset: CGVector(dx: 0.8, dy: 0.3))
+            start.press(forDuration: 0.05, thenDragTo: end)
+        }
+        XCTAssertTrue(share.isHittable)
+        XCTAssertTrue(customize.isHittable)
+        XCTAssertTrue(visible.contains(share.frame), "Share must be fully visible")
+        XCTAssertTrue(visible.contains(customize.frame), "Customize must be fully visible")
+        XCTAssertFalse(share.frame.intersects(customize.frame))
+        XCTAssertEqual(share.label, "Share Chart")
+        XCTAssertEqual(customize.label, "Customize")
+        if stacked {
+            XCTAssertLessThan(share.frame.maxY, customize.frame.minY)
+        } else {
+            XCTAssertLessThan(share.frame.maxX, customize.frame.minX)
+            XCTAssertLessThan(customize.frame.width, share.frame.width)
+            XCTAssertEqual(customize.frame.midY, share.frame.midY, accuracy: 2)
+        }
     }
 
     @MainActor private func revealInLandscape(_ element: XCUIElement, app: XCUIApplication) {
@@ -213,6 +355,29 @@ final class WorkoutShareCardUITests: XCTestCase {
         }
         XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: copied, object: nil)], timeout: 5), .completed)
         XCTAssertTrue(copy.waitForNonExistence(timeout: 5))
+    }
+
+    @MainActor private func cancelNativeShare(_ app: XCUIApplication) {
+        let close = app.buttons["header.closeButton"]
+        XCTAssertTrue(close.waitForExistence(timeout: 5))
+        // Native sheet controls can become accessible while their presentation is
+        // still moving. Target only its close button once its frame has settled.
+        var previousFrame = CGRect.null
+        var stableSince = Date()
+        let settled = NSPredicate { _, _ in
+            let frame = close.frame
+            guard close.isHittable, frame == previousFrame else {
+                previousFrame = frame
+                stableSince = Date()
+                return false
+            }
+            return Date().timeIntervalSince(stableSince) >= 0.5
+        }
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: settled, object: nil)],
+                                     timeout: 5), .completed)
+        capture("Native share sheet before cancel")
+        close.tap()
+        XCTAssertTrue(app.cells["Copy"].firstMatch.waitForNonExistence(timeout: 5))
     }
 
     @MainActor private func capture(_ name: String) {

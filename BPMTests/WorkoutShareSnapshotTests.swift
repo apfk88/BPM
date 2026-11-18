@@ -1,6 +1,7 @@
 import XCTest
 import UIKit
 import SwiftUI
+import UniformTypeIdentifiers
 @testable import BPM
 
 final class WorkoutShareSnapshotTests: XCTestCase {
@@ -140,6 +141,34 @@ final class WorkoutShareSnapshotTests: XCTestCase {
         XCTAssertTrue(snapshot.plotPoints.contains { $0.bpm == 190 })
         XCTAssertTrue(snapshot.plotPoints.contains { $0.bpm == 80 })
         XCTAssertLessThan(snapshot.plotPoints.count, snapshot.points.count)
+    }
+
+    @MainActor func testPrivateCardSharesOneURLWithTheSelectedImageAsMetadata() async throws {
+        let snapshot = WorkoutShareSnapshot(record: WorkoutSharePreviewFixture.record,
+            range: .init(start: 300, end: 1200, duration: WorkoutSharePreviewFixture.record.durationSeconds),
+            titleOverride: "Selected training block")
+        let image = try XCTUnwrap(WorkoutShareCardRenderer.image(snapshot: snapshot, style: .stats, accent: .green))
+        let file = try WorkoutShareImageItem(image: image, title: snapshot.title)
+        defer { try? FileManager.default.removeItem(at: file.fileURL) }
+        let url = try XCTUnwrap(URL(string: "https://bpmtracker.app/w/11111111-1111-4111-8111-111111111111?p=preview#private-view-key"))
+        let item = WorkoutShareLinkItem(url: url, title: snapshot.title, imageFileURL: file.fileURL)
+        let controller = UIActivityViewController(activityItems: [item], applicationActivities: nil)
+        XCTAssertEqual(item.activityViewControllerPlaceholderItem(controller) as? URL, url)
+        XCTAssertEqual(item.activityViewController(controller, itemForActivityType: .message) as? URL, url)
+        XCTAssertEqual(item.activityViewController(controller, itemForActivityType: .copyToPasteboard) as? URL, url)
+        XCTAssertEqual(item.activityViewController(controller, dataTypeIdentifierForActivityType: .message), UTType.url.identifier)
+        let metadata = try XCTUnwrap(item.activityViewControllerLinkMetadata(controller))
+        XCTAssertEqual(metadata.url, url)
+        XCTAssertEqual(metadata.originalURL, url)
+        XCTAssertEqual(metadata.title, snapshot.title)
+        let provider = try XCTUnwrap(metadata.imageProvider)
+        let previewData: Data = try await withCheckedThrowingContinuation { continuation in
+            provider.loadDataRepresentation(forTypeIdentifier: UTType.png.identifier) { data, error in
+                if let data { continuation.resume(returning: data) }
+                else { continuation.resume(throwing: error ?? CocoaError(.fileReadUnknown)) }
+            }
+        }
+        XCTAssertEqual(previewData, try Data(contentsOf: file.fileURL))
     }
 
     @MainActor func testBothStylesExportFullSizeImagesForFullAndTrimmedWorkouts() throws {

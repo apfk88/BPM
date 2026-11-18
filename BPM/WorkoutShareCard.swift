@@ -117,6 +117,11 @@ struct WorkoutShareCard: View {
     var accent: WorkoutShareAccent = .white
 
     private var muted: Color { WorkoutCardPalette.muted }
+    private var workoutDate: String {
+        snapshot.record.startAt.formatted(
+            Date.FormatStyle(date: .abbreviated, time: .shortened).weekday(.abbreviated)
+        )
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: compact ? 14 : 22) {
@@ -170,7 +175,7 @@ struct WorkoutShareCard: View {
                     Text(snapshot.title)
                         .font(.system(size: 18, weight: .semibold))
                         .lineLimit(1)
-                    Text(snapshot.record.startAt.formatted(date: .abbreviated, time: .shortened))
+                    Text(workoutDate)
                         .font(.system(size: 10, weight: .medium))
                         .foregroundStyle(muted)
                 }
@@ -196,7 +201,7 @@ struct WorkoutShareCard: View {
                 .tracking(-0.7)
                 .lineLimit(2)
                 .minimumScaleFactor(0.75)
-            Text(snapshot.record.startAt.formatted(date: .abbreviated, time: .shortened))
+            Text(workoutDate)
                 .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(muted)
         }
@@ -434,6 +439,42 @@ final class WorkoutShareImageItem: NSObject, UIActivityItemSource {
         metadata.title = title
         metadata.imageProvider = NSItemProvider(contentsOf: fileURL)
         metadata.iconProvider = NSItemProvider(contentsOf: fileURL)
+        return metadata
+    }
+}
+
+/// A single URL item carrying the selected card as its rich-link preview.
+/// The PNG is metadata, not a second attachment in the outgoing message.
+final class WorkoutShareLinkItem: NSObject, UIActivityItemSource {
+    let url: URL
+    let imageFileURL: URL
+    private let title: String
+
+    init(url: URL, title: String, imageFileURL: URL) {
+        self.url = url
+        self.title = title
+        self.imageFileURL = imageFileURL
+        super.init()
+    }
+
+    func activityViewControllerPlaceholderItem(_ activityViewController: UIActivityViewController) -> Any { url }
+
+    func activityViewController(_ activityViewController: UIActivityViewController,
+                                itemForActivityType activityType: UIActivity.ActivityType?) -> Any? { url }
+
+    func activityViewController(_ activityViewController: UIActivityViewController,
+                                dataTypeIdentifierForActivityType activityType: UIActivity.ActivityType?) -> String { UTType.url.identifier }
+
+    func activityViewController(_ activityViewController: UIActivityViewController,
+                                subjectForActivityType activityType: UIActivity.ActivityType?) -> String { title }
+
+    func activityViewControllerLinkMetadata(_ activityViewController: UIActivityViewController) -> LPLinkMetadata? {
+        let metadata = LPLinkMetadata()
+        metadata.originalURL = url
+        metadata.url = url
+        metadata.title = title
+        metadata.imageProvider = NSItemProvider(contentsOf: imageFileURL)
+        if let icon = ShareSheet.appIconImage() { metadata.iconProvider = NSItemProvider(object: icon) }
         return metadata
     }
 }

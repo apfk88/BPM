@@ -245,6 +245,11 @@ final class TimerViewModel: ObservableObject {
     private var pauses: [WorkoutPause] = []
     private(set) var sharingWorkoutID = UUID().uuidString
     private(set) var sharingControlGeneration: UInt64 = 0
+
+    func invalidateSharedWorkoutControls() {
+        sharingControlGeneration &+= 1
+    }
+
     private var workoutStartedAt: Date? {
         didSet {
             if workoutStartedAt != oldValue { sharingWorkoutID = UUID().uuidString }
@@ -262,6 +267,7 @@ final class TimerViewModel: ObservableObject {
     private var cooldownStartTime: Date?
     private var cooldownPauseStartTime: Date?
     private var setCounter = 0
+    private var manualSetChanges: [ManualSetChange] = []
     private var restSetCounter = 0
     private var lastSetEndTime: TimeInterval = 0
     private var currentRestAssociatedWorkSetNumber: Int?
@@ -282,6 +288,17 @@ final class TimerViewModel: ObservableObject {
     var currentSessionMeasurements: (() -> (id: UUID, samples: [HeartRateSample]))?
     private var recoveryNotBefore = Date.distantPast
     private var recordedMeasurementIDs = Set<UUID>()
+
+    var currentWorkoutInterval: DateInterval? {
+        guard let start = workoutStartedAt else { return nil }
+        let end = workoutEndedAt ?? nowProvider()
+        guard end >= start else { return nil }
+        return DateInterval(start: start, end: end)
+    }
+
+    func didRecoverWorkout(through end: Date) {
+        recoveryNotBefore = max(recoveryNotBefore, end)
+    }
 
     var recoverableSessionID: UUID? {
         guard state == .idle, workoutEndedAt == nil, !isCompleted, activePreset == nil,
@@ -332,17 +349,8 @@ final class TimerViewModel: ObservableObject {
         state = snapshot.state
         elapsedTime = snapshot.elapsedTime
         currentSetTime = snapshot.currentSetTime
-        sets = snapshot.sets.map {
-            SetRecord(
-                setNumber: $0.setNumber,
-                setTime: $0.setTime,
-                heartRate: $0.heartRate,
-                totalTime: $0.totalTime,
-                isRestSet: $0.isRestSet,
-                isCooldownSet: $0.isCooldownSet,
-                associatedWorkSetNumber: $0.associatedWorkSetNumber
-            )
-        }
+        sets = snapshot.sets.map(\.record)
+        manualSetChanges = snapshot.manualSetChanges ?? []
         cooldownTime = snapshot.cooldownTime
         frozenElapsedTime = snapshot.frozenElapsedTime
         isTimingRestSet = snapshot.isTimingRestSet
@@ -523,17 +531,7 @@ final class TimerViewModel: ObservableObject {
             state: state,
             elapsedTime: elapsedTime,
             currentSetTime: currentSetTime,
-            sets: sets.map {
-                PersistedSetRecord(
-                    setNumber: $0.setNumber,
-                    setTime: $0.setTime,
-                    heartRate: $0.heartRate,
-                    totalTime: $0.totalTime,
-                    isRestSet: $0.isRestSet,
-                    isCooldownSet: $0.isCooldownSet,
-                    associatedWorkSetNumber: $0.associatedWorkSetNumber
-                )
-            },
+            sets: sets.map(PersistedSetRecord.init),
             cooldownTime: cooldownTime,
             frozenElapsedTime: frozenElapsedTime,
             isTimingRestSet: isTimingRestSet,
@@ -567,7 +565,8 @@ final class TimerViewModel: ObservableObject {
             pauses: pauses,
             workoutStartedAt: workoutStartedAt,
             workoutEndedAt: workoutEndedAt,
-            endRecovery: endRecovery
+            endRecovery: endRecovery,
+            manualSetChanges: manualSetChanges
         )
 
         sessionStore.save(snapshot)
@@ -767,8 +766,35 @@ final class TimerViewModel: ObservableObject {
         persistCurrentSession()
     }
     
-    func captureSet() {
+    var undoableSetChange: ManualSetChange? {
+        guard !isPresetMode, state == .running || state == .paused else { return nil }
+        return manualSetChanges.last
+    }
+
+    private func rememberSetChange() {
+        let activeRestRow = isTimingRestSet ? sets.last.map(PersistedSetRecord.init) : nil
+        manualSetChanges.append(ManualSetChange(
+            id: UUID(), completedRowCount: sets.count - (activeRestRow == nil ? 0 : 1),
+            activeRestRow: activeRestRow, setCounter: setCounter, lastSetEndTime: lastSetEndTime
+        ))
+    }
+
+    func undoSetChange(id: UUID) {
+        guard let change = undoableSetChange, change.id == id,
+              (0...sets.count).contains(change.completedRowCount) else { return }
+        manualSetChanges.removeLast()
+        let restRow = change.activeRestRow?.record
+        sets.replaceSubrange(change.completedRowCount..., with: restRow.map { [$0] } ?? [])
+        setCounter = change.setCounter
+        lastSetEndTime = change.lastSetEndTime
+        isTimingRestSet = restRow != nil
+        currentRestAssociatedWorkSetNumber = restRow?.associatedWorkSetNumber
+        persistCurrentSession()
+    }
+
+    func captureSet(allowUndo: Bool = true) {
         guard (state == .running || state == .paused), let startTime = startTime else { return }
+        if allowUndo { rememberSetChange() }
         
         let currentTotalTime = state == .paused ? elapsedTime : nowProvider().timeIntervalSince(startTime)
         let segmentTime = max(0, currentTotalTime - lastSetEndTime)
@@ -814,6 +840,7 @@ final class TimerViewModel: ObservableObject {
     
     func captureRestSet() {
         guard (state == .running || state == .paused), !isTimingRestSet, let startTime = startTime else { return }
+        rememberSetChange()
         
         let currentTotalTime = state == .paused ? elapsedTime : nowProvider().timeIntervalSince(startTime)
         let segmentTime = max(0, currentTotalTime - lastSetEndTime)
@@ -925,11 +952,7 @@ final class TimerViewModel: ObservableObject {
         let stoppedAt = pauseStartTime ?? cooldownPauseStartTime ?? nowProvider()
         endRecovery = WorkoutEndRecovery(
             state: state, stoppedAt: stoppedAt,
-            sets: sets.map {
-                PersistedSetRecord(setNumber: $0.setNumber, setTime: $0.setTime, heartRate: $0.heartRate,
-                                   totalTime: $0.totalTime, isRestSet: $0.isRestSet, isCooldownSet: $0.isCooldownSet,
-                                   associatedWorkSetNumber: $0.associatedWorkSetNumber)
-            },
+            sets: sets.map(PersistedSetRecord.init),
             currentSetTime: currentSetTime, frozenElapsedTime: frozenElapsedTime,
             isTimingRestSet: isTimingRestSet, setCounter: setCounter, restSetCounter: restSetCounter,
             lastSetEndTime: lastSetEndTime, currentRestAssociatedWorkSetNumber: currentRestAssociatedWorkSetNumber,
@@ -940,7 +963,7 @@ final class TimerViewModel: ObservableObject {
         } else if isPresetMode {
             stopPresetAndComplete()
         } else {
-            captureSet()
+            captureSet(allowUndo: false)
             stopAndComplete()
         }
     }
@@ -954,11 +977,7 @@ final class TimerViewModel: ObservableObject {
         if gap > 0 { pauses.append(WorkoutPause(start: pauseBegan, end: now)) }
 
         if let recovery = endRecovery {
-            sets = recovery.sets.map {
-                SetRecord(setNumber: $0.setNumber, setTime: $0.setTime, heartRate: $0.heartRate,
-                          totalTime: $0.totalTime, isRestSet: $0.isRestSet, isCooldownSet: $0.isCooldownSet,
-                          associatedWorkSetNumber: $0.associatedWorkSetNumber)
-            }
+            sets = recovery.sets.map(\.record)
             currentSetTime = recovery.currentSetTime
             frozenElapsedTime = recovery.frozenElapsedTime
             isTimingRestSet = recovery.isTimingRestSet
@@ -982,6 +1001,7 @@ final class TimerViewModel: ObservableObject {
             }
         } else {
             // A naturally completed preset or an older restored session can continue as a new work set.
+            manualSetChanges.removeAll()
             let total = frozenElapsedTime + cooldownTime
             startTime = now.addingTimeInterval(-total)
             elapsedTime = total
@@ -1024,6 +1044,7 @@ final class TimerViewModel: ObservableObject {
     func reset() {
         // Explicit reset/clear is a new workout boundary, even on the same sensor connection.
         recoveryNotBefore = nowProvider()
+        manualSetChanges.removeAll()
         recordedMeasurementIDs.removeAll()
         stopTimer()
         stopCooldownTimer()
@@ -1264,6 +1285,12 @@ final class TimerViewModel: ObservableObject {
         AlertSoundPlayer.shared.suspendForRecording()
     }
 
+    func playViewerSetBell(_ cue: TimerSoundCue) {
+        let enabled = UserDefaults.standard.object(forKey: SharedWorkoutPresentation.viewerSetBellsKey) as? Bool ?? true
+        guard enabled, !WorkoutRecordingAudio.shared.isRecording else { return }
+        soundCueHandler(cue)
+    }
+
     private func requestPresetSound(_ cue: TimerSoundCue, at boundary: Date) {
         guard activePreset?.playSound == true else { return }
         if isRefreshingTiming {
@@ -1395,7 +1422,11 @@ final class TimerViewModel: ObservableObject {
         timer = nil
     }
 
+    private var passiveCaptureStateObservation: AnyCancellable?
+
     func observeHeartRate(from manager: HeartRateBluetoothManager) {
+        passiveCaptureStateObservation = $state.map { $0 == .idle }.removeDuplicates()
+            .sink { [weak manager] enabled in manager?.setPassiveCaptureEnabled(enabled) }
         currentSessionMeasurements = { [weak manager] in
             guard let manager else { return (UUID(), []) }
             return (manager.heartRateSessionID, manager.heartRateSamples.filter {
@@ -1897,7 +1928,9 @@ final class TimerViewModel: ObservableObject {
             createdAt: nowProvider(),
             updatedAt: nowProvider(),
             pauses: pauses,
-            zoneConfig: zoneConfig
+            zoneConfig: zoneConfig,
+            sampleFidelity: .full,
+            originalSampleCount: sampleSummaries.count
         )
     }
 

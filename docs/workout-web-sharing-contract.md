@@ -1,0 +1,51 @@
+# Private workout page API, version 1
+
+Implementation contract. Durations and elapsed/active offsets in workout payloads are fractional seconds. The authoritative public data type is `backend/lib/workout-page-schema.ts`. Optional fields may be omitted or null. Successful viewer reads return the raw `WorkoutPageExport`. Errors use `{error: string, message: string, code: string}`.
+
+New exports include `workoutDate`, a validated Gregorian calendar day in `YYYY-MM-DD` form, captured in the device's local timezone at initial export. It has no implied midnight, UTC offset, or exact workout time and remains unchanged across resharing, recovery, and page-detail edits. Older exports may omit it. `recordedAt` remains an optional ISO8601 timestamp for compatibility; the current share flow omits it. Sample timing remains relative either way.
+
+Credentials: independent random 32-byte ownerKey and viewKey, encoded base64url without padding (43 characters). OwnerKey manages all pages for an installation/recovered owner. Client generates a lower-case UUID pageID and persists it with credentials before upload. ViewKeyRecovery is a base64url AES-GCM combined encrypted envelope, maximum 2048 characters. Encryption/recovery keys never reach the backend.
+
+All routes below have `/api/workout-pages` prefix. All responses are private/no-store. Owner routes use `Authorization: Bearer <ownerKey>`; the viewer GET uses `Authorization: Bearer <viewKey>`.
+
+| Route | Body/result |
+| --- | --- |
+| POST `/` | Owner + App Attest. `{pageID, viewKey, viewKeyRecovery, workout, staged?:boolean}`. With `staged:true`, uploads an inaccessible draft and returns staged metadata. Omitted/false retains direct publication. Identical retries reuse the page or draft. Changed content can replace an unpublished draft; it conflicts with an already-published creation. |
+| GET `/` | Owner. Optional `?cursor=<opaque>`. Returns published pages as `{pages: WorkoutPageMetadata[], nextCursor: string|null}`, maximum 100 records. Unactivated drafts are excluded. |
+| GET `/<pageID>` | Viewer. Returns raw workout export. Invalid, revoked and missing page return indistinguishable 404. |
+| GET `/<linkCode>` | Same viewer authorization. Resolves the short alias, then requires the full 256-bit view key. The alias alone cannot read workout JSON. |
+| GET `/<linkCode>/preview` | Short image-only capability. Same PNG, revocation checks and per-page rate limit as the legacy preview endpoint. |
+| GET `/<pageID>/preview?p=<previewToken>` | Image-only capability. Returns a 1080 × 1350 `image/png` workout card. Missing, malformed, wrong-page, revoked, deleted and unpublished capabilities return 404. It never returns workout JSON. |
+| PUT `/<pageID>` | Owner + App Attest. `{expectedVersion, workout, staged?:boolean}`. With `staged:true`, prepares a replacement while the current page stays unchanged. Omitted/false applies the update directly. Compare-and-swap prevents lost edits. |
+| POST `/<pageID>/activate` | Owner. `{stageID}`. Activates a previously attested draft and returns published metadata. Repeating the same activation is idempotent until a later mutation. Expired/missing drafts fail with `STAGE_EXPIRED`; replaced drafts fail with `STAGE_CONFLICT`; deleted pages fail with `PAGE_DELETED`. |
+| POST `/<pageID>/rotate` | Owner. `{expectedVersion, viewKey, viewKeyRecovery}`. Returns metadata, increments version. |
+| DELETE `/<pageID>` | Owner. Empty body. Returns `{success:true}`. Revokes first, retries object cleanup. Repeating an authorized deletion succeeds. If creation has not published yet, acknowledges an owner-scoped cancellation that prevents in-flight creation from later publishing. |
+
+Metadata: `{pageID, version, createdAt, updatedAt, viewKeyRecovery, linkCode?:string}`. Metadata timestamps are ISO8601 UTC. New shared URLs are `/w/<linkCode>#<viewKey>`: 91 characters including `https://bpmtracker.app`, down from 151. Legacy `/w/<pageID>?p=<previewToken>#<viewKey>` and fragment-only UUID links remain supported. The server never constructs or logs the fragment-bearing full URL.
+
+The 22-character link code is base64url of the first 16 bytes of `HMAC-SHA256(key: SHA256(UTF8(viewKey)) raw 32 bytes, message: UTF8("BPM-Workout-Link|" + pageID))`. It carries 128 bits of image-only authority; the independent 256-bit full-workout and owner keys are unchanged. For the vector below its value is `eReZrdBGAlQEUvbRHgNVQg`. Redis indexes only its hash to the page ID. Every lookup rechecks the current active record and derived code, so stale aliases fail after rotation or deletion. Missing or conflicting indexes cannot reveal another page. Registration never overwrites a collision, and metadata omits `linkCode` if registration fails.
+
+Published create, update, activation, rotation and owner-list responses register aliases. Owner refresh upgrades existing pages without changing their page ID, key, content or version. Unpublished staging does not advertise an alias. Clients use short links only when a valid code is advertised, falling back to the legacy URL against older servers. The app persists only an alias-registration boolean and derives the code from its encrypted credentials. Deploy backend support before the app when possible; subsequent backend rollbacks must retain short-route support for already-shared links.
+
+The preview token is base64url without padding of `HMAC-SHA256(key: SHA256(UTF8(viewKey)) raw 32 bytes, message: UTF8("BPM-Workout-Preview|" + pageID))`. The server derives it from its existing hex view-key hash, so previously published pages need no migration or image upload. The token is specific to a page and its current view key. It cannot authorize full-workout reads or owner actions. Rotating the view key invalidates the old token; deletion revokes it. Cross-platform test vector: page ID `11111111-1111-4111-8111-111111111111`, view key 43 `A` characters, preview token `U1TUNiJYjihwjgiN76XDJIBul9E8PhR7xHQSljF-jZ4`.
+
+The HTML shell emits an absolute Open Graph image URL when the caller supplies either a syntactically valid short code or a UUID and 43-character `p`; it neither fetches private workout data nor invents a preview credential. The API resolves short codes, performs authorization, rechecks current authorization after storage access and after rendering, and returns only PNG bytes. All success/error responses carry private/no-store, noindex, no-referrer and nosniff headers.
+
+Fetched previews show the full-workout chart, date, title, duration, average and maximum BPM. Drawing is capped at 1,000 points and does not connect across signal gaps. Unsupported title glyphs are omitted and accented Latin is transliterated to prevent the image renderer from sending private title text to a remote font or emoji provider. A title with no supported characters uses “Workout.” The native share sheet supplies the exact selected card image locally. Receiving apps may retain fetched previews after the source link is revoked.
+
+Staged metadata adds `{staged:true, stageID, stageExpiresAt}`; its version is the target published version. Unchanged content already active returns ordinary metadata without a stage ID. Drafts expire 24 hours after staging and are inaccessible to viewers even with the view key. The app persists the pending snapshot and stage ID before activation so interrupted uploads can be retried without the original workout. Expired drafts can be staged again; cleanup removes abandoned objects. Deletion cancels staged and in-flight creation as well as revoking an active page.
+
+The iOS checkbox always shows “Anyone with the link can view and download your workout until you delete it.” Enabling it starts staging without changing the option's height or opening a Review page. Final Share waits for staging, then activates. Unchecking or closing does not activate. Existing explicit page-detail updates, link replacement, deletion, and pending-upload retry remain available in Shared Pages.
+
+Requests accept JSON up to 4 MiB or gzip JSON up to 2 MiB compressed / 16 MiB decoded. Stored canonical workout gzip is limited to 2 MiB. Compression signs the actual transmitted bytes, not decoded JSON. Headers/body limits are checked before parsing; excessive payloads fail with 413.
+
+## App Attest
+
+Creation and content replacement, including staged uploads, require an attested installation. Activation only publishes an already-attested draft using owner credentials. Management listing, link rotation, and deletion remain available using owner credentials without device attestation, including after recovery. There is no production bypass. Unsupported/unavailable App Attest falls back to Retry or Share without link.
+
+1. POST `/challenge`, owner authorization, JSON `{purpose:"register"|"request",keyID?:string}`. Returns `{challengeID,challenge,expiresAt}`. Each challenge expires after five minutes and is usable once. Request challenges must specify registered keyID.
+2. Registration: form UTF8 string `BPM-Workout-Pages|register|<challenge>|<SHA256(ownerKey)>`. SHA256 here and below is lower-case hex of UTF8 string bytes, except bodyHash hashes raw transmitted bytes. Supply SHA256(message) to `attestKey`. POST `/attestation`, owner authorization, JSON `{challengeID,keyID,attestation}` with standard-base64 Apple attestation bytes. Returns `{success:true}`.
+3. For create/update, obtain purpose=request challenge. Form UTF8 string `BPM-Workout-Pages|request|<challenge>|<METHOD>|<pathname>|<SHA256(rawBody)>|<SHA256(ownerKey)>`. Pathname excludes query and uses `/api/workout-pages` exactly (no trailing slash) for create. Supply SHA256(message) to `generateAssertion`.
+4. Send `X-BPM-Attest-Key-ID`, `X-BPM-Attest-Challenge-ID`, `X-BPM-Attest-Assertion` (standard base64) alongside owner Authorization and transmitted body. Challenges and monotonic counters are consumed atomically after cryptographic verification. Serialize signed requests per device key.
+
+Team/app identity comes from server configuration, never from client input. Development attestations are accepted only by an explicitly configured non-production environment. Unit-test dependency injection cannot be enabled by an HTTP header or production environment variable.

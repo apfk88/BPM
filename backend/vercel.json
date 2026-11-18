@@ -1,5 +1,11 @@
 {
   "framework": "nextjs",
+  "crons": [
+    {
+      "path": "/api/workout-pages/cleanup",
+      "schedule": "17 */6 * * *"
+    }
+  ],
   "headers": [
     {
       "source": "/.well-known/apple-app-site-association",

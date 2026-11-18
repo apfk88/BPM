@@ -10,6 +10,88 @@ final class LiveHeartRateSharingUITests: XCTestCase {
     private let genericConnectionMessage = "No device connected. Tap Device to connect."
 
     @MainActor
+    func testHostCanBlockAndRestoreViewerSetLoggingDuringAWorkout() throws {
+        continueAfterFailure = false
+        XCUIDevice.shared.orientation = .portrait
+        let server = try LoopbackSharingServer()
+        let app = launchHome(additionalArguments: ["-BPM_API_BASE_URL", try server.start().absoluteString])
+        defer { app.terminate(); server.stop() }
+        openDeviceMenu(in: app)
+        connectSimulator(in: app)
+        app.buttons["Workout"].tap()
+        app.buttons["Start"].tap()
+        if app.alerts["Start Workout"].waitForExistence(timeout: 1) {
+            app.alerts["Start Workout"].buttons["Start from now"].tap()
+        }
+        openDeviceMenu(in: app)
+        app.buttons[startSharingIdentifier].tap()
+        XCTAssertTrue(app.buttons[stopSharingIdentifier].waitForExistence(timeout: 5))
+        closeDeviceMenu(in: app)
+        app.buttons["settingsButton"].tap()
+        let toggle = app.switches["Allow Viewer Set Logging"].firstMatch
+        for _ in 0..<5 where !toggle.isHittable { app.swipeUp() }
+        XCTAssertTrue(toggle.isHittable)
+        let switchPosition = toggle.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5))
+        let wasAllowed = toggle.value as? String == "1"
+        if !wasAllowed { switchPosition.tap() }
+        func publishedRevision(allowSets: Bool) throws -> String {
+            let expected = expectation(for: NSPredicate { _, _ in
+                let snapshot = server.workoutSnapshot
+                guard snapshot?["state"] as? String == "running",
+                      let actions = snapshot?["allowedActions"] as? [String] else { return false }
+                return actions.contains("work") == allowSets && actions.contains("rest") == allowSets
+                    && snapshot?["canWork"] as? Bool == allowSets && snapshot?["canRest"] as? Bool == allowSets
+            }, evaluatedWith: nil)
+            wait(for: [expected], timeout: 8)
+            return try XCTUnwrap(server.workoutSnapshot?["controlRevision"] as? String)
+        }
+        let initial = try publishedRevision(allowSets: true)
+        switchPosition.tap()
+        let blocked = try publishedRevision(allowSets: false)
+        XCTAssertEqual(toggle.value as? String, "0")
+        switchPosition.tap()
+        let restored = try publishedRevision(allowSets: true)
+        XCTAssertEqual(toggle.value as? String, "1")
+        XCTAssertEqual(Set([initial, blocked, restored]).count, 3)
+        if !wasAllowed { switchPosition.tap() }
+        app.navigationBars["Settings"].buttons["Done"].tap()
+        openDeviceMenu(in: app)
+        app.buttons[stopSharingIdentifier].tap()
+        closeDeviceMenu(in: app)
+        clearWorkout(in: app)
+    }
+
+    @MainActor
+    func testHostConnectionBadgeAppearsAfterViewerJoinsAndClearsOnStop() throws {
+        continueAfterFailure = false
+        XCUIDevice.shared.orientation = .portrait
+        let server = try LoopbackSharingServer(reportsViewerStatus: true)
+        let app = launchHome(additionalArguments: ["-BPM_API_BASE_URL", try server.start().absoluteString])
+        defer { app.terminate(); server.stop() }
+        openDeviceMenu(in: app)
+        connectSimulator(in: app)
+        openDeviceMenu(in: app)
+        app.buttons[startSharingIdentifier].tap()
+        XCTAssertTrue(app.buttons[stopSharingIdentifier].waitForExistence(timeout: 5))
+        closeDeviceMenu(in: app)
+        let device = app.buttons[deviceIdentifier]
+        XCTAssertEqual(device.value as? String, "Monitor connected")
+        server.connectViewer()
+        let connected = NSPredicate(format: "value == %@", "Sharing BPM, viewer connected")
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: connected, object: device)], timeout: 10), .completed)
+        captureScreenshot("Host heart with connected viewer badge")
+        app.buttons["Workout"].tap()
+        XCTAssertEqual(device.value as? String, "Sharing BPM, viewer connected")
+        captureScreenshot("Workout heart with connected viewer badge")
+        openDeviceMenu(in: app)
+        app.buttons[stopSharingIdentifier].tap()
+        XCTAssertTrue(app.buttons[startSharingIdentifier].waitForExistence(timeout: 5))
+        closeDeviceMenu(in: app)
+        XCTAssertEqual(device.value as? String, "Monitor connected")
+        XCTAssertEqual(server.requestCount(method: "GET", path: "/api/share/123456"), 0)
+    }
+
+    @MainActor
     func testManualFriendConnectionClosesPickerAndStartsOnFirstWorkoutPage() throws {
         continueAfterFailure = false
         XCUIDevice.shared.orientation = .portrait
@@ -476,6 +558,50 @@ final class LiveHeartRateSharingUITests: XCTestCase {
     }
 
     @MainActor
+    func testNoViewerTimeoutShowsAutomaticAlertWithoutStoppingWorkout() throws {
+        try verifyAutomaticSharingAlert(reason: "SESSION_NO_VIEWER",
+            message: "Sharing stopped automatically because no one connected within 5 minutes. Start a new session to keep sharing.")
+    }
+
+    @MainActor
+    func testNinetyMinuteTimeoutShowsAutomaticAlertWithoutStoppingWorkout() throws {
+        try verifyAutomaticSharingAlert(reason: "SESSION_EXPIRED",
+            message: "Sharing stopped automatically after 90 minutes. Start a new session to keep sharing.")
+    }
+
+    @MainActor
+    private func verifyAutomaticSharingAlert(reason: String, message: String) throws {
+        continueAfterFailure = false
+        XCUIDevice.shared.orientation = .portrait
+        let server = try LoopbackSharingServer(expirationReason: reason, expirationMessage: message)
+        let app = launchHome(additionalArguments: ["-BPM_API_BASE_URL", try server.start().absoluteString])
+        defer { clearWorkout(in: app); app.terminate(); server.stop() }
+        openDeviceMenu(in: app)
+        connectSimulator(in: app)
+        app.buttons["Workout"].tap()
+        app.buttons["Start"].tap()
+        if app.alerts["Start Workout"].waitForExistence(timeout: 1) {
+            app.alerts["Start Workout"].buttons["Start from now"].tap()
+        }
+        XCTAssertTrue(app.buttons["Pause"].waitForExistence(timeout: 5))
+        openDeviceMenu(in: app)
+        app.buttons[startSharingIdentifier].tap()
+        let alert = app.alerts["Sharing Stopped"]
+        XCTAssertTrue(alert.waitForExistence(timeout: 10))
+        XCTAssertTrue(alert.staticTexts[message].exists)
+        captureScreenshot(reason == "SESSION_NO_VIEWER" ? "No viewer automatic cutoff" : "Ninety minute automatic cutoff")
+        alert.buttons["OK"].tap()
+        XCTAssertTrue(app.buttons["Pause"].waitForExistence(timeout: 5), "The local workout must keep running")
+        XCTAssertFalse(app.alerts["Sharing Stopped"].exists)
+        XCTAssertEqual(server.requestCount(method: "GET", path: "/api/share"), 1)
+        XCTAssertEqual(server.requestCount(method: "GET", path: "/api/share/123456"), 0)
+        openDeviceMenu(in: app)
+        XCTAssertTrue(app.buttons[startSharingIdentifier].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons[stopSharingIdentifier].exists)
+        closeDeviceMenu(in: app)
+    }
+
+    @MainActor
     private func launchHome(additionalArguments: [String] = []) -> XCUIApplication {
         let app = XCUIApplication()
         // Prevent a previously saved friend code from starting network polling.
@@ -608,13 +734,33 @@ private final class LoopbackSharingServer: @unchecked Sendable {
     private var stopped = false
     private let acceptsFriend: Bool
     private let friendWorkoutPage: String?
+    private let expirationReason: String?
+    private let expirationMessage: String?
+    private let reportsViewerStatus: Bool
+    private var viewerConnected = false
+    private var lastWorkoutSnapshot: [String: Any]?
 
-    init(acceptsFriend: Bool = false, friendWorkoutPage: String? = nil) throws {
+    var workoutSnapshot: [String: Any]? {
+        queue.sync { lastWorkoutSnapshot }
+    }
+
+    init(acceptsFriend: Bool = false, friendWorkoutPage: String? = nil,
+         expirationReason: String? = nil, expirationMessage: String? = nil,
+         reportsViewerStatus: Bool = false) throws {
         self.acceptsFriend = acceptsFriend
         self.friendWorkoutPage = friendWorkoutPage
+        self.expirationReason = expirationReason
+        self.expirationMessage = expirationMessage
+        self.reportsViewerStatus = reportsViewerStatus
         let parameters = NWParameters.tcp
         parameters.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: .any)
         listener = try NWListener(using: parameters)
+    }
+
+    func connectViewer() {
+        stateLock.lock()
+        viewerConnected = true
+        stateLock.unlock()
     }
 
     func start() throws -> URL {
@@ -683,7 +829,7 @@ private final class LoopbackSharingServer: @unchecked Sendable {
                 let contentLength = lines.first { $0.lowercased().hasPrefix("content-length:") }
                     .flatMap { Int($0.split(separator: ":", maxSplits: 1)[1].trimmingCharacters(in: .whitespaces)) } ?? 0
                 if request.count >= headerEnd.upperBound + contentLength {
-                    self.respond(to: lines.first ?? "", on: connection)
+                    self.respond(to: lines.first ?? "", body: request.suffix(contentLength), on: connection)
                     return
                 }
             }
@@ -695,11 +841,12 @@ private final class LoopbackSharingServer: @unchecked Sendable {
         }
     }
 
-    private func respond(to requestLine: String, on connection: NWConnection) {
+    private func respond(to requestLine: String, body requestBody: Data, on connection: NWConnection) {
         let parts = requestLine.split(separator: " ")
         let key = parts.prefix(2).joined(separator: " ")
         stateLock.lock()
         requests[key, default: 0] += 1
+        let hasViewer = viewerConnected
         stateLock.unlock()
         let body: String
         let status: String
@@ -729,11 +876,33 @@ private final class LoopbackSharingServer: @unchecked Sendable {
             body = String(decoding: data, as: UTF8.self)
         case "POST /api/share":
             status = "200 OK"
-            body = "{\"code\":\"123456\",\"token\":\"ui-test-token\"}"
+            if reportsViewerStatus {
+                let now = Int64(Date().timeIntervalSince1970 * 1000)
+                body = "{\"code\":\"123456\",\"token\":\"ui-test-token\",\"serverTime\":\(now),\"expiresAt\":\(now + 5_400_000),\"viewerDeadline\":\(now + 300_000),\"hasConnectedViewer\":false}"
+            } else if let expirationReason {
+                let now = Int64(Date().timeIntervalSince1970 * 1000)
+                let joined = expirationReason == "SESSION_EXPIRED"
+                let response: [String: Any] = ["code": "123456", "token": "ui-test-token", "serverTime": now,
+                    "expiresAt": now + (joined ? 1000 : 5_400_000), "viewerDeadline": now + 1000,
+                    "hasConnectedViewer": joined]
+                body = String(decoding: try! JSONSerialization.data(withJSONObject: response), as: UTF8.self)
+            } else {
+                body = "{\"code\":\"123456\",\"token\":\"ui-test-token\"}"
+            }
+        case "GET /api/share" where expirationReason != nil:
+            status = "404 Not Found"
+            body = String(decoding: try! JSONSerialization.data(withJSONObject:
+                ["code": expirationReason!, "message": expirationMessage!]), as: UTF8.self)
+        case "GET /api/share" where reportsViewerStatus:
+            status = "200 OK"
+            let now = Int64(Date().timeIntervalSince1970 * 1000)
+            body = "{\"serverTime\":\(now),\"expiresAt\":\(now + 5_400_000),\"viewerDeadline\":\(now + 300_000),\"hasConnectedViewer\":\(hasViewer)}"
         case "POST /api/share/beat", "DELETE /api/share":
             status = "200 OK"
             body = "{\"ok\":true}"
         case "POST /api/share/workout":
+            let request = try? JSONSerialization.jsonObject(with: requestBody) as? [String: Any]
+            lastWorkoutSnapshot = request?["snapshot"] as? [String: Any]
             status = "200 OK"
             body = "{\"commands\":[],\"serverTime\":\(Int64(Date().timeIntervalSince1970 * 1000))}"
         default:

@@ -7,10 +7,14 @@
 import Foundation
 import SwiftUI
 struct SettingsView: View {
+    var currentWorkoutInterval: () -> DateInterval? = { nil }
+    var onRecoverWorkout: (WorkoutRecord) -> Void = { _ in }
     private let feedbackEmail = "bpm-support@proton.me"
     @Environment(\.dismiss) private var dismiss
     @CalorieProfileStorage private var calorieProfile
     @ObservedObject private var maxHRSuggestion = MaxHeartRateSuggestionStore.shared
+    @AppStorage(SharedWorkoutPresentation.blockViewerSetLoggingKey) private var blockViewerSetLogging = false
+    @AppStorage(SharedWorkoutPresentation.viewerSetBellsKey) private var viewerSetBellsEnabled = true
     @AppStorage(WorkoutVoiceConsent.defaultsKey) private var hasVoiceConsent = false
     @AppStorage(HeartRateAlertDefaultsKey.heartRateEnabled) private var isHeartRateAlertEnabled = false
     @AppStorage(HeartRateAlertDefaultsKey.heartRateThreshold) private var heartRateAlertThreshold = 160
@@ -130,6 +134,15 @@ struct SettingsView: View {
                             .foregroundColor(.secondary)
                     }
                 }
+                Section(header: Text("Live Sharing"), footer: Text("Viewer Set Bells play on this device when a viewer logs a work or rest set.")) {
+                    Toggle("Allow Viewer Set Logging", isOn: Binding(
+                        get: { !blockViewerSetLogging },
+                        set: { blockViewerSetLogging = !$0 }
+                    ))
+                    .accessibilityHint("Lets viewers log work and rest sets during your shared workout.")
+                    Toggle("Viewer Set Bells", isOn: $viewerSetBellsEnabled)
+                }
+
                 Section(header: Text("History")) {
                     NavigationLink {
                         WorkoutHistoryView(store: workoutStore)
@@ -137,10 +150,23 @@ struct SettingsView: View {
                         Text("Workout History")
                     }
                     NavigationLink {
+                        RecoverWorkoutView(store: workoutStore, currentWorkoutInterval: currentWorkoutInterval,
+                                           onSave: onRecoverWorkout)
+                    } label: {
+                        Text("Recover a Workout")
+                    }
+                    .accessibilityIdentifier("recoverWorkoutLink")
+                    NavigationLink {
                         HRVHistoryView(store: hrvStore)
                     } label: {
                         Text("HRV History")
                     }
+                    NavigationLink {
+                        WorkoutSharedPagesView()
+                    } label: {
+                        Text("Shared Pages")
+                    }
+                    .accessibilityIdentifier("sharedWorkoutPages")
                 }
                 Section {
                     NavigationLink {

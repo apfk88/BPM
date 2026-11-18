@@ -96,3 +96,9 @@ iOSInjectionProject/
 # App-specific
 *.xcuserstate
 
+.vercel
+.env*
+
+# Local agent records and diagnostics
+/.codex-task-records/
+/error.log

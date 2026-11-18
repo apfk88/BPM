@@ -89,7 +89,7 @@ enum MeasurementDateCoding {
         return object
     }
 
-    private static func date(from timestamp: String) -> Date? {
+    static func date(from timestamp: String) -> Date? {
         var whole = timestamp
         var fraction: TimeInterval = 0
         if let dot = timestamp.firstIndex(of: ".") {

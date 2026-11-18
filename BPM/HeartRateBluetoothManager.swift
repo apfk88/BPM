@@ -111,6 +111,9 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
     }
 
     private let measurementClock = MeasurementClock()
+    private let passiveArchive = PassiveHeartRateArchive.shared
+    private var passiveStreamID = UUID()
+    private var capturesPassiveReadings: Bool?
     private var centralManager: CBCentralManager!
     private let heartRateServiceUUID = CBUUID(string: "180D")
     private let heartRateMeasurementCharacteristicUUID = CBUUID(string: "2A37")
@@ -334,6 +337,7 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
     }
 
     func enterForeground() {
+        passiveArchive.pruneExpiredReadings()
         endBackgroundTask()
         updateLocalActivity()
 
@@ -430,10 +434,29 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
         sensorCompatibility?.updateIdentity(sensorAnalyticsIdentity)
     }
 
+    func setPassiveCaptureEnabled(_ enabled: Bool) {
+        guard capturesPassiveReadings != enabled else { return }
+        if capturesPassiveReadings == true, connectedDevice != nil {
+            passiveArchive.invalidateLastReading(at: measurementClock.now(), streamID: passiveStreamID)
+        }
+        passiveStreamID = UUID()
+        capturesPassiveReadings = enabled
+    }
+
+    private func canCapturePassiveReading() -> Bool {
+        if let capturesPassiveReadings { return capturesPassiveReadings }
+        // CoreBluetooth can restore a connection in the background before the
+        // root view attaches its timer. Consult persisted workout state once.
+        let enabled = (ActiveWorkoutSessionStore.shared.load()?.state ?? .idle) == .idle
+        capturesPassiveReadings = enabled
+        return enabled
+    }
+
     /// A reconnect always starts a new RR sequence. A different sensor also starts
     /// a new live-history session so its readings cannot inherit another person's data.
     func beginMeasurementStream(for deviceID: UUID) {
         invalidateLastHeartRateMeasurement()
+        passiveStreamID = UUID()
         if measurementDeviceIdentifier != deviceID {
             heartRateSessionID = UUID()
             heartRateSessionStartedAt = measurementClock.now()
@@ -698,6 +721,9 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
                 sensorContactStatus: sensorContactStatus
             )
             heartRateSamples.append(sample)
+            if connectedDevice?.state == .connected, !isSimulatorConnected, canCapturePassiveReading() {
+                passiveArchive.append(sample, streamID: passiveStreamID)
+            }
             currentHeartRate = value
             heartRateMeasurements.send(sample)
 
@@ -784,6 +810,9 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
         if let lastIndex = heartRateSamples.indices.last,
            heartRateSamples[lastIndex].invalidatedAt == nil {
             heartRateSamples[lastIndex].invalidatedAt = now
+            if capturesPassiveReadings == true, connectedDevice != nil, !isSimulatorConnected {
+                passiveArchive.invalidateLastReading(at: now, streamID: passiveStreamID)
+            }
         }
         // A restored workout can retain a sample before this manager receives its
         // first packet. Always notify it of known loss; consumers apply it idempotently.

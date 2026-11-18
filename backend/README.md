@@ -57,7 +57,7 @@ because production serves stylesheets with an immutable cache header.
 - `DELETE /api/share` - End a session and remove its workout, RR stream, pending controls, and replay records. Requires the host token.
 - `GET /join/[code]` - Render the invite landing page for a six-digit code.
 
-Control actions are `work`, `rest`, `start`, `startIncludingHistory`, `pause`, `resume`, `end`, `reset`, `cool`, `loadPreset`, and `clearPreset`. Save remains local to the broadcaster. The server checks the snapshot's advertised actions, workout identity, revision, and five-second freshness; the broadcaster validates again before applying the command. Older snapshots without `allowedActions` retain only manual Work/Rest control support.
+Workout control actions are `work`, `rest`, `start`, `startIncludingHistory`, `resume`, `reset`, `loadPreset`, and `clearPreset`. Only the broadcaster can pause, enter cooldown, end, clear an active workout, or save. The server enforces these permissions even with older broadcasters. It checks advertised actions, timer state, workout identity, revision, and five-second freshness. The broadcaster validates again before applying the command. Older snapshots without `allowedActions` support only manual Work/Rest controls.
 
 Optional `snapshot.hrv` carries the owner's HRV measurement state, readiness, countdown, result and BPM summary. It includes a UUID `revision`, `isPresented`, `state` (`idle`, `measuring`, `completed`, or `error`), `remainingTime` (0–120 seconds), optional `hrvValue` (0–5000 ms), optional `avgHeartRate`/`minHeartRate`/`maxHeartRate`/`currentBPM` (1–400 BPM), `readinessReason`, optional `errorMessage` (up to 512 characters), and `allowsRemoteControl`.
 

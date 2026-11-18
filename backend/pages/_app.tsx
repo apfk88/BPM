@@ -3,11 +3,12 @@ import { Analytics } from '@vercel/analytics/react'
 import { useRouter } from 'next/router'
 
 export default function App({ Component, pageProps }: AppProps) {
-  const isJoinLink = useRouter().pathname.startsWith('/join/');
+  const pathname = useRouter().pathname;
+  const isPrivateLink = pathname.startsWith('/join/') || pathname.startsWith('/w/');
   return (
     <>
       <Component {...pageProps} />
-      {!isJoinLink && <Analytics />}
+      {!isPrivateLink && <Analytics />}
     </>
   )
 }

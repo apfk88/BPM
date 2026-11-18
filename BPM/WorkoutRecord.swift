@@ -89,8 +89,12 @@ struct WorkoutSetSummary: Codable, Identifiable {
     }
 }
 
+enum WorkoutSampleFidelity: String, Codable, Equatable {
+    case full, reduced, unknown
+}
+
 struct WorkoutRecord: Codable, Identifiable {
-    static let schemaVersion = 3
+    static let schemaVersion = 4
 
     let id: UUID
     let schemaVersion: Int
@@ -118,6 +122,11 @@ struct WorkoutRecord: Codable, Identifiable {
     private(set) var updatedAt: Date
     var pauses: [WorkoutPause]? = nil
     var zoneConfig: HeartRateZoneConfig? = nil
+    // Missing provenance in older records must never be upgraded to original-resolution data.
+    var sampleFidelity: WorkoutSampleFidelity? = nil
+    var originalSampleCount: Int? = nil
+
+    var resolvedSampleFidelity: WorkoutSampleFidelity { sampleFidelity ?? .unknown }
 }
 
 extension WorkoutRecord {
@@ -214,7 +223,9 @@ extension WorkoutRecord {
             createdAt: createdAt,
             updatedAt: Date(),
             pauses: pauses,
-            zoneConfig: zoneConfig
+            zoneConfig: zoneConfig,
+            sampleFidelity: sampleFidelity,
+            originalSampleCount: originalSampleCount
         )
     }
 }

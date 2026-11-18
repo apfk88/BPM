@@ -1,0 +1,21 @@
+# Only the web backend belongs in Vercel deployments.
+BPM/
+BPMActivityExtension/
+BPMTests/
+BPMUITests/
+BPM.xcodeproj/
+Shared/
+build/
+docs/
+scripts/
+artifacts/
+.build/
+.env*
+backend/node_modules/
+backend/.next/
+backend/.test-build/
+backend/.vercel/
+backend/.env*
+backend/tests/
+backend/scripts/
+backend/*.tsbuildinfo

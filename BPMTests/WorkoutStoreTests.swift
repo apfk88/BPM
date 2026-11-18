@@ -423,11 +423,13 @@ struct WorkoutStoreTests {
         var expectedIDs = Set<UUID>()
 
         for index in 0..<workoutCount {
-            let record = sampleWorkout(
+            var record = sampleWorkout(
                 startOffset: TimeInterval(-(index + 1) * 1_200),
                 duration: 1_200,
                 hrSampleCount: sampleCount
             )
+            record.sampleFidelity = .full
+            record.originalSampleCount = sampleCount
             expectedIDs.insert(record.id)
             store.saveWorkout(record)
         }
@@ -469,6 +471,8 @@ struct WorkoutStoreTests {
         #expect(syncedRecords.count <= workoutCount)
         #expect(syncedRecords.allSatisfy { $0.hrSamples.count <= 1_200 })
         #expect(syncedRecords.allSatisfy { $0.zoneConfig?.maxHeartRate == 190 })
+        #expect(syncedRecords.allSatisfy { $0.sampleFidelity == .reduced && $0.originalSampleCount == sampleCount })
+        #expect(store.workouts.allSatisfy { $0.sampleFidelity == .full && $0.originalSampleCount == sampleCount })
     }
 
     private func sampleWorkout(

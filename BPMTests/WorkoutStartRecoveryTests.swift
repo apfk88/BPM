@@ -3,6 +3,23 @@ import Testing
 @testable import BPM
 
 struct WorkoutStartRecoveryTests {
+    @Test @MainActor func startingAfterRecoveryUsesOnlyReadingsAfterTheSavedWorkout() {
+        let now = Date()
+        let store = ActiveWorkoutSessionStore(fileURL: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString))
+        let model = TimerViewModel(sessionStore: store, nowProvider: { now })
+        defer { model.reset(); store.clear() }
+        let id = UUID()
+        let samples = [-100.0, -60, -15, 0].map {
+            HeartRateSample(value: 130, timestamp: now.addingTimeInterval($0), workoutTime: nil)
+        }
+        model.currentSessionMeasurements = { (id, samples) }
+        model.didRecoverWorkout(through: now.addingTimeInterval(-60))
+        #expect(model.currentWorkoutInterval == nil)
+        model.start(includingPreviousMeasurementsFrom: id)
+        #expect(store.load()?.heartRateSamples.count == 2)
+        #expect(model.currentWorkoutInterval == DateInterval(start: now.addingTimeInterval(-15), end: now))
+    }
+
     @Test @MainActor func includesOnlyValidCurrentSessionMeasurementsAndPersistsThem() {
         let origin = Date(timeIntervalSince1970: 1_000)
         var now = origin.addingTimeInterval(30)

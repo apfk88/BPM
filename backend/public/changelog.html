@@ -1,0 +1,393 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#0b0b0b" />
+    <title>Changelog | BPM</title>
+    <meta name="description" content="New features, fixes, and detailed release notes for BPM, the Bluetooth heart-rate monitor app for iPhone and iPad." />
+    <link rel="canonical" href="https://bpmtracker.app/changelog" />
+    <meta property="og:title" content="BPM changelog. What’s changed." />
+    <meta property="og:description" content="New features, fixes, and the details behind each BPM release." />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://bpmtracker.app/changelog" />
+    <meta property="og:image" content="https://bpmtracker.app/og-2.2.jpg" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/marketing-v2.css?v=8" />
+    <link rel="stylesheet" href="/changelog.css?v=2" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-light-32x32.png" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-dark-32x32.png" media="(prefers-color-scheme: dark)" />
+    <link rel="apple-touch-icon" href="/apple-icon.png" />
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <header class="site-header">
+      <nav class="container nav" aria-label="Main navigation">
+        <a class="brand" href="/" aria-label="BPM home"><img src="/app-icon-dark.png" width="34" height="34" alt="" />BPM<span class="brand-period">.</span></a>
+        <div class="nav-links"><a href="/#chest-straps">Why a chest strap?</a><a href="/#faq">FAQs</a><a href="/changelog" aria-current="page">Changelog</a></div>
+        <a class="nav-cta" href="https://apps.apple.com/app/id6754830191">Get BPM <span aria-hidden="true">↗</span></a>
+      </nav>
+    </header>
+    <main class="container changelog" id="main">
+      <header class="changelog-intro">
+        <p class="eyebrow">Changelog</p>
+        <h1>What’s changed.</h1>
+        <p class="changelog-description">New features, fixes, and the details behind each BPM release.</p>
+      </header>
+      <!-- Keep releases newest first. Verify App Store availability before changing a pending badge. -->
+      <article class="release" id="v2-2" aria-labelledby="v2-2-title">
+        <div class="release-meta"><a class="release-version" href="#v2-2" aria-label="Link to version 2.2">2.2</a><time datetime="2026-11-09">November 9, 2026</time><span class="release-badge">Latest release</span></div>
+        <div class="release-body">
+          <h2 id="v2-2-title">Sharing, rebuilt across BPM</h2>
+          <p>Live sharing has been part of BPM from the beginning. Version 2.2 rebuilds it across the app’s features, especially workouts, so you can share a complete training session.</p>
+          <h3>Workouts, controls, and HRV</h3>
+          <ul>
+            <li>Shared sessions now bring workout timers, sets, interval presets, and HRV alongside live heart rate. Invite a coach or friend with a link or a temporary six-digit code.</li>
+            <li>Start, pause, and control a shared workout from either device, or load an interval preset. Workout controls stay synchronized while each person chooses their own view.</li>
+            <li>Start an HRV measurement together. The monitor owner’s device calculates the result, and the other device follows its progress and result.</li>
+            <li>Sharing stops after five minutes if nobody joins, or after 90 minutes total. Your local workout continues, with an explanation when sharing ends. Anyone with the link or code can view and control the shared session.</li>
+          </ul>
+          <h3>Workout setup and everyday use</h3>
+          <ul>
+            <li>Optionally review and autofill empty calorie settings from Apple Health. Available values and their dates are shown before you apply them, and existing entries are preserved.</li>
+            <li>Reopening BPM returns you to an active local or shared workout, including a paused session.</li>
+            <li>Clearer calorie setup, maximum-heart-rate suggestions, and HRV readiness and connection messages.</li>
+            <li>Improved Live Activities, sharing reliability, and recovery of an active session.</li>
+          </ul>
+        </div>
+      </article>
+
+      <article class="release" id="v2-1-1" aria-labelledby="v2-1-1-title">
+        <div class="release-meta"><a class="release-version" href="#v2-1-1" aria-label="Link to version 2.1.1">2.1.1</a><time datetime="2026-10-30">October 30, 2026</time></div>
+        <div class="release-body">
+          <h2 id="v2-1-1-title">More consistent measurements and saved workouts</h2>
+          <h3>Heart rate and recovery</h3>
+          <ul>
+            <li>Switching monitors clears the previous sensor’s readings. Connection loss and poor contact stop old values from contributing to current measurements.</li>
+            <li>Heart-rate averages account for the time each reading represents. Saved summaries and charts use consistent workout boundaries, including cooldowns.</li>
+            <li>HRV recordings check for missing beat intervals throughout the measurement, with more consistent summaries.</li>
+          </ul>
+          <h3>Calories, timing, and Health</h3>
+          <ul>
+            <li>Corrected calorie formulas, resting-energy subtraction, and pause handling. Calorie values are clearly labeled as estimates.</li>
+            <li>Saved workouts preserve more precise timing. Charts show gaps and pauses instead of drawing an uninterrupted line through missing data.</li>
+            <li>Apple Health export uses active calories and excludes heart-rate samples recorded during pauses. Shared readings expire when their source data becomes stale.</li>
+          </ul>
+        </div>
+      </article>
+
+      <article class="release" id="v2-1" aria-labelledby="v2-1-title">
+        <div class="release-meta"><a class="release-version" href="#v2-1" aria-label="Link to version 2.1">2.1</a><time datetime="2026-10-28">October 28, 2026</time></div>
+        <div class="release-body">
+          <h2 id="v2-1-title">A clearer workout history, with better cards and sounds</h2>
+          <ul>
+            <li>Redesigned workout history and details around readable charts, prominent statistics, heart-rate zones, and sets.</li>
+            <li>Share cards use white by default, with red, orange, yellow, green, blue, indigo, and violet accents available in the card editor.</li>
+            <li>Added heart-rate threshold tones, spoken zone alerts, work/rest interval bells, and a sound when an HRV measurement completes.</li>
+            <li>Refined Live Activities and the confirmation shown after saving a workout.</li>
+            <li>Made AI voice controls and privacy explanations clearer.</li>
+          </ul>
+        </div>
+      </article>
+
+      <article class="release" id="v2-0-13" aria-labelledby="v2-0-13-title">
+        <div class="release-meta"><a class="release-version" href="#v2-0-13" aria-label="Link to version 2.0.13">2.0.13</a><time datetime="2026-10-27">October 27, 2026</time></div>
+        <div class="release-body">
+          <h2 id="v2-0-13-title">Voice notes, share cards, and workout recovery</h2>
+          <ul>
+            <li>Record up to 60 seconds of workout notes and turn them into an editable title and exercise-by-exercise description. The first upload asks for explicit permission to send the recording to OpenAI.</li>
+            <li>Share a workout as a chart card, stats card, plain-text summary, or detailed JSON log. Customize card titles and fields before exporting.</li>
+            <li>Edit the title and description of a workout after saving it.</li>
+            <li>Resume a workout ended by accident, or include recent heart-rate readings when starting one. Time spent reviewing an ended workout is excluded when you resume.</li>
+            <li>Improved timer layouts, workout controls, chart readability, and navigation between share cards.</li>
+            <li>Added an AI voice permission reset in Settings and updated the privacy explanations. Manual workout notes remain available without AI.</li>
+          </ul>
+        </div>
+      </article>
+
+      <article class="release" id="v2-0-12" aria-labelledby="v2-0-12-title">
+        <div class="release-meta"><a class="release-version" href="#v2-0-12" aria-label="Link to version 2.0.12">2.0.12</a><time datetime="2026-10-09">October 9, 2026</time></div>
+        <div class="release-body">
+          <h2 id="v2-0-12-title">Updated controls and more adaptable layouts</h2>
+          <ul>
+            <li>Adopted the latest native iOS controls and navigation while keeping compatible controls on older iOS versions.</li>
+            <li>Improved large-text support, VoiceOver labels, touch targets, and entry of a friend’s sharing code.</li>
+            <li>Fixed clipped HRV layouts on narrow screens. Expanded workout charts adapt to portrait and landscape, and iPad layouts use the available space.</li>
+            <li>Saving a workout returns you Home, with save confirmation and Apple Health sync status preserved.</li>
+          </ul>
+        </div>
+      </article>
+
+      <article class="release" id="v2-0-11" aria-labelledby="v2-0-11-title">
+        <div class="release-meta"><a class="release-version" href="#v2-0-11" aria-label="Link to version 2.0.11">2.0.11</a><time datetime="2026-09-21">September 21, 2026</time></div>
+        <div class="release-body">
+          <h2 id="v2-0-11-title">Readable Lock Screen and Dynamic Island timers</h2>
+          <ul>
+            <li>Fixed overlapping heart rate and elapsed time in Lock Screen Live Activities.</li>
+            <li>Corrected an oversized Dynamic Island layout. Timers have room for hours and remain aligned when paused.</li>
+            <li>Improved landscape layouts for workouts and HRV.</li>
+          </ul>
+        </div>
+      </article>
+
+      <article class="release" id="v2-0-10" aria-labelledby="v2-0-10-title">
+        <div class="release-meta"><a class="release-version" href="#v2-0-10" aria-label="Link to version 2.0.10">2.0.10</a><time datetime="2026-09-14">September 14, 2026</time></div>
+        <div class="release-body">
+          <h2 id="v2-0-10-title">More reliable HRV recordings and workout timing</h2>
+          <ul>
+            <li>Strengthened checks for interrupted or incomplete HRV measurements. A recording with missing or invalid beat data is rejected instead of producing a result.</li>
+            <li>Improved heart-rate recording, workout and cooldown timing, and pause handling.</li>
+            <li>Corrected saved workout statistics and made the confirmation for logging a set clearer.</li>
+          </ul>
+        </div>
+      </article>
+
+      <h2 class="release-group" id="earlier-2026">Earlier in 2026</h2>
+      <article class="release compact" id="v2-0-9" aria-labelledby="v2-0-9-title">
+        <div class="release-meta"><a class="release-version" href="#v2-0-9" aria-label="Link to version 2.0.9">2.0.9</a><time datetime="2026-09-05">September 5, 2026</time></div>
+        <div class="release-body">
+          <h2 id="v2-0-9-title">Faster, clearer monitor setup</h2>
+          <ul>
+            <li>Made connecting a heart-rate monitor faster and easier to follow.</li>
+            <li>Moved viewing a friend’s BPM into an expandable section so your own monitor stays prominent.</li>
+            <li>Added direct feedback and privacy links in Settings, along with reliability improvements.</li>
+          </ul>
+        </div>
+      </article>
+
+      <article class="release compact" id="v2-0-8" aria-labelledby="v2-0-8-title">
+        <div class="release-meta"><a class="release-version" href="#v2-0-8" aria-label="Link to version 2.0.8">2.0.8</a><time datetime="2026-08-28">August 28, 2026</time></div>
+        <div class="release-body">
+          <h2 id="v2-0-8-title">A closer look at workout charts</h2>
+          <ul>
+            <li>Added zooming to workout heart-rate charts.</li>
+            <li>Made the expanded chart easier to read and kept time labels consistent at 30-second intervals.</li>
+            <li>Included minor reliability improvements.</li>
+          </ul>
+        </div>
+      </article>
+
+      <article class="release compact" id="v2-0-7" aria-labelledby="v2-0-7-title">
+        <div class="release-meta"><a class="release-version" href="#v2-0-7" aria-label="Link to version 2.0.7">2.0.7</a><time datetime="2026-08-04">August 4, 2026</time></div>
+        <div class="release-body">
+          <h2 id="v2-0-7-title">Live Activities handle brief interruptions</h2>
+          <ul>
+            <li>Kept Live Activities visible through brief heart-rate strap interruptions.</li>
+            <li>Added automatic cleanup after ten minutes without a valid reading, plus minor reliability improvements.</li>
+          </ul>
+        </div>
+      </article>
+
+      <article class="release compact" id="v2-0-6" aria-labelledby="v2-0-6-title">
+        <div class="release-meta"><a class="release-version" href="#v2-0-6" aria-label="Link to version 2.0.6">2.0.6</a><time datetime="2026-08-01">August 1, 2026</time></div>
+        <div class="release-body">
+          <h2 id="v2-0-6-title">A full-screen heart-rate view during workouts</h2>
+          <ul>
+            <li>Added a large live BPM display as the second swipe view in workout mode.</li>
+            <li>Included minor reliability improvements.</li>
+          </ul>
+        </div>
+      </article>
+
+      <article class="release compact" id="v2-0-5" aria-labelledby="v2-0-5-title">
+        <div class="release-meta"><a class="release-version" href="#v2-0-5" aria-label="Link to version 2.0.5">2.0.5</a><time datetime="2026-05-22">May 22, 2026</time></div>
+        <div class="release-body">
+          <h2 id="v2-0-5-title">Maintenance update</h2>
+          <ul>
+            <li>Minor bug fixes and improvements.</li>
+          </ul>
+        </div>
+      </article>
+
+      <article class="release compact" id="v2-0-4" aria-labelledby="v2-0-4-title">
+        <div class="release-meta"><a class="release-version" href="#v2-0-4" aria-label="Link to version 2.0.4">2.0.4</a><time datetime="2026-05-10">May 10, 2026</time></div>
+        <div class="release-body">
+          <h2 id="v2-0-4-title">Keep the display awake</h2>
+          <ul>
+            <li>Fixed the keep-screen-awake behavior.</li>
+          </ul>
+        </div>
+      </article>
+
+      <article class="release compact" id="v2-0-3" aria-labelledby="v2-0-3-title">
+        <div class="release-meta"><a class="release-version" href="#v2-0-3" aria-label="Link to version 2.0.3">2.0.3</a><time datetime="2026-04-28">April 28, 2026</time></div>
+        <div class="release-body">
+          <h2 id="v2-0-3-title">History sync and calorie setup fixes</h2>
+          <ul>
+            <li>Fixed workout-history syncing and calorie tracking on first use.</li>
+          </ul>
+        </div>
+      </article>
+
+      <article class="release compact" id="v2-0-2" aria-labelledby="v2-0-2-title">
+        <div class="release-meta"><a class="release-version" href="#v2-0-2" aria-label="Link to version 2.0.2">2.0.2</a><time datetime="2026-04-27">April 27, 2026</time></div>
+        <div class="release-body">
+          <h2 id="v2-0-2-title">Maintenance update</h2>
+          <ul>
+            <li>Bug fixes and small improvements.</li>
+          </ul>
+        </div>
+      </article>
+
+      <article class="release compact" id="v2-0-1" aria-labelledby="v2-0-1-title">
+        <div class="release-meta"><a class="release-version" href="#v2-0-1" aria-label="Link to version 2.0.1">2.0.1</a><time datetime="2026-03-09">March 9, 2026</time></div>
+        <div class="release-body">
+          <h2 id="v2-0-1-title">Keep workouts running in the background</h2>
+          <ul>
+            <li>Fixed an issue that could reset a workout when the app was backgrounded.</li>
+          </ul>
+        </div>
+      </article>
+
+      <article class="release compact" id="v2-0" aria-labelledby="v2-0-title">
+        <div class="release-meta"><a class="release-version" href="#v2-0" aria-label="Link to version 2.0">2.0</a><time datetime="2026-02-18">February 18, 2026</time></div>
+        <div class="release-body">
+          <h2 id="v2-0-title">Free live sharing and smoother workout saves</h2>
+          <ul>
+            <li>Made live heart-rate sharing free.</li>
+            <li>Improved saving and sharing workouts, with workout descriptions and easier history and export controls.</li>
+            <li>Improved Apple Health and iCloud sync reliability to reduce dropped saves.</li>
+            <li>Refined timer presets and controls for faster, more predictable setup.</li>
+            <li>Made workout and HRV histories easier to find and their summaries clearer.</li>
+          </ul>
+        </div>
+      </article>
+
+      <article class="release compact" id="v1-9-2" aria-labelledby="v1-9-2-title">
+        <div class="release-meta"><a class="release-version" href="#v1-9-2" aria-label="Link to version 1.9.2">1.9.2</a><time datetime="2026-02-07">February 7, 2026</time></div>
+        <div class="release-body">
+          <h2 id="v1-9-2-title">Interface refinements</h2>
+          <ul>
+            <li>Improved the fit and finish of the interface and everyday navigation.</li>
+          </ul>
+        </div>
+      </article>
+
+      <article class="release compact" id="v1-9-1" aria-labelledby="v1-9-1-title">
+        <div class="release-meta"><a class="release-version" href="#v1-9-1" aria-label="Link to version 1.9.1">1.9.1</a><time datetime="2026-02-04">February 4, 2026</time></div>
+        <div class="release-body">
+          <h2 id="v1-9-1-title">Workout time in the Dynamic Island</h2>
+          <ul>
+            <li>Added the workout timer alongside BPM in the compact Dynamic Island.</li>
+            <li>Consolidated history export in the Workout History list.</li>
+            <li>Split workout calories into total and active energy, alongside other fixes.</li>
+          </ul>
+        </div>
+      </article>
+
+      <article class="release compact" id="v1-9" aria-labelledby="v1-9-title">
+        <div class="release-meta"><a class="release-version" href="#v1-9" aria-label="Link to version 1.9">1.9</a><time datetime="2026-02-03">February 3, 2026</time></div>
+        <div class="release-body">
+          <h2 id="v1-9-title">Calories and saved workout history</h2>
+          <ul>
+            <li>Added calorie estimates based on heart rate and your profile, configured in Settings and shown during a workout after a short warmup.</li>
+            <li>Added workout and HRV history with export and sharing.</li>
+            <li>Refined the timer screen, alert controls, and Settings, and improved Live Activity updates.</li>
+          </ul>
+        </div>
+      </article>
+
+      <article class="release compact" id="v1-8-1" aria-labelledby="v1-8-1-title">
+        <div class="release-meta"><a class="release-version" href="#v1-8-1" aria-label="Link to version 1.8.1">1.8.1</a><time datetime="2026-01-12">January 12, 2026</time></div>
+        <div class="release-body">
+          <h2 id="v1-8-1-title">Maintenance update</h2>
+          <ul>
+            <li>Small usability improvements and bug fixes.</li>
+          </ul>
+        </div>
+      </article>
+
+      <article class="release compact" id="v1-8" aria-labelledby="v1-8-title">
+        <div class="release-meta"><a class="release-version" href="#v1-8" aria-label="Link to version 1.8">1.8</a><time datetime="2026-01-10">January 10, 2026</time></div>
+        <div class="release-body">
+          <h2 id="v1-8-title">Heart-rate zones on the main display</h2>
+          <ul>
+            <li>Added heart-rate zone tracking to the main screen.</li>
+            <li>Refined the interface and removed the landscape view in this release.</li>
+          </ul>
+        </div>
+      </article>
+
+      <h2 class="release-group" id="releases-2025">2025</h2>
+      <article class="release compact" id="v1-7-2" aria-labelledby="v1-7-2-title">
+        <div class="release-meta"><a class="release-version" href="#v1-7-2" aria-label="Link to version 1.7.2">1.7.2</a><time datetime="2025-12-30">December 30, 2025</time></div>
+        <div class="release-body">
+          <h2 id="v1-7-2-title">Reusable workouts and configurable zones</h2>
+          <ul>
+            <li>Added saved workout presets and heart-rate zone monitoring and configuration.</li>
+            <li>Made most features free while moving sharing to a subscription at the time. Sharing became free in version 2.0.</li>
+            <li>Included other fixes and improvements.</li>
+          </ul>
+        </div>
+      </article>
+
+      <article class="release compact" id="v1-6" aria-labelledby="v1-6-title">
+        <div class="release-meta"><a class="release-version" href="#v1-6" aria-label="Link to version 1.6">1.6</a><time datetime="2025-11-17">November 17, 2025</time></div>
+        <div class="release-body">
+          <h2 id="v1-6-title">HRV measurement</h2>
+          <ul>
+            <li>Added heart-rate variability measurement and updated the interface.</li>
+          </ul>
+        </div>
+      </article>
+
+      <article class="release compact" id="v1-5" aria-labelledby="v1-5-title">
+        <div class="release-meta"><a class="release-version" href="#v1-5" aria-label="Link to version 1.5">1.5</a><time datetime="2025-11-14">November 14, 2025</time></div>
+        <div class="release-body">
+          <h2 id="v1-5-title">Workout heart-rate charts</h2>
+          <ul>
+            <li>Added a chart to the workout view and fixed bugs.</li>
+          </ul>
+        </div>
+      </article>
+
+      <article class="release compact" id="v1-4" aria-labelledby="v1-4-title">
+        <div class="release-meta"><a class="release-version" href="#v1-4" aria-label="Link to version 1.4">1.4</a><time datetime="2025-11-13">November 13, 2025</time></div>
+        <div class="release-body">
+          <h2 id="v1-4-title">Live Activities and background Bluetooth</h2>
+          <ul>
+            <li>Added Live Activities and support for Bluetooth monitor communication while the app is in the background.</li>
+          </ul>
+        </div>
+      </article>
+
+      <article class="release compact" id="v1-3" aria-labelledby="v1-3-title">
+        <div class="release-meta"><a class="release-version" href="#v1-3" aria-label="Link to version 1.3">1.3</a><time datetime="2025-11-13">November 13, 2025</time></div>
+        <div class="release-body">
+          <h2 id="v1-3-title">Work, rest, and recovery timing</h2>
+          <ul>
+            <li>Added a workout timer for exercise and rest sets, including an automatic two-minute heart-rate recovery measurement.</li>
+          </ul>
+        </div>
+      </article>
+
+      <article class="release compact" id="v1-1-4" aria-labelledby="v1-1-4-title">
+        <div class="release-meta"><a class="release-version" href="#v1-1-4" aria-label="Link to version 1.1.4">1.1.4</a><time datetime="2025-11-08">November 8, 2025</time></div>
+        <div class="release-body">
+          <h2 id="v1-1-4-title">Sharing improvements</h2>
+          <ul>
+            <li>Updated sharing behavior and made small interface refinements.</li>
+          </ul>
+        </div>
+      </article>
+
+      <article class="release compact" id="v1-1-3" aria-labelledby="v1-1-3-title">
+        <div class="release-meta"><a class="release-version" href="#v1-1-3" aria-label="Link to version 1.1.3">1.1.3</a><time datetime="2025-11-08">November 8, 2025</time></div>
+        <div class="release-body">
+          <h2 id="v1-1-3-title">First App Store release</h2>
+          <ul>
+            <li>BPM’s first public App Store release, including live heart-rate sharing.</li>
+          </ul>
+        </div>
+      </article>
+
+      <p class="changelog-footnote">Release dates are shown in Pacific time. Recent entries include details from our release records; older entries follow the <a href="https://apps.apple.com/us/app/bpm-heart-rate-monitor/id6754830191">App Store version history</a>. Notes describe each version when it shipped, so later releases may change that behavior.</p>
+      <a class="text-link" href="#main">Back to top ↑</a>
+    </main>
+    <footer class="site-footer container"><a class="brand" href="/" aria-label="BPM home">BPM<span class="brand-period">.</span></a><div class="footer-links"><a href="/changelog" aria-current="page">Changelog</a><a href="/privacy.html">Privacy</a><a href="mailto:vibecodeinc@proton.me">Support</a><a href="https://github.com/apfk88/BPM">GitHub <span aria-hidden="true">↗</span></a></div><p>© 2026 BPM</p></footer>
+    <script defer src="/_vercel/insights/script.js"></script>
+  </body>
+</html>

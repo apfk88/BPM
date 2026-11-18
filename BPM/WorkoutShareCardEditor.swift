@@ -5,10 +5,14 @@ struct WorkoutShareCardEditor: View {
     let record: WorkoutRecord
     let style: WorkoutShareStyle
     let source: ShareAnalyticsContext.Source
+    private let onShareCompleted: (() -> Void)?
     @Binding private var accent: WorkoutShareAccent
+    @ObservedObject private var pageDraft: WorkoutPageShareDraft
     @State private var range: WorkoutShareRange
     @State private var cardTitle: String
     @State private var sharePayload: SharePayload?
+    @State private var didShare = false
+    @State private var shareSheetDismissed = false
     @State private var renderFailed = false
     @FocusState private var isTitleFocused: Bool
     @Environment(\.dismiss) private var dismiss
@@ -20,10 +24,13 @@ struct WorkoutShareCardEditor: View {
     }
 
     init(record: WorkoutRecord, style: WorkoutShareStyle, source: ShareAnalyticsContext.Source,
-         accent: Binding<WorkoutShareAccent>) {
+         accent: Binding<WorkoutShareAccent>, pageDraft: WorkoutPageShareDraft? = nil,
+         onShareCompleted: (() -> Void)? = nil) {
         self.record = record
         self.style = style
         self.source = source
+        self.onShareCompleted = onShareCompleted
+        self.pageDraft = pageDraft ?? WorkoutPageShareDraft(record: record)
         _accent = accent
         _range = State(initialValue: .full(record.durationSeconds))
         _cardTitle = State(initialValue: WorkoutShareSnapshot(record: record).title)
@@ -73,6 +80,7 @@ struct WorkoutShareCardEditor: View {
                             Text("Title and range changes apply only to this card.")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
+                            WorkoutPageSharingOptions(draft: pageDraft)
                             if style == .stats && !snapshot.isFullWorkout && record.zoneConfig == nil {
                                 Text("For this older workout, Top Zone uses your current zone settings.")
                                     .font(.caption)
@@ -85,6 +93,7 @@ struct WorkoutShareCardEditor: View {
                         .frame(maxWidth: landscape ? 460 : .infinity)
                     }
                     .padding(16)
+                    .disabled(pageDraft.isPreparingShare)
                     .frame(maxWidth: landscape ? 900 : 500)
                     .frame(maxWidth: .infinity)
                 }
@@ -109,7 +118,7 @@ struct WorkoutShareCardEditor: View {
                         cardTitle = WorkoutShareSnapshot(record: record).title
                         accent = .white
                     }
-                    .disabled(snapshot.isFullWorkout && cardTitle == WorkoutShareSnapshot(record: record).title && accent == .white)
+                    .disabled(pageDraft.isPreparingShare || (snapshot.isFullWorkout && cardTitle == WorkoutShareSnapshot(record: record).title && accent == .white))
                     .accessibilityIdentifier("resetWorkoutCard")
                 }
                 ToolbarItem(placement: .confirmationAction) {
@@ -118,22 +127,37 @@ struct WorkoutShareCardEditor: View {
                     }
                     .accessibilityLabel("Close")
                     .accessibilityIdentifier("closeWorkoutCardEditor")
+                    .disabled(pageDraft.isPreparingShare)
                 }
             }
-            .sheet(item: $sharePayload) { payload in
-                ShareSheet(payload: payload)
+            .sheet(item: $sharePayload, onDismiss: {
+                shareSheetDismissed = true
+                dismissAfterSharing()
+            }) { payload in
+                ShareSheet(payload: payload) { didShare = true }
             }
+            .onChange(of: didShare) { _, _ in dismissAfterSharing() }
             .alert("Couldn’t Create Image", isPresented: $renderFailed) {
                 Button("OK", role: .cancel) { }
             } message: {
                 Text("Please try sharing the card again.")
             }
+            .workoutPageShareAlerts(pageDraft)
         }
         .presentationDetents([.large])
         .presentationDragIndicator(.visible)
     }
+
+    private func dismissAfterSharing() {
+        // UIKit may report completion after SwiftUI has dismissed the activity sheet.
+        guard didShare && shareSheetDismissed else { return }
+        onShareCompleted?()
+        dismiss()
+    }
+
     private func shareButton(snapshot: WorkoutShareSnapshot) -> some View {
         Button {
+            shareSheetDismissed = false
             let analytics = ShareAnalyticsSession(context: ShareAnalyticsContext(
                 source: source, format: style == .chart ? .chartCard : .statsCard
             ))
@@ -144,20 +168,38 @@ struct WorkoutShareCardEditor: View {
             }
             do {
                 let item = try WorkoutShareImageItem(image: image, title: snapshot.title)
-                sharePayload = SharePayload(items: [item], subject: snapshot.title, analytics: analytics)
+                pageDraft.prepareShare { url in
+                    let items: [Any]
+                    if let url {
+                        items = [WorkoutShareLinkItem(url: url, title: snapshot.title, imageFileURL: item.fileURL)]
+                    } else {
+                        items = [item]
+                    }
+                    sharePayload = SharePayload(items: items, subject: snapshot.title, analytics: analytics)
+                }
             } catch {
                 analytics.finish(completed: false, failed: true)
                 renderFailed = true
             }
         } label: {
-            Label("Share", systemImage: "square.and.arrow.up")
-                .frame(maxWidth: .infinity)
+            HStack(spacing: 10) {
+                if pageDraft.isPreparingShare {
+                    ProgressView().tint(accent.foregroundColor)
+                    Text(pageDraft.uploadStatusText)
+                } else {
+                    Label("Share", systemImage: "square.and.arrow.up")
+                }
+            }
+            .font(.body.weight(.semibold))
+            .foregroundStyle(accent.foregroundColor)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 14)
+            .frame(maxWidth: .infinity, minHeight: 50)
+            .background(accent.color, in: Capsule())
         }
-        .buttonStyle(.borderedProminent)
-        .tint(accent.color)
-        .foregroundStyle(accent.foregroundColor)
-        .controlSize(.large)
+        .buttonStyle(.plain)
         .accessibilityIdentifier("shareWorkoutImage")
+        .disabled(pageDraft.isPreparingShare)
     }
 
 }

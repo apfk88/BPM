@@ -11,8 +11,17 @@ struct WorkoutShareDrawer: View {
     @State private var selectedCard: WorkoutShareStyle?
     @State private var accent: WorkoutShareAccent = .white
     @State private var sharePayload: SharePayload?
+    @State private var didShare = false
+    @State private var shareSheetDismissed = false
     @State private var exportError: String?
     @State private var didTrackOpen = false
+    @StateObject private var pageDraft: WorkoutPageShareDraft
+
+    init(record: WorkoutRecord, source: ShareAnalyticsContext.Source, pageService: WorkoutPageService? = nil) {
+        self.record = record
+        self.source = source
+        _pageDraft = StateObject(wrappedValue: WorkoutPageShareDraft(record: record, service: pageService))
+    }
 
     private enum ShareFormat: Int, CaseIterable, Identifiable {
         case chart, stats, text, logs
@@ -59,7 +68,10 @@ struct WorkoutShareDrawer: View {
             HStack {
                 Text("Share").font(.title3.bold())
                 Spacer()
-                Button { dismiss() } label: {
+                Button {
+                    pageDraft.cancel()
+                    dismiss()
+                } label: {
                     Image(systemName: "xmark")
                         .font(.system(size: 16, weight: .medium))
                         .frame(width: 38, height: 38)
@@ -69,6 +81,7 @@ struct WorkoutShareDrawer: View {
                 .buttonStyle(.plain)
                 .accessibilityLabel("Close sharing")
                 .accessibilityIdentifier("closeWorkoutShareDrawer")
+                .disabled(pageDraft.isPreparingShare)
             }
             .padding(.horizontal, 20)
             .padding(.top, 14)
@@ -81,28 +94,24 @@ struct WorkoutShareDrawer: View {
                             VStack(spacing: 12) {
                                 formatHeading
                                 pageDots
-                                shareButton
+                                WorkoutPageSharingOptions(draft: pageDraft)
+                                shareActions
                             }
                                 .padding(.vertical, 12)
                         }
                         .frame(width: min(300, geometry.size.width * 0.4))
                         .padding(.trailing, 20)
                     }
-                } else if dynamicTypeSize.isAccessibilitySize {
+                } else {
                     ScrollView {
                         VStack(spacing: 12) {
                             formatHeading.padding(.top, 12)
-                            carousel.frame(height: 350)
+                            carousel.frame(height: 355)
                             pageDots
-                            shareButton.padding(.horizontal, 20).padding(.bottom, 12)
+                            WorkoutPageSharingOptions(draft: pageDraft).padding(.horizontal, 20)
+                            shareActions.padding(.horizontal, 20)
                         }
-                    }
-                } else {
-                    VStack(spacing: 12) {
-                        formatHeading.padding(.top, 12)
-                        carousel
-                        pageDots
-                        shareButton.padding(.horizontal, 20).padding(.bottom, 12)
+                        .padding(.bottom, 12)
                     }
                 }
             }
@@ -117,22 +126,37 @@ struct WorkoutShareDrawer: View {
         }
         .background(Color(uiColor: .secondarySystemBackground))
         .preferredColorScheme(.dark)
-        .presentationDetents(dynamicTypeSize.isAccessibilitySize ? [.large] : [.fraction(0.75), .large])
+        .presentationDetents(verticalSizeClass == .compact || dynamicTypeSize.isAccessibilitySize
+                             ? [.large] : [.height(700), .large])
         .presentationDragIndicator(.visible)
         .presentationCornerRadius(30)
-        .sheet(item: $selectedCard) { style in
-            WorkoutShareCardEditor(record: record, style: style, source: source, accent: $accent)
+        .sheet(item: $selectedCard, onDismiss: sharingSheetDidDismiss) { style in
+            WorkoutShareCardEditor(record: record, style: style, source: source, accent: $accent, pageDraft: pageDraft) {
+                didShare = true
+            }
         }
-        .sheet(item: $sharePayload) { payload in
-            ShareSheet(payload: payload)
+        .sheet(item: $sharePayload, onDismiss: sharingSheetDidDismiss) { payload in
+            ShareSheet(payload: payload) { didShare = true }
         }
-        .alert("Couldn’t Export Logs", isPresented: Binding(
+        .onChange(of: didShare) { _, _ in dismissAfterSharing() }
+        .alert("Couldn’t Share Workout", isPresented: Binding(
             get: { exportError != nil }, set: { if !$0 { exportError = nil } }
         )) {
             Button("OK", role: .cancel) { exportError = nil }
         } message: {
             Text(exportError ?? "Please try again.")
         }
+        .workoutPageShareAlerts(pageDraft, isActive: selectedCard == nil)
+    }
+
+    private func sharingSheetDidDismiss() {
+        shareSheetDismissed = true
+        dismissAfterSharing()
+    }
+
+    private func dismissAfterSharing() {
+        // Let each presented sheet finish closing before dismissing its parent.
+        if didShare && shareSheetDismissed { dismiss() }
     }
 
     private var formatHeading: some View {
@@ -170,6 +194,7 @@ struct WorkoutShareDrawer: View {
             .scrollPosition(id: $selection)
             .scrollIndicators(.hidden)
             .accessibilityIdentifier("workoutShareCarousel")
+            .allowsHitTesting(!pageDraft.isPreparingShare)
         }
     }
 
@@ -178,6 +203,7 @@ struct WorkoutShareDrawer: View {
         switch format {
         case .chart, .stats:
             Button {
+                shareSheetDismissed = false
                 selection = format
                 selectedCard = format == .chart ? .chart : .stats
             } label: {
@@ -233,18 +259,52 @@ struct WorkoutShareDrawer: View {
                 .accessibilityAddTraits(currentFormat == format ? .isSelected : [])
             }
         }
+        .disabled(pageDraft.isPreparingShare)
     }
 
     private var shareButton: some View {
         Button(action: shareSelectedFormat) {
-            Text(currentFormat.action)
-                .frame(maxWidth: .infinity)
+            HStack(spacing: 10) {
+                if pageDraft.isPreparingShare {
+                    ProgressView().tint(isCardSelected ? accent.foregroundColor : .black)
+                }
+                Text(pageDraft.isPreparingShare ? pageDraft.uploadStatusText : currentFormat.action)
+            }
+            .font(.body.weight(.semibold))
+            .foregroundStyle(isCardSelected ? accent.foregroundColor : .black)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 14)
+            .frame(maxWidth: .infinity, minHeight: 50)
+            .background(isCardSelected ? accent.color : .white, in: Capsule())
         }
-        .buttonStyle(.borderedProminent)
-        .tint(isCardSelected ? accent.color : .white)
-        .foregroundStyle(isCardSelected ? accent.foregroundColor : .black)
-        .controlSize(.large)
+        .buttonStyle(.plain)
         .accessibilityIdentifier("shareSelectedWorkoutFormat")
+        .disabled(pageDraft.isPreparingShare)
+    }
+
+    private var shareActions: some View {
+        let layout = dynamicTypeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(spacing: 10))
+            : AnyLayout(HStackLayout(spacing: 10))
+        return layout {
+            shareButton
+            if isCardSelected {
+                Button {
+                    shareSheetDismissed = false
+                    selectedCard = currentFormat == .chart ? .chart : .stats
+                } label: {
+                    Text("Customize")
+                        .font(.subheadline.weight(.medium))
+                        .padding(.horizontal, 16)
+                        .frame(minHeight: 50)
+                        .background(.white.opacity(0.08), in: Capsule())
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("customizeWorkoutCard")
+                .accessibilityHint("Edit this card’s accent, title and range")
+                .disabled(pageDraft.isPreparingShare)
+            }
+        }
     }
 
     private func analyticsContext(for format: ShareFormat) -> ShareAnalyticsContext {
@@ -252,21 +312,55 @@ struct WorkoutShareDrawer: View {
     }
 
     private func shareSelectedFormat() {
+        shareSheetDismissed = false
         switch currentFormat {
-        case .chart: selectedCard = .chart
-        case .stats: selectedCard = .stats
+        case .chart: shareCard(style: .chart)
+        case .stats: shareCard(style: .stats)
         case .text:
-            let analytics = ShareAnalyticsSession(context: analyticsContext(for: .text))
-            sharePayload = SharePayload(items: [record.summaryText()], subject: "Workout Summary", analytics: analytics)
-        case .logs:
-            let analytics = ShareAnalyticsSession(context: analyticsContext(for: .logs))
-            do {
-                let file = try JSONLogFile.create(json: record.jsonString(), prefix: "BPM-workout", date: record.startAt)
-                sharePayload = SharePayload(items: [file], subject: "Workout Logs (JSON)", analytics: analytics)
-            } catch {
-                analytics.finish(completed: false, failed: true)
-                exportError = "The JSON file couldn’t be created. Please try again."
+            pageDraft.prepareShare { url in
+                let analytics = ShareAnalyticsSession(context: analyticsContext(for: .text))
+                var text = record.summaryText()
+                if let url { text += "\n\nView full workout: \(url.absoluteString)" }
+                sharePayload = SharePayload(items: [text], subject: "Workout Summary", analytics: analytics)
             }
+        case .logs:
+            pageDraft.prepareShare { url in
+                let analytics = ShareAnalyticsSession(context: analyticsContext(for: .logs))
+                do {
+                    let file = try JSONLogFile.create(json: record.jsonString(), prefix: "BPM-workout", date: record.startAt)
+                    var items: [Any] = [file]
+                    if let url { items.append("View full workout: \(url.absoluteString)") }
+                    sharePayload = SharePayload(items: items, subject: "Workout Logs (JSON)", analytics: analytics)
+                } catch {
+                    analytics.finish(completed: false, failed: true)
+                    exportError = "The JSON file couldn’t be created. Please try again."
+                }
+            }
+        }
+    }
+
+    private func shareCard(style: WorkoutShareStyle) {
+        let snapshot = WorkoutShareSnapshot(record: record)
+        let analytics = ShareAnalyticsSession(context: analyticsContext(for: currentFormat))
+        guard let image = WorkoutShareCardRenderer.image(snapshot: snapshot, style: style, accent: accent) else {
+            analytics.finish(completed: false, failed: true)
+            exportError = "The card couldn’t be created. Please try again."
+            return
+        }
+        do {
+            let item = try WorkoutShareImageItem(image: image, title: snapshot.title)
+            pageDraft.prepareShare { url in
+                let items: [Any]
+                if let url {
+                    items = [WorkoutShareLinkItem(url: url, title: snapshot.title, imageFileURL: item.fileURL)]
+                } else {
+                    items = [item]
+                }
+                sharePayload = SharePayload(items: items, subject: snapshot.title, analytics: analytics)
+            }
+        } catch {
+            analytics.finish(completed: false, failed: true)
+            exportError = "The card couldn’t be created. Please try again."
         }
     }
 }

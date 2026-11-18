@@ -68,7 +68,7 @@ You can change permission later in iOS Settings → Privacy & Security → Bluet
 **Friend's Code Mode:**
 1. Tap Device, then "View a Friend's BPM."
 2. Enter the friend's 6-digit share code.
-3. Use Home and Workout to choose your own view. Work Set and Rest Set request changes on the broadcaster's device; Start, Pause, End, Cool, Reset, and Save remain on that device.
+3. Use Home and Workout to choose your own view. You can start or resume the shared workout and log work and rest sets. The broadcaster can turn off viewer set logging in Settings under Live Sharing. Only the broadcaster can pause, enter cooldown, end, clear an active workout, or save.
 4. To leave sharing, open Device and tap Disconnect Friend.
 
 See [live workout sharing](docs/live-workout-sharing.md) for synchronization, permissions, and validation details.

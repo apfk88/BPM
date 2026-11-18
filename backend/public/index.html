@@ -10,18 +10,20 @@
     <meta property="og:description" content="Your chest strap, on a bigger screen. Heart rate, workout timers, recovery, and free live sharing for iPhone." />
     <meta property="og:type" content="website" />
     <meta property="og:url" content="https://bpmtracker.app/" />
-    <meta property="og:image" content="https://bpmtracker.app/og.png" />
+    <meta property="og:image" content="https://bpmtracker.app/og-2.2.jpg" />
     <meta property="og:image:width" content="2400" />
     <meta property="og:image:height" content="1260" />
+    <meta property="og:image:alt" content="BPM for iPhone showing 134 BPM beside the words Your heart rate. In big numbers." />
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="BPM. Your heart rate. In big numbers." />
     <meta name="twitter:description" content="Bluetooth heart rate, workout timers, recovery, and free live sharing for iPhone." />
-    <meta name="twitter:image" content="https://bpmtracker.app/og.png" />
+    <meta name="twitter:image" content="https://bpmtracker.app/og-2.2.jpg" />
+    <meta name="twitter:image:alt" content="BPM for iPhone showing 134 BPM beside the words Your heart rate. In big numbers." />
     <title>BPM. Your heart rate. In big numbers.</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="/marketing-v2.css?v=7" />
+    <link rel="stylesheet" href="/marketing-v2.css?v=8" />
     <link rel="icon" type="image/png" sizes="32x32" href="/favicon-light-32x32.png" />
     <link rel="icon" type="image/png" sizes="32x32" href="/favicon-dark-32x32.png" media="(prefers-color-scheme: dark)" />
     <link rel="apple-touch-icon" href="/apple-icon.png" />
@@ -31,7 +33,7 @@
     <header class="site-header">
       <nav class="container nav" aria-label="Main navigation">
         <a class="brand" href="/" aria-label="BPM home"><img src="/app-icon-dark.png" width="34" height="34" alt="" />BPM<span class="brand-period">.</span></a>
-        <div class="nav-links"><a href="#chest-straps">Why a chest strap?</a><a href="#faq">FAQs</a></div>
+        <div class="nav-links"><a href="#chest-straps">Why a chest strap?</a><a href="#faq">FAQs</a><a href="/changelog">Changelog</a></div>
         <a class="nav-cta" href="https://apps.apple.com/app/id6754830191">Get BPM <span aria-hidden="true">↗</span></a>
       </nav>
     </header>
@@ -50,7 +52,7 @@
 
         <div class="product-preview">
           <div class="phone-stage">
-            <div class="phone-frame"><img id="app-screen" src="/screens/live.png" width="1284" height="2778" alt="BPM live display with a large 122 BPM reading, heart rate statistics, and zone 2 indicator" fetchpriority="high" /></div>
+            <div class="phone-frame"><img id="app-screen" src="/screens/live.png?v=2.2-24" width="1320" height="2868" alt="BPM live display with a large heart rate reading, average, minimum, maximum, and current zone" fetchpriority="high" /></div>
           </div>
           <div class="screen-controls" role="group" aria-label="Explore app screenshots" hidden>
             <button type="button" aria-pressed="true" data-screen="live">Live BPM</button>
@@ -89,9 +91,9 @@
       <section class="features container section" id="features" aria-labelledby="features-title">
         <h2 id="features-title">In the app</h2>
         <div class="feature-list">
-          <article><h3>Train</h3><p>Live heart rate, custom zones, and work/rest timers. Save your workouts to Apple Health and sync history with iCloud.</p></article>
+          <article><h3>Train</h3><p>Live heart rate, custom zones, and work/rest timers. Build interval presets, save workouts to Apple Health, and sync history with iCloud.</p></article>
           <article><h3>Recover</h3><p>Take a two-minute HRV reading or track how quickly your heart rate comes down after a set.</p></article>
-          <article><h3>Share</h3><p>Let your coach or a friend follow your heart rate live. Send them a session code. Live sharing is free.</p></article>
+          <article><h3>Share</h3><p>Send your coach a link to follow your heart rate, timers, sets, and HRV. They can control your workout from their iPhone. Live sharing is free.</p></article>
         </div>
       </section>
 
@@ -101,7 +103,7 @@
           <div class="faq-list">
             <details open><summary>Which heart rate monitors work?</summary><div class="faq-answer"><p>BPM works with standard Bluetooth Low Energy heart rate monitors. Tested with Polar H10 and Morpheus chest straps.</p><p>For HRV, your monitor also needs to transmit RR intervals.</p></div></details>
             <details><summary>Do I need a separate heart rate monitor?</summary><div class="faq-answer"><p>Yes. BPM displays readings from a compatible Bluetooth monitor. Your iPhone doesn’t measure your pulse on its own.</p></div></details>
-            <details><summary>Is live sharing free?</summary><div class="faq-answer"><p>Yes. Share a code to let someone follow your live heart rate. Sessions expire after 90 minutes.</p></div></details>
+            <details><summary>Is live sharing free?</summary><div class="faq-answer"><p>Yes. Share an invite link or six-digit code. Anyone with it can follow your live heart rate and control your workout or HRV measurement in BPM. Only you can save the results.</p><p>Sharing stops after five minutes if nobody connects, or after 90 minutes from the start. Your own workout keeps running.</p></div></details>
             <details><summary>What does the HRV test measure?</summary><div class="faq-answer"><p>BPM calculates RMSSD from your monitor’s RR intervals over two minutes. Results are calculated on your device and saved to your history.</p></div></details>
             <details><summary>How are calories calculated?</summary><div class="faq-answer"><p>From your heart rate and profile, with resting heart rate and VO₂ max when available. Active calories exclude resting energy use. These are estimates.</p></div></details>
             <details><summary>Where does my data go?</summary><div class="faq-answer"><p>Heart rate data stays on your device unless you choose to share or sync it. Optional voice notes use a third-party service with your permission. BPM uses limited usage analytics.</p><p>See the <a href="/privacy.html">privacy policy</a>.</p></div></details>
@@ -111,8 +113,8 @@
 
     </main>
 
-    <footer class="site-footer container"><a class="brand" href="/" aria-label="BPM home">BPM<span class="brand-period">.</span></a><div class="footer-links"><a href="/privacy.html">Privacy</a><a href="mailto:vibecodeinc@proton.me">Support</a><a href="https://github.com/apfk88/BPM">GitHub <span aria-hidden="true">↗</span></a></div><p>© 2026 BPM</p></footer>
-    <script src="/marketing-v2.js?v=6" defer></script>
+    <footer class="site-footer container"><a class="brand" href="/" aria-label="BPM home">BPM<span class="brand-period">.</span></a><div class="footer-links"><a href="/changelog">Changelog</a><a href="/privacy.html">Privacy</a><a href="mailto:vibecodeinc@proton.me">Support</a><a href="https://github.com/apfk88/BPM">GitHub <span aria-hidden="true">↗</span></a></div><p>© 2026 BPM</p></footer>
+    <script src="/marketing-v2.js?v=8" defer></script>
     <script defer src="/_vercel/insights/script.js"></script>
   </body>
 </html>

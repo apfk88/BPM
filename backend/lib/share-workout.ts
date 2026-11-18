@@ -1,9 +1,13 @@
 export const SHARE_LIFETIME_MS = 90 * 60 * 1000;
+export const SHARE_JOIN_TIMEOUT_MS = 5 * 60 * 1000;
+// Keep only the owner's expiration reason briefly after the live data expires.
+const SHARE_EXPIRATION_NOTICE_MS = 5 * 60 * 1000;
 export const CONTROL_LIFETIME_MS = 5000;
 const MAX_SNAPSHOT_BYTES = 1024 * 1024;
 const MAX_TIME = 7 * 24 * 60 * 60;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const WORKOUT_ACTIONS = ['work', 'rest', 'start', 'startIncludingHistory', 'pause', 'resume', 'end', 'reset', 'cool', 'loadPreset', 'clearPreset'];
+const WORKOUT_ACTIONS = ['work', 'rest', 'start', 'startIncludingHistory', 'resume', 'reset', 'loadPreset', 'clearPreset'];
+const SNAPSHOT_ACTIONS = [...WORKOUT_ACTIONS, 'pause', 'end', 'cool'];
 const HRV_ACTIONS = ['hrvStart', 'hrvCancel', 'hrvReset'];
 const CONTROL_ACTIONS = [...WORKOUT_ACTIONS, ...HRV_ACTIONS];
 
@@ -128,8 +132,8 @@ export function validateSnapshot(value: unknown): ObjectValue {
     if (!number(zone.zone, 5, 1, true) || !number(zone.duration, MAX_TIME)) invalid('Invalid workout zone');
   });
   if (snapshot.allowedActions !== undefined && snapshot.allowedActions !== null) {
-    array(snapshot.allowedActions, WORKOUT_ACTIONS.length, value => {
-      if (!member(value, WORKOUT_ACTIONS)) invalid('Unsupported workout control');
+    array(snapshot.allowedActions, SNAPSHOT_ACTIONS.length, value => {
+      if (!member(value, SNAPSHOT_ACTIONS)) invalid('Unsupported workout control');
     });
     if (new Set(snapshot.allowedActions as string[]).size !== (snapshot.allowedActions as string[]).length) invalid('Duplicate workout control');
   }
@@ -196,15 +200,35 @@ local function result(status, code, message)
   return cjson.encode({status=status,code=code,message=message,serverTime=now})
 end
 `;
+const TOKEN = `
+local rawToken = redis.call('GET', KEYS[2])
+local tokenState = nil
+local tokenCode = rawToken
+if rawToken and string.sub(rawToken, 1, 1) == '{' then
+  tokenState = cjson.decode(rawToken)
+  tokenCode = tokenState.code
+end
+local function ended()
+  if tokenState then
+    if not tokenState.hasConnectedViewer and now >= tokenState.viewerDeadline then
+      return result(404,'SESSION_NO_VIEWER','Sharing stopped automatically because no one connected within 5 minutes. Start a new session to keep sharing.')
+    end
+    if now >= tokenState.expiresAt then
+      return result(404,'SESSION_EXPIRED','Sharing stopped automatically after 90 minutes. Start a new session to keep sharing.')
+    end
+  end
+  return result(404,'SESSION_NOT_FOUND','Sharing session has ended')
+end
+`;
 const SESSION = `
 local rawSession = redis.call('GET', KEYS[1])
 local ttl = redis.call('PTTL', KEYS[1])
-if not rawSession or ttl <= 0 then return result(404,'SESSION_NOT_FOUND','Sharing session has ended') end
+if not rawSession or ttl <= 0 then return ended() end
 local session = cjson.decode(rawSession)
 local expiresAt = now + ttl
 `;
 const AUTH = `
-if redis.call('GET', KEYS[2]) ~= ARGV[1] or session.token ~= ARGV[2] then
+if tokenCode ~= ARGV[1] or session.token ~= ARGV[2] then
   return result(401,'INVALID_TOKEN','Invalid host token')
 end
 `;
@@ -220,28 +244,55 @@ end
 
 export const createSessionScript = CLOCK + `
 if redis.call('EXISTS', KEYS[1]) == 1 or redis.call('EXISTS', KEYS[2]) == 1 then return 0 end
-local session = {code=ARGV[1],token=ARGV[2],bpm=cjson.null,max=cjson.null,avg=cjson.null,min=cjson.null,timestamp=now}
-redis.call('PSETEX', KEYS[1], ARGV[3], cjson.encode(session))
-redis.call('PSETEX', KEYS[2], ARGV[3], ARGV[1])
+local session = {code=ARGV[1],token=ARGV[2],bpm=cjson.null,max=cjson.null,avg=cjson.null,min=cjson.null,timestamp=now,
+  expiresAt=now+tonumber(ARGV[3]),viewerDeadline=now+tonumber(ARGV[4]),hasConnectedViewer=false}
+local owner = {code=ARGV[1],expiresAt=session.expiresAt,viewerDeadline=session.viewerDeadline,hasConnectedViewer=false}
+redis.call('PSETEX', KEYS[1], ARGV[4], cjson.encode(session))
+redis.call('PSETEX', KEYS[2], tonumber(ARGV[3])+tonumber(ARGV[5]), cjson.encode(owner))
 redis.call('DEL', KEYS[3], KEYS[4], KEYS[5], KEYS[6], KEYS[7])
 return 1
 `;
 
-const deleteSessionScript = CLOCK + `
+const deleteSessionScript = CLOCK + TOKEN + `
 local raw = redis.call('GET', KEYS[1])
-if raw and cjson.decode(raw).token == ARGV[2] and redis.call('GET', KEYS[2]) == ARGV[1] then
+if raw and cjson.decode(raw).token == ARGV[2] and tokenCode == ARGV[1] then
   redis.call('DEL', KEYS[1], KEYS[2], KEYS[3], KEYS[4], KEYS[5], KEYS[6], KEYS[7])
 end
+if tokenCode == ARGV[1] then redis.call('DEL', KEYS[2]) end
 return result(200,'OK','Sharing stopped')
 `;
 
-const readSessionScript = CLOCK + SESSION + `
+const readSessionScript = CLOCK + TOKEN + SESSION + `
+-- The first successful viewer read counts as a connection. Owner status checks
+-- use a separate authenticated route and cannot keep an unused session alive.
+if session.hasConnectedViewer == false then
+  if now >= session.viewerDeadline then return result(404,'SESSION_NOT_FOUND','Sharing session has ended') end
+  session.hasConnectedViewer = true
+  local ownerKey = 'token:' .. session.token
+  local ownerRaw = redis.call('GET', ownerKey)
+  if not ownerRaw then return result(404,'SESSION_NOT_FOUND','Sharing session has ended') end
+  local owner = cjson.decode(ownerRaw)
+  owner.hasConnectedViewer = true
+  redis.call('SET', ownerKey, cjson.encode(owner), 'XX', 'KEEPTTL')
+  rawSession = cjson.encode(session)
+  redis.call('SET', KEYS[1], rawSession, 'XX', 'KEEPTTL')
+  for _, index in ipairs({1,3,4,5,6,7}) do redis.call('PEXPIREAT', KEYS[index], session.expiresAt) end
+end
 local workout = redis.call('GET', KEYS[3])
 local rr = redis.call('GET', KEYS[7])
 return '{"status":200,"session":' .. rawSession .. ',"workoutState":' .. (workout or 'null') .. ',"rrState":' .. (rr or 'null') .. ',"serverTime":' .. now .. '}'
 `;
 
-const beatScript = CLOCK + SESSION + AUTH + `
+const hostStatusScript = CLOCK + TOKEN + `
+local rawSession = redis.call('GET', KEYS[1])
+if not rawSession or cjson.decode(rawSession).token ~= ARGV[2] then return ended() end
+local session = cjson.decode(rawSession)
+if tokenCode ~= ARGV[1] then return result(401,'INVALID_TOKEN','Invalid host token') end
+return cjson.encode({status=200,serverTime=now,expiresAt=session.expiresAt or now+redis.call('PTTL',KEYS[1]),
+  viewerDeadline=session.viewerDeadline or cjson.null,hasConnectedViewer=session.hasConnectedViewer ~= false})
+`;
+
+const beatScript = CLOCK + TOKEN + SESSION + AUTH + `
 local beat = cjson.decode(ARGV[3])
 session.bpm = beat.bpm
 for _, key in ipairs({'max','avg','min'}) do if beat[key] ~= nil then session[key] = beat[key] end end
@@ -250,7 +301,7 @@ redis.call('SET', KEYS[1], cjson.encode(session), 'XX', 'KEEPTTL')
 return result(200,'OK','Heart rate updated')
 `;
 
-export const publishWorkoutScript = CLOCK + SESSION + AUTH + SAVE + `
+export const publishWorkoutScript = CLOCK + TOKEN + SESSION + AUTH + SAVE + `
 local snapshot = cjson.decode(ARGV[3])
 local previous = redis.call('GET', KEYS[3])
 if previous and snapshot.sequence <= cjson.decode(previous).snapshot.sequence then
@@ -273,9 +324,9 @@ local commands = redis.call('HVALS', KEYS[4])
 return '{"status":200,"commands":[' .. table.concat(commands, ',') .. '],"serverTime":' .. now .. '}'
 `;
 
-export const controlScript = CLOCK + SESSION + SAVE + `
+export const controlScript = CLOCK + TOKEN + SESSION + SAVE + `
 local command = cjson.decode(ARGV[1])
-local validActions = {work=true,rest=true,start=true,startIncludingHistory=true,pause=true,resume=true,['end']=true,reset=true,cool=true,loadPreset=true,clearPreset=true,hrvStart=true,hrvCancel=true,hrvReset=true}
+local validActions = {${CONTROL_ACTIONS.map(action => `['${action}']=true`).join(',')}}
 if not validActions[command.action] then return result(400,'INVALID_CONTROL','Unsupported workout control') end
 local presetFingerprint = ARGV[2] or ''
 local receipt = redis.call('HGET', KEYS[5], command.id)
@@ -331,11 +382,8 @@ elseif action == 'start' or action == 'loadPreset' then stateAllowed = state == 
 elseif action == 'startIncludingHistory' then stateAllowed = state == 'idle' and not snapshot.isCompleted and not snapshot.isPresetMode
   and type(snapshot.recoverableHistorySeconds) == 'number' and snapshot.recoverableHistorySeconds > 0
 elseif action == 'clearPreset' then stateAllowed = state == 'idle' and not snapshot.isCompleted and snapshot.isPresetMode
-elseif action == 'pause' then stateAllowed = state == 'running' or state == 'cooldown'
 elseif action == 'resume' then stateAllowed = state == 'paused' or state == 'cooldownPaused' or (state == 'idle' and snapshot.isCompleted)
-elseif action == 'end' then stateAllowed = state ~= 'idle' and not snapshot.isCompleted
-elseif action == 'reset' then stateAllowed = state ~= 'idle' or not snapshot.isEmpty or snapshot.isPresetMode
-elseif action == 'cool' then stateAllowed = (state == 'running' or state == 'paused') and not snapshot.isPresetMode and not snapshot.isCompleted end
+elseif action == 'reset' then stateAllowed = state == 'idle' and (not snapshot.isEmpty or snapshot.isPresetMode) end
 if not allowed or not stateAllowed then
   return remember(409,'CONTROL_DISABLED','This workout control is currently unavailable')
 end
@@ -351,7 +399,7 @@ expire(KEYS[6])
 return remember(200,'QUEUED','Workout control queued')
 `;
 
-const publishRRScript = CLOCK + SESSION + AUTH + SAVE + `
+const publishRRScript = CLOCK + TOKEN + SESSION + AUTH + SAVE + `
 local snapshot = cjson.decode(ARGV[3])
 local previous = redis.call('GET', KEYS[7])
 if previous and snapshot.sequence <= cjson.decode(previous).snapshot.sequence then
@@ -378,6 +426,10 @@ async function hostCode(redis: ShareRedis, token: unknown): Promise<string> {
 function mappedCode(value: unknown): string | null {
   // @vercel/kv automatically decodes unquoted numeric strings. Leading-zero
   // codes remain strings; the other six-digit codes can arrive as numbers.
+  if (typeof value === 'string' && value.startsWith('{')) {
+    try { value = JSON.parse(value); } catch { return null; }
+  }
+  if (value && typeof value === 'object') value = (value as ObjectValue).code;
   const code = typeof value === 'number' && Number.isSafeInteger(value) ? String(value) : value;
   return typeof code === 'string' && /^[0-9]{6}$/.test(code) ? code : null;
 }
@@ -385,7 +437,15 @@ function mappedCode(value: unknown): string | null {
 export async function createShareSession(redis: ShareRedis, code: string, token: string): Promise<boolean> {
   validateCode(code);
   validateToken(token);
-  return await redis.eval(createSessionScript, keys(code, token), [code, token, SHARE_LIFETIME_MS]) === 1;
+  return await redis.eval(createSessionScript, keys(code, token),
+    [code, token, SHARE_LIFETIME_MS, SHARE_JOIN_TIMEOUT_MS, SHARE_EXPIRATION_NOTICE_MS]) === 1;
+}
+
+export async function readHostSession(redis: ShareRedis, token: unknown): Promise<ObjectValue> {
+  const code = await hostCode(redis, token);
+  const state = await run(redis, hostStatusScript, keys(code, token as string), [code, token]);
+  return { serverTime: state.serverTime, expiresAt: state.expiresAt,
+    viewerDeadline: state.viewerDeadline, hasConnectedViewer: state.hasConnectedViewer };
 }
 
 export async function deleteShareSession(redis: ShareRedis, token: unknown): Promise<void> {
@@ -399,8 +459,14 @@ export async function readSharedSession(redis: ShareRedis, code: unknown): Promi
   validateCode(code);
   const result = await run(redis, readSessionScript, keys(code), []);
   const session = result.session;
+  const workout = result.workoutState?.snapshot ?? null;
+  // Older hosts may still publish these controls. Advertise only what viewers can request.
+  if (Array.isArray(workout?.allowedActions)) {
+    workout.allowedActions = workout.allowedActions.filter((action: string) =>
+      WORKOUT_ACTIONS.includes(action) && (action !== 'reset' || workout.state === 'idle'));
+  }
   return { bpm: session.bpm, max: session.max, avg: session.avg, min: session.min, timestamp: session.timestamp,
-    workout: result.workoutState?.snapshot ?? null, workoutTimestamp: result.workoutState?.timestamp ?? null,
+    workout, workoutTimestamp: result.workoutState?.timestamp ?? null,
     rrStream: result.rrState?.snapshot ?? null, rrTimestamp: result.rrState?.timestamp ?? null, serverTime: result.serverTime };
 }
 

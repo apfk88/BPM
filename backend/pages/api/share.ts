@@ -2,7 +2,7 @@ import { randomBytes, randomInt } from 'crypto';
 import { NextApiRequest, NextApiResponse } from 'next';
 import { kv } from '@vercel/kv';
 import { sendApiError } from '../../lib/api-response';
-import { createShareSession, deleteShareSession, ShareRequestError } from '../../lib/share-workout';
+import { createShareSession, deleteShareSession, readHostSession, ShareRequestError } from '../../lib/share-workout';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   res.setHeader('Cache-Control', 'no-store');
@@ -11,9 +11,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       for (let attempt = 0; attempt < 100; attempt++) {
         const code = String(randomInt(0, 1000000)).padStart(6, '0');
         const token = randomBytes(32).toString('hex');
-        if (await createShareSession(kv, code, token)) return res.status(200).json({ code, token });
+        if (await createShareSession(kv, code, token)) {
+          return res.status(200).json({ code, token, ...await readHostSession(kv, token) });
+        }
       }
       throw new Error('Share code capacity exhausted');
+    }
+    if (req.method === 'GET') {
+      const authorization = req.headers.authorization;
+      const token = authorization?.startsWith('Bearer ') ? authorization.slice(7) : undefined;
+      return res.status(200).json(await readHostSession(kv, token));
     }
     if (req.method === 'DELETE') {
       await deleteShareSession(kv, req.body?.token);

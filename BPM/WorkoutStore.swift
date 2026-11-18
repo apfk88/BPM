@@ -21,7 +21,15 @@ private enum WorkoutICloudSyncLimit {
 }
 
 final class WorkoutStore: ObservableObject {
-    static let shared = WorkoutStore()
+    static let shared: WorkoutStore = {
+        #if DEBUG && targetEnvironment(simulator)
+        if let directory = RetrospectiveWorkoutUITestFixture.directory {
+            return WorkoutStore(storeURL: directory.appendingPathComponent("workouts.json"),
+                                iCloudStore: WorkoutSharePreviewCloud())
+        }
+        #endif
+        return WorkoutStore()
+    }()
 
     @Published private(set) var workouts: [WorkoutRecord] = []
     @Published private(set) var lastError: String?
@@ -94,7 +102,9 @@ final class WorkoutStore: ObservableObject {
                     createdAt: records[existingIndex].createdAt,
                     updatedAt: now,
                     pauses: record.pauses,
-                    zoneConfig: record.zoneConfig
+                    zoneConfig: record.zoneConfig,
+                    sampleFidelity: record.sampleFidelity,
+                    originalSampleCount: record.originalSampleCount
                 )
                 records[existingIndex] = updated
             } else {
@@ -124,7 +134,9 @@ final class WorkoutStore: ObservableObject {
                     createdAt: now,
                     updatedAt: now,
                     pauses: record.pauses,
-                    zoneConfig: record.zoneConfig
+                    zoneConfig: record.zoneConfig,
+                    sampleFidelity: record.sampleFidelity,
+                    originalSampleCount: record.originalSampleCount
                 )
                 records.insert(updated, at: 0)
             }
@@ -138,6 +150,52 @@ final class WorkoutStore: ObservableObject {
                 self.lastError = nil
                 self.workouts = self.sorted(records)
                 completion(.success(updated))
+            }
+        }
+    }
+
+    enum RetrospectiveSaveError: LocalizedError {
+        case overlapsSavedWorkout
+        case outsideRetention
+        case saveFailed
+
+        var errorDescription: String? {
+            switch self {
+            case .overlapsSavedWorkout: return "A saved workout already covers part of this time. Choose another range."
+            case .outsideRetention: return "This recording is older than your workout history retention period."
+            case .saveFailed: return "The workout couldn’t be saved. Please try again."
+            }
+        }
+    }
+
+    func saveRetrospectiveWorkout(
+        _ record: WorkoutRecord,
+        completion: @escaping (Result<WorkoutRecord, RetrospectiveSaveError>) -> Void
+    ) {
+        queue.async {
+            // Check the latest committed history. A retry must preserve edits made
+            // after the same range was first saved.
+            if let existing = self.cachedRecords.first(where: { $0.id == record.id }) {
+                DispatchQueue.main.async { completion(.success(existing)) }
+                return
+            }
+            if self.cachedRecords.contains(where: { $0.startAt < record.endAt && record.startAt < $0.endAt }) {
+                DispatchQueue.main.async { completion(.failure(.overlapsSavedWorkout)) }
+                return
+            }
+            let records = self.pruneRetentionInternal(records: self.cachedRecords + [record], now: Date())
+            guard records.contains(where: { $0.id == record.id }) else {
+                DispatchQueue.main.async { completion(.failure(.outsideRetention)) }
+                return
+            }
+            guard self.persist(records: records) else {
+                DispatchQueue.main.async { completion(.failure(.saveFailed)) }
+                return
+            }
+            DispatchQueue.main.async {
+                self.lastError = nil
+                self.workouts = self.sorted(records)
+                completion(.success(record))
             }
         }
     }
@@ -455,7 +513,10 @@ final class WorkoutStore: ObservableObject {
             createdAt: record.createdAt,
             updatedAt: record.updatedAt,
             pauses: record.pauses,
-            zoneConfig: record.zoneConfig
+            zoneConfig: record.zoneConfig,
+            sampleFidelity: record.hrSamples.count > maxSamples ? .reduced : record.sampleFidelity,
+            originalSampleCount: record.originalSampleCount ??
+                (record.resolvedSampleFidelity == .full ? record.hrSamples.count : nil)
         )
     }
 

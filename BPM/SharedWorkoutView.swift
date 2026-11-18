@@ -389,13 +389,8 @@ struct SharedWorkoutView: View {
                         .disabled(!canSend(.loadPreset))
                         .frame(maxWidth: .infinity)
                         .accessibilityIdentifier("sharedWorkoutLoadPreset")
-                    } else {
-                        let paused = snapshot.state == .paused || snapshot.state == .cooldownPaused
-                        controlButton(paused ? .resume : .pause, title: paused ? "Resume" : "Pause", metrics: metrics)
-                        controlButton(.end, title: "End", metrics: metrics)
-                        if !snapshot.isPresetMode {
-                            controlButton(.cool, title: "Cool", metrics: metrics)
-                        }
+                    } else if snapshot.state == .paused || snapshot.state == .cooldownPaused {
+                        controlButton(.resume, title: "Resume", metrics: metrics)
                     }
                 }
                 if !snapshot.isCompleted {

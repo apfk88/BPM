@@ -5,12 +5,12 @@
   if (!screen || !controls || !error) return;
 
   const screens = {
-    live: { src: '/screens/live.png', alt: 'BPM live display with a large 122 BPM reading, heart rate statistics, and zone 2 indicator' },
-    workout: { src: '/screens/workout-stats.png', alt: 'BPM workout stats showing heart rate, total time, set number, set time, average and maximum heart rate, zone, and calories' },
-    hrv: { src: '/screens/hrv.png', alt: 'BPM HRV result showing 22 milliseconds with average, minimum, and maximum readings' },
-    stream: { src: '/screens/sharing.png', alt: 'BPM live sharing screen with a temporary six-digit code above the heart rate display' },
-    share: { src: '/screens/share.png', alt: 'BPM Share drawer with the workout chart card and Share Chart button' },
-    presets: { src: '/screens/presets.png', alt: 'BPM workout preset menu with Norwegian 4x4 and HIIT intervals' }
+    live: { src: '/screens/live.png?v=2.2-24', alt: 'BPM live display with a large heart rate reading, average, minimum, maximum, and current zone' },
+    workout: { src: '/screens/workout-stats.png?v=2.2-24', alt: 'BPM workout stats showing heart rate, total time, set number, set time, average and maximum heart rate, zone, and calories' },
+    hrv: { src: '/screens/hrv.png?v=2.2-24', alt: 'BPM shared HRV result showing 46 milliseconds with average, minimum, and maximum heart rate' },
+    stream: { src: '/screens/sharing.png?v=2.2-24', alt: 'BPM shared workout on a viewer’s iPhone with live heart rate, work and rest sets, and remote workout controls' },
+    share: { src: '/screens/share.png?v=2.2-24', alt: 'BPM Share drawer with the workout chart card and Share Chart button' },
+    presets: { src: '/screens/presets.png?v=2.2-24', alt: 'BPM workout presets with Norwegian 4x4 and three HIIT interval routines, showing work, rest, and total durations' }
   };
   let request = 0;
   controls.hidden = false;

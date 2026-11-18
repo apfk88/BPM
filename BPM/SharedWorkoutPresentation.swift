@@ -25,7 +25,7 @@ enum SharedWorkoutPresentation {
         } else {
             setTime = timer.isPresetMode ? timer.presetPhaseTimeRemaining : timer.currentSetTime
         }
-        let canWork = allowsRemoteControl && timer.state == .running && !timer.isPresetMode && !timer.isCompleted
+        let actions = allowsRemoteControl ? allowedActions(for: timer) : []
         let zoneTimes = timer.timeInZones(config: zoneConfig)
         let topZone = zoneTimes.filter { $0.duration > 0 }.max { lhs, rhs in
             lhs.duration == rhs.duration ? lhs.zone.rawValue > rhs.zone.rawValue : lhs.duration < rhs.duration
@@ -42,8 +42,8 @@ enum SharedWorkoutPresentation {
             state: timer.state,
             isCompleted: timer.isCompleted,
             isPresetMode: timer.isPresetMode,
-            canWork: canWork,
-            canRest: canWork && !timer.isTimingRestSet,
+            canWork: actions.contains(.work),
+            canRest: actions.contains(.rest),
             totalTime: total,
             setTime: setTime,
             totalTimeAdvances: advancing && !isCooldown,
@@ -65,7 +65,7 @@ enum SharedWorkoutPresentation {
             },
             chartMaxTime: timer.chartMaxTime(),
             zones: zoneTimes.map { SharedWorkoutSnapshot.ZoneDuration(zone: $0.zone.rawValue, duration: $0.duration) },
-            allowedActions: allowsRemoteControl ? allowedActions(for: timer) : [],
+            allowedActions: actions,
             activePreset: timer.activePreset,
             recoverableHistorySeconds: timer.recoverableSessionID.flatMap { timer.recoverableHistoryDuration(for: $0) },
             hrv: hrv.map {
@@ -75,6 +75,9 @@ enum SharedWorkoutPresentation {
             }
         )
     }
+
+    static let viewerSetBellsKey = "viewerSetBellsEnabled"
+    static let blockViewerSetLoggingKey = "blockViewerSetLogging"
 
     static func apply(
         _ command: SharedWorkoutCommand,
@@ -95,30 +98,25 @@ enum SharedWorkoutPresentation {
         switch command.action {
         case .work:
             timer.captureSet()
+            timer.playViewerSetBell(.workBegins)
         case .rest:
             guard !timer.isTimingRestSet else { return false }
             timer.captureRestSet()
+            timer.playViewerSetBell(.restBegins)
         case .start:
             if timer.isPresetMode { timer.startPreset() } else { timer.start() }
         case .startIncludingHistory:
             guard let sessionID = timer.recoverableSessionID else { return false }
             timer.start(includingPreviousMeasurementsFrom: sessionID)
-        case .pause:
-            if timer.state == .cooldown { timer.toggleCooldown() }
-            else if timer.isPresetMode { timer.pausePreset() }
-            else { timer.stop() }
+        case .pause, .end, .cool:
+            return false
         case .resume:
             if timer.isCompleted { timer.resumeEndedWorkout() }
             else if timer.state == .cooldownPaused { timer.toggleCooldown() }
             else if timer.isPresetMode { timer.startPreset() }
             else { timer.start() }
-        case .end:
-            timer.endWorkout()
         case .reset:
             timer.reset()
-        case .cool:
-            timer.captureSet()
-            timer.end()
         case .loadPreset:
             guard let preset = command.preset, isValidSharedPreset(preset) else { return false }
             timer.loadPreset(preset)
@@ -132,7 +130,8 @@ enum SharedWorkoutPresentation {
 
     static func allowedActions(for timer: TimerViewModel) -> [SharedWorkoutAction] {
         var actions: [SharedWorkoutAction] = []
-        if timer.state == .running, !timer.isPresetMode, !timer.isCompleted {
+        if timer.state == .running, !timer.isPresetMode, !timer.isCompleted,
+           !UserDefaults.standard.bool(forKey: blockViewerSetLoggingKey) {
             actions.append(.work)
             if !timer.isTimingRestSet { actions.append(.rest) }
         }
@@ -143,11 +142,8 @@ enum SharedWorkoutPresentation {
             }
         }
         if timer.canClearPreset { actions.append(.clearPreset) }
-        if timer.state == .running || timer.state == .cooldown { actions.append(.pause) }
         if timer.state == .paused || timer.state == .cooldownPaused || timer.isCompleted { actions.append(.resume) }
-        if timer.state != .idle { actions.append(.end) }
-        if !timer.isPresetMode, timer.state == .running || timer.state == .paused { actions.append(.cool) }
-        if timer.state != .idle || !timer.sets.isEmpty || timer.isPresetMode { actions.append(.reset) }
+        if timer.state == .idle, !timer.sets.isEmpty || timer.isPresetMode { actions.append(.reset) }
         return actions
     }
 

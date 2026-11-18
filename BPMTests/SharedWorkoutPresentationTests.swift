@@ -48,6 +48,92 @@ final class SharedWorkoutPresentationTests: XCTestCase {
         XCTAssertTrue(resting.rows.last?.isActive == true)
     }
 
+    func testBlockingViewerSetLoggingRevokesPendingSetsWhileOwnerKeepsLogging() {
+        let defaults = UserDefaults.standard
+        let key = SharedWorkoutPresentation.blockViewerSetLoggingKey
+        let previous = defaults.object(forKey: key)
+        defaults.removeObject(forKey: key)
+        defer { defaults.set(previous, forKey: key) }
+
+        let clock = Clock()
+        let timer = makeTimer(clock)
+        defer { timer.reset() }
+        timer.start()
+        clock.advance(5)
+        let open = snapshot(timer)
+        XCTAssertTrue(open.canWork && open.canRest)
+        XCTAssertTrue(open.permits(.work) && open.permits(.rest))
+
+        defaults.set(true, forKey: key)
+        let blocked = snapshot(timer)
+        XCTAssertFalse(blocked.canWork)
+        XCTAssertFalse(blocked.canRest)
+        for action in [SharedWorkoutAction.work, .rest] {
+            let pending = command(action, snapshot: open)
+            XCTAssertFalse(blocked.permits(action))
+            XCTAssertFalse(SharedWorkoutPresentation.apply(pending, to: timer, current: blocked))
+            XCTAssertFalse(SharedWorkoutPresentation.apply(pending, to: timer, current: open))
+        }
+        XCTAssertTrue(timer.sets.isEmpty)
+        timer.captureRestSet()
+        XCTAssertTrue(timer.isTimingRestSet)
+        clock.advance(3)
+        timer.captureSet()
+        XCTAssertFalse(timer.isTimingRestSet)
+        timer.stop()
+        XCTAssertTrue(snapshot(timer).permits(.resume))
+        timer.start()
+
+        defaults.set(false, forKey: key)
+        let reopened = snapshot(timer)
+        XCTAssertTrue(reopened.canWork && reopened.canRest)
+        XCTAssertTrue(SharedWorkoutPresentation.apply(command(.rest, snapshot: reopened), to: timer, current: reopened))
+    }
+
+    func testViewerSetBellsFollowAcceptedCommandsAndTheHostPreference() {
+        let defaults = UserDefaults.standard
+        let key = SharedWorkoutPresentation.viewerSetBellsKey
+        let previous = defaults.object(forKey: key)
+        defaults.removeObject(forKey: key)
+        defer { defaults.set(previous, forKey: key) }
+
+        let clock = Clock()
+        var cues: [TimerSoundCue] = []
+        let timer = makeTimer(clock, soundCueHandler: { cues.append($0) })
+        defer { timer.reset() }
+        timer.start()
+
+        func mark(_ action: SharedWorkoutAction) {
+            clock.advance(3)
+            let current = snapshot(timer)
+            let request = command(action, snapshot: current)
+            XCTAssertTrue(SharedWorkoutPresentation.apply(request, to: timer, current: current))
+            XCTAssertFalse(SharedWorkoutPresentation.apply(request, to: timer, current: snapshot(timer)))
+        }
+
+        mark(.work)
+        mark(.rest)
+        XCTAssertEqual(cues, [.workBegins, .restBegins])
+
+        defaults.set(false, forKey: key)
+        mark(.work)
+        mark(.rest)
+        XCTAssertEqual(cues, [.workBegins, .restBegins])
+
+        defaults.set(true, forKey: key)
+        let audio = WorkoutRecordingAudio.shared
+        let wasRecording = audio.isRecording
+        defer { audio.setRecording(wasRecording) }
+        audio.setRecording(true)
+        mark(.work)
+        audio.setRecording(false)
+        timer.captureRestSet()
+        XCTAssertEqual(cues, [.workBegins, .restBegins])
+
+        mark(.work)
+        XCTAssertEqual(cues, [.workBegins, .restBegins, .workBegins])
+    }
+
     func testPauseResumeAndResetInvalidatePreviouslyRequestedSets() {
         let clock = Clock()
         let timer = makeTimer(clock)
@@ -150,7 +236,7 @@ final class SharedWorkoutPresentationTests: XCTestCase {
         XCTAssertTrue(timer.sets.isEmpty)
     }
 
-    func testTrainerCanControlCompleteLifecycleWithoutSaving() {
+    func testOnlyOwnerCanPauseEndOrClearAnActiveWorkout() {
         let clock = Clock()
         let timer = makeTimer(clock)
         defer { timer.reset() }
@@ -159,28 +245,45 @@ final class SharedWorkoutPresentationTests: XCTestCase {
             XCTAssertTrue(current.permits(action))
             XCTAssertTrue(SharedWorkoutPresentation.apply(command(action, snapshot: current), to: timer, current: current))
         }
+        func assertProtected() {
+            let current = snapshot(timer)
+            let forbidden: [SharedWorkoutAction] = [.pause, .end, .cool, .reset]
+            var legacy = current
+            legacy.allowedActions = forbidden
+            for action in forbidden {
+                XCTAssertFalse(current.allowedActions?.contains(action) == true)
+                XCTAssertFalse(legacy.permits(action))
+                XCTAssertFalse(SharedWorkoutPresentation.apply(command(action, snapshot: legacy), to: timer, current: legacy))
+            }
+            XCTAssertEqual(snapshot(timer), current)
+        }
         apply(.start)
         XCTAssertEqual(timer.state, .running)
         clock.advance(12)
-        apply(.pause)
+        assertProtected()
+        timer.stop()
         XCTAssertEqual(timer.state, .paused)
+        assertProtected()
         XCTAssertEqual(timer.elapsedTime, 12, accuracy: 0.001)
         clock.advance(30)
         apply(.resume)
         clock.advance(8)
-        apply(.cool)
+        timer.captureSet()
+        timer.end()
         XCTAssertEqual(timer.state, .cooldown)
         XCTAssertEqual(timer.frozenElapsedTime, 20, accuracy: 0.001)
         XCTAssertEqual(timer.sets.first?.setTime, 20)
-        apply(.pause)
+        assertProtected()
+        timer.toggleCooldown()
         XCTAssertEqual(timer.state, .cooldownPaused)
+        assertProtected()
         apply(.resume)
         XCTAssertEqual(timer.state, .cooldown)
-        apply(.end)
+        timer.endWorkout()
         XCTAssertTrue(timer.isCompleted)
         apply(.resume)
         XCTAssertEqual(timer.state, .cooldown)
-        apply(.end)
+        timer.endWorkout()
         let beforeReset = snapshot(timer)
         let resetCommand = command(.reset, snapshot: beforeReset)
         XCTAssertTrue(SharedWorkoutPresentation.apply(resetCommand, to: timer, current: beforeReset))
@@ -217,11 +320,12 @@ final class SharedWorkoutPresentationTests: XCTestCase {
         clock.advance(5)
         timer.refreshTiming()
         let running = snapshot(timer)
-        XCTAssertTrue(running.permits(.pause))
+        XCTAssertFalse(running.permits(.pause))
         XCTAssertFalse(running.permits(.loadPreset))
         XCTAssertFalse(running.permits(.clearPreset))
         XCTAssertFalse(running.permits(.cool))
-        XCTAssertTrue(SharedWorkoutPresentation.apply(command(.end, snapshot: running), to: timer, current: running))
+        XCTAssertFalse(SharedWorkoutPresentation.apply(command(.end, snapshot: running), to: timer, current: running))
+        timer.endWorkout()
         let completed = snapshot(timer)
         XCTAssertTrue(SharedWorkoutPresentation.apply(command(.reset, snapshot: completed), to: timer, current: completed))
         let empty = snapshot(timer)
@@ -407,10 +511,11 @@ final class SharedWorkoutPresentationTests: XCTestCase {
                              controlRevision: snapshot.controlRevision, action: action, createdAt: 0)
     }
 
-    private func makeTimer(_ clock: Clock, countdownDuration: TimeInterval = 0) -> TimerViewModel {
+    private func makeTimer(_ clock: Clock, countdownDuration: TimeInterval = 0,
+                           soundCueHandler: @escaping (TimerSoundCue) -> Void = { _ in }) -> TimerViewModel {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("shared-workout-\(UUID()).json")
         return TimerViewModel(presetStartCountdownDuration: countdownDuration, sessionStore: ActiveWorkoutSessionStore(fileURL: url),
-                              nowProvider: { clock.date }, soundCueHandler: { _ in })
+                              nowProvider: { clock.date }, soundCueHandler: soundCueHandler)
     }
 
     private final class Clock {

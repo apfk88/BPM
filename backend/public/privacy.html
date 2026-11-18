@@ -15,7 +15,7 @@
       href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700;800;900&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="/marketing-v2.css?v=5" />
+    <link rel="stylesheet" href="/marketing-v2.css?v=8" />
 
     <link rel="icon" href="/icon.svg" type="image/svg+xml" />
     <link rel="icon" href="/favicon-light-32x32.png" media="(prefers-color-scheme: light)" />
@@ -37,7 +37,7 @@
       <section class="section policy-section">
         <div class="container policy-wrap">
           <h1 class="policy-title">Privacy Policy</h1>
-          <p class="policy-date">Effective date: November 5, 2026</p>
+          <p class="policy-date">Effective date: November 11, 2026</p>
 
           <div class="policy-card">
             <p>
@@ -51,6 +51,7 @@
               <li>Measured heart rate data stays on your device unless you explicitly choose to share it.</li>
               <li>Optional voice notes use a third-party AI service with your permission. See <a href="#ai-voice">Voice Notes</a> below.</li>
               <li>If you enable sharing, live heart rate, beat intervals, HRV measurement state and results, and workout data are sent to the sharing backend so people with your code or invite link can view and control your workout and HRV measurement.</li>
+              <li>If you choose “Include private workout link,” BPM uploads the selected saved workout to an unlisted webpage. Anyone with its link can view and download the included data. These pages have no automatic expiration and can be deleted in Settings → Shared Pages.</li>
               <li>We collect limited, non-personal app usage and device information through TelemetryDeck to understand app reliability and usage.</li>
             </ul>
 
@@ -58,18 +59,19 @@
             <h3>Heart Rate (BPM), Max, and Average (last hour)</h3>
             <ul>
               <li><strong>Source</strong>: Your Bluetooth LE heart rate strap via CoreBluetooth.</li>
-              <li><strong>On-device use</strong>: Display and simple stats.</li>
+              <li><strong>On-device use</strong>: BPM displays live heart rate and calculates statistics. It keeps up to seven days of readings received from your connected sensor outside workouts on this device. In Settings, choose Recover a Workout to save a time range to Workout History.</li>
               <li><strong>Optional sharing</strong>: Live BPM and summaries, original beat intervals, current HRV readiness, countdown, result and heart-rate summary, workout timers, sets, heart-rate charts, time in zones, estimated calories, workout state, and the selected preset are associated with a random 6-digit code and a private broadcaster token. Control requests include a random request ID and the current workout/HRV revision so duplicate or outdated requests can be rejected. Saved workout titles, notes, and profile inputs are not included.</li>
             </ul>
 
-            <h2>Sharing and Retention</h2>
+            <h2>Live Sharing and Retention</h2>
             <ul>
               <li><strong>When sharing is ON</strong>:
                 <ul>
                   <li>Data is transmitted over HTTPS to your backend (default deployment: Vercel + KV/Upstash).</li>
-                  <li>Share sessions expire automatically after 90 minutes.</li>
-                  <li>Anyone with your code or invite link can start, pause, end, reset, and control your workout, including loading presets. They can also start, stop, or reset your HRV measurement. Your device performs that measurement, and connected viewers see the same countdown and result. Only the broadcaster can save the workout or HRV result; viewers cannot save these shared measurements in BPM.</li>
+                  <li>Sharing expires after five minutes if nobody connects. If a viewer connects within that time, sharing expires 90 minutes after it started. These deadlines are not extended by activity.</li>
+                  <li>Anyone with your code or invite link can start or resume your workout, load or clear a preset before starting, and reset a completed workout. Viewers can log work and rest sets unless you turn off Allow Viewer Set Logging in Live Sharing settings. Only you can pause, start cooldown, end, or clear an active workout. Viewers can also start, stop, or reset your HRV measurement. Your device performs the measurement and shares its countdown and result. Only you can save the workout or HRV result in BPM.</li>
                   <li>The backend holds a rolling 15-second window of beat intervals and the latest workout/HRV state. Workout, HRV, beat-interval, and control records expire with the session and are removed when sharing is stopped successfully on the backend.</li>
+                  <li>After automatic expiry, the private owner token retains only the session code, deadlines, and whether a viewer connected, for up to 95 minutes from the start. This lets BPM explain why sharing stopped. Stopping sharing manually removes this metadata too.</li>
                 </ul>
               </li>
               <li><strong>When sharing is OFF</strong>:
@@ -77,6 +79,19 @@
                   <li>BPM does not transmit measured heart rate samples through live sharing.</li>
                 </ul>
               </li>
+            </ul>
+
+            <h2 id="workout-pages">Private Workout Pages</h2>
+            <ul>
+              <li><strong>Your choice</strong>: The private-link option starts off. Selecting it lets BPM prepare a private upload in the background. The final Share button makes the link available to view and download. Unshared drafts expire after 24 hours and are removed by scheduled cleanup. A page includes the full saved workout, title, and description even if the accompanying image is cropped. You can edit a shared page's title and description in Settings → Shared Pages.</li>
+              <li><strong>Included data</strong>: The workout’s calendar date, shared title and description, available recorded heart-rate readings, relative timing, pauses and signal-loss information, sets, zones, and saved workout statistics such as heart-rate recovery and estimated calories. The exact workout time is included only if you select that option. Titles and descriptions may identify you; this content is not guaranteed to be anonymous.</li>
+              <li><strong>Excluded data</strong>: BPM does not include your Apple Health profile inputs, HealthKit record identifiers or synchronization errors, Bluetooth device identifiers, audio recordings, or other workouts in the page export.</li>
+              <li><strong>Hosting and access</strong>: Workout files are stored privately with Vercel Blob. Vercel and KV/Upstash handle the access and management records needed to deliver the page. A long random link grants viewing and downloading access; anyone you send it to can forward it. BPM and its hosting providers can process the data. Pages are not listed publicly, are marked against search indexing, and do not use page analytics.</li>
+              <li><strong>Link previews</strong>: Sharing a workout link can show a card with its title, chart, date, and statistics. BPM may send the selected card directly to your messaging app; preview services can also fetch a full-workout card using a separate preview-only access token in the link. That token does not grant access to the workout data or downloads. Messaging and preview services may keep copies after the page is deleted or its link is replaced. Hosting providers may retain the preview token in request metadata; the full-workout key remains in the link fragment.</li>
+              <li><strong>Retention and deletion</strong>: Pages have no automatic expiration while this service is operated. You can open or delete a page from its workout in History, or update, replace the link, and delete it in Settings → Shared Pages. Deletion revokes future access before removing the stored workout. Recipients may retain downloaded copies or data already loaded in their browser. Local history retention does not automatically delete hosted pages; when manually deleting a linked workout, you can choose whether to delete its page too.</li>
+              <li><strong>Recovery</strong>: Management credentials are held securely on your device and kept separate from viewer links. A recovery code can restore management access on another installation. Recovery information for existing viewer links is encrypted with a key BPM's backend does not receive. Keep the recovery code private. Losing it and your device prevents automatic ownership recovery.</li>
+              <li><strong>Abuse prevention</strong>: Apple App Attest helps verify uploads from the app. The backend stores verification keys, counters, and limited request metadata to enforce upload and viewing limits. Hosting providers may retain operational request metadata. Workout content and access credentials are excluded from application logs and analytics.</li>
+              <li><strong>Use</strong>: This data is used to provide the workout page and its downloads, not for advertising or unrelated data mining. To report a page or request help with deletion, contact <a href="mailto:vibecodeinc@proton.me">vibecodeinc@proton.me</a>.</li>
             </ul>
 
             <h2>Apple Health and Calorie Settings</h2>
@@ -97,7 +112,7 @@
 
             <h2>Analytics</h2>
             <ul>
-              <li>TelemetryDeck receives app launch and session activity, feature and screen usage, settings choices, app version, device type, operating system, and a non-personal device identifier for analytics. Feature usage includes sharing outcomes, streaming, sounds, HRV measurement outcomes, history visits, presets, and AI voice actions. For calorie settings, analytics record which fields were edited and whether fields are filled, empty, invalid, or using a default, never the values entered. Reliability events include fixed failure categories and recognized heart-rate sensor brands/models, protocol capabilities, and connection outcomes. Raw Bluetooth names, sensor identifiers, serial numbers, and heart-rate or beat-interval values are not included.</li>
+              <li>TelemetryDeck receives app launch and session activity, feature and screen usage, settings choices, app version, device type, operating system, and a non-personal device identifier for analytics. Feature usage includes sharing outcomes, streaming, sounds, HRV measurement outcomes, history visits, presets, and AI voice actions. For calorie settings, analytics record which fields were edited and whether fields are filled, empty, invalid, or using a default, never the values entered. Reliability diagnostics use fixed labels for the app component, operation, and failure category. They also include recognized heart-rate sensor brands/models, protocol capabilities, and connection outcomes. Error messages, file paths, user content, raw Bluetooth names, sensor identifiers, serial numbers, and heart-rate or beat-interval values are not included.</li>
               <li>Analytics never include heart rate data, workout details, share codes, or other health information.</li>
               <li>Analytics data is not linked to your identity and is not used for advertising or cross-app tracking.</li>
             </ul>
@@ -119,13 +134,13 @@
             <h2>Security</h2>
             <ul>
               <li>Data in transit uses HTTPS.</li>
-              <li>The backend stores minimal, ephemeral data needed for sharing functionality.</li>
+              <li>Live sharing uses expiring records. Private workout pages use persistent private storage with separate viewing and management credentials.</li>
             </ul>
 
             <h2 id="privacy-choices">Your Choices</h2>
             <ul>
-              <li>Keep heart-rate sharing off and enter workout notes manually if you do not want workout content transmitted.</li>
-              <li>You can stop sharing at any time in the app.</li>
+              <li>Keep live sharing and the private workout link option off, and enter workout notes manually, if you do not want workout content transmitted.</li>
+              <li>You can stop live sharing at any time in the app. Manage persistent workout pages separately in Settings → Shared Pages.</li>
               <li>In Settings → AI Voice Privacy, choose “Reset AI voice permission” to withdraw permission. BPM will ask again before the next upload. Permission is saved only on that device, without iCloud sync.</li>
               <li>You can revoke microphone access in iOS Settings or type workout notes manually.</li>
               <li>Deleting a saved workout removes it from BPM's workout history. Resetting permission or deleting a workout does not erase content already processed by the voice provider or subject to its retention rules. For privacy or deletion requests, contact <a href="mailto:vibecodeinc@proton.me">vibecodeinc@proton.me</a>; we will explain what we hold and can identify or delete.</li>
@@ -141,7 +156,7 @@
       </section>
     </main>
 
-    <footer class="site-footer container"><a class="brand" href="/" aria-label="BPM home">BPM<span class="brand-period">.</span></a><div class="footer-links"><a href="/privacy.html">Privacy</a><a href="mailto:vibecodeinc@proton.me">Support</a><a href="https://github.com/apfk88/BPM">GitHub <span aria-hidden="true">↗</span></a></div><p>© 2026 BPM</p></footer>
+    <footer class="site-footer container"><a class="brand" href="/" aria-label="BPM home">BPM<span class="brand-period">.</span></a><div class="footer-links"><a href="/changelog">Changelog</a><a href="/privacy.html">Privacy</a><a href="mailto:vibecodeinc@proton.me">Support</a><a href="https://github.com/apfk88/BPM">GitHub <span aria-hidden="true">↗</span></a></div><p>© 2026 BPM</p></footer>
 
     <script defer src="/_vercel/insights/script.js"></script>
   </body>

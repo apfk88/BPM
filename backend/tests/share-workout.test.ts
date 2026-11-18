@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { createClient } from '@vercel/kv';
 import { createShareSession, deleteShareSession, publishWorkout, queueWorkoutControl, readSharedSession,
-  recordHeartBeat, publishRRStream, ShareRequestError, validateControl, validateSnapshot, validateRRStream, SHARE_LIFETIME_MS } from '../lib/share-workout';
+  recordHeartBeat, publishRRStream, readHostSession, ShareRequestError, validateControl, validateSnapshot, validateRRStream,
+  SHARE_LIFETIME_MS, SHARE_JOIN_TIMEOUT_MS } from '../lib/share-workout';
 import { redisTestAvailable, startRedisTestServer } from './redis-test-server';
 
 function snapshot(overrides: Record<string, unknown> = {}) {
@@ -49,11 +50,11 @@ test('workout payload validation bounds all arrays, fields, measurements and act
     { rows: [{ id: '1', label: '1', kind: 'pause', isActive: false, duration: 1, totalTime: 1 }] },
   ]) assert.throws(() => validateSnapshot(snapshot(patch)), errorStatus(400));
   for (const value of [null, [], {}, { snapshot: snapshot() }]) assert.throws(() => validateSnapshot(value), errorStatus(400));
-  for (const action of ['save', 'clear', 'delete', 'WORK', null]) {
+  for (const action of ['pause', 'end', 'cool', 'save', 'clear', 'delete', 'WORK', null]) {
     assert.throws(() => validateControl(control('123456', { action })), errorStatus(400));
   }
   assert.equal(validateControl(control('123456', { action: 'rest' })).action, 'rest');
-  for (const action of ['start', 'pause', 'resume', 'end', 'reset', 'cool', 'clearPreset']) {
+  for (const action of ['start', 'resume', 'reset', 'clearPreset']) {
     assert.equal(validateControl(control('123456', { action })).action, action);
   }
   assert.deepEqual(validateControl(control('123456', { action: 'loadPreset', preset: preset() })).preset, preset());
@@ -187,6 +188,15 @@ test('atomic sharing protocol against isolated Redis', {
       await assert.rejects(readSharedSession(legacyKV, code), errorStatus(404));
       assert.equal(await redis.command('EXISTS', `share:${code}`, `token:${token}`, `workout:${code}`, `rr:${code}`), 0);
     }
+    // The same deployed SDK decodes the new owner metadata into an object.
+    const token = randomBytes(32).toString('hex');
+    assert.equal(await createShareSession(legacyKV, '654321', token), true);
+    assert.equal((await readHostSession(legacyKV, token)).hasConnectedViewer, false);
+    await recordHeartBeat(legacyKV, { token, bpm: 125 });
+    assert.equal((await readSharedSession(legacyKV, '654321')).bpm, 125);
+    assert.equal((await readHostSession(legacyKV, token)).hasConnectedViewer, true);
+    await deleteShareSession(legacyKV, token);
+    await assert.rejects(readHostSession(legacyKV, token), errorStatus(401));
   });
 
   await t.test('host token must map to and own the current session', async () => {
@@ -206,9 +216,8 @@ test('atomic sharing protocol against isolated Redis', {
   await t.test('trainer lifecycle controls require owner capability and matching timer state', async () => {
     const cases: [string, Record<string, unknown>][] = [
       ['startIncludingHistory', { state: 'idle', isEmpty: true, recoverableHistorySeconds: 85 }],
-      ['start', { state: 'idle', isEmpty: true }], ['pause', { state: 'running' }],
-      ['resume', { state: 'paused' }], ['end', { state: 'running' }],
-      ['reset', { state: 'idle', isCompleted: true }], ['cool', { state: 'running' }],
+      ['start', { state: 'idle', isEmpty: true }], ['resume', { state: 'paused' }],
+      ['reset', { state: 'idle', isCompleted: true }],
       ['loadPreset', { state: 'idle', isEmpty: true }], ['clearPreset', { state: 'idle', isPresetMode: true, isEmpty: true }],
     ];
     for (const [action, state] of cases) {
@@ -222,10 +231,25 @@ test('atomic sharing protocol against isolated Redis', {
     }
     const { code, token } = await session();
     await publish(token); // Legacy broadcaster exposes manual sets only.
-    await assert.rejects(queueWorkoutControl(redis, control(code, { action: 'pause' })), errorStatus(409, 'CONTROL_DISABLED'));
+    await assert.rejects(queueWorkoutControl(redis, control(code, { action: 'reset' })), errorStatus(409, 'CONTROL_DISABLED'));
     await publish(token, { sequence: 2, state: 'paused', allowedActions: ['start'] });
     await assert.rejects(queueWorkoutControl(redis, control(code, { action: 'start' })), errorStatus(409, 'CONTROL_DISABLED'));
     await assert.rejects(queueWorkoutControl(redis, control(code, { action: 'save' })), errorStatus(400));
+  });
+
+  await t.test('older hosts cannot grant viewers controls that stop a workout', async () => {
+    for (const state of ['running', 'paused', 'cooldown', 'cooldownPaused']) {
+      const { code, token } = await session();
+      const allowed = state === 'running' ? ['work', 'rest'] : state === 'cooldown' ? [] : ['resume'];
+      await publish(token, { state, allowedActions: [...allowed, 'pause', 'end', 'cool', 'reset'] });
+      const shared = await readSharedSession(redis, code);
+      assert.deepEqual((shared.workout as Record<string, unknown>).allowedActions, allowed);
+      for (const action of ['pause', 'end', 'cool']) {
+        await assert.rejects(queueWorkoutControl(redis, control(code, { action })), errorStatus(400));
+      }
+      await assert.rejects(queueWorkoutControl(redis, control(code, { action: 'reset' })), errorStatus(409, 'CONTROL_DISABLED'));
+      assert.deepEqual((await publish(token, { sequence: 2 })).commands, []);
+    }
   });
 
   await t.test('shared HRV round-trips independently of heartbeat and RR traffic', async () => {
@@ -412,6 +436,10 @@ test('atomic sharing protocol against isolated Redis', {
     assert.equal((await queueWorkoutControl(redis, control(code))).queued, true);
     await publish(token, { sequence: 2, controlRevision: 'revision-2', canRest: false });
     await assert.rejects(queueWorkoutControl(redis, control(code, { action: 'rest', controlRevision: 'revision-2' })), errorStatus(409, 'CONTROL_DISABLED'));
+    await publish(token, { sequence: 3, controlRevision: 'sets-blocked', allowedActions: [], canWork: false, canRest: false });
+    for (const action of ['work', 'rest']) {
+      await assert.rejects(queueWorkoutControl(redis, control(code, { action, controlRevision: 'sets-blocked' })), errorStatus(409, 'CONTROL_DISABLED'));
+    }
     await assert.rejects(queueWorkoutControl(redis, control(code)), errorStatus(409, 'STALE_CONTROL'));
     await assert.rejects(queueWorkoutControl(redis, control(code, { workoutID: randomUUID() })), errorStatus(409, 'STALE_CONTROL'));
     const raw = JSON.parse(await redis.command('GET', `workout:${code}`));
@@ -464,6 +492,7 @@ test('atomic sharing protocol against isolated Redis', {
 
   await t.test('all mutations preserve original session expiry and never resurrect ended sessions', async () => {
     const { code, token } = await session();
+    await readSharedSession(redis, code);
     const originalExpiry = await redis.command('PEXPIRETIME', `share:${code}`);
     const ttl = await redis.command('PTTL', `share:${code}`);
     assert.ok(ttl > SHARE_LIFETIME_MS - 1000 && ttl <= SHARE_LIFETIME_MS);
@@ -494,5 +523,77 @@ test('atomic sharing protocol against isolated Redis', {
     await deleteShareSession(redis, replacement);
     await assert.rejects(readSharedSession(redis, code), errorStatus(404));
     for (const prefix of ['share', 'workout', 'workout-queue', 'workout-receipts', 'workout-claims', 'rr']) assert.equal(await redis.command('EXISTS', `${prefix}:${code}`), 0);
+  });
+
+  await t.test('unused sessions expire after five minutes even when the host keeps publishing and checking status', async () => {
+    const { code, token } = await session();
+    const expiry = await redis.command('PEXPIRETIME', `share:${code}`);
+    const ttl = await redis.command('PTTL', `share:${code}`);
+    assert.ok(ttl > SHARE_JOIN_TIMEOUT_MS - 1000 && ttl <= SHARE_JOIN_TIMEOUT_MS);
+    const state = await readHostSession(redis, token);
+    assert.equal(state.hasConnectedViewer, false);
+    assert.equal(Number(state.expiresAt) - Number(state.viewerDeadline), SHARE_LIFETIME_MS - SHARE_JOIN_TIMEOUT_MS);
+    await recordHeartBeat(redis, { token, bpm: 120 });
+    await publish(token);
+    await publishRRStream(redis, { token, snapshot: rrStream() });
+    await readHostSession(redis, token);
+    assert.equal(await redis.command('PEXPIRETIME', `share:${code}`), expiry);
+
+    // Accelerate the actual Redis deadline, without making a request to end it.
+    const owner = JSON.parse(await redis.command('GET', `token:${token}`));
+    owner.viewerDeadline = Date.now() + 50;
+    await redis.command('SET', `token:${token}`, JSON.stringify(owner), 'KEEPTTL');
+    for (const prefix of ['share', 'workout', 'rr']) await redis.command('PEXPIRE', `${prefix}:${code}`, 50);
+    await new Promise(resolve => setTimeout(resolve, 80));
+    for (const prefix of ['share', 'workout', 'rr']) assert.equal(await redis.command('EXISTS', `${prefix}:${code}`), 0);
+    await assert.rejects(readHostSession(redis, token), errorStatus(404, 'SESSION_NO_VIEWER'));
+    await assert.rejects(recordHeartBeat(redis, { token, bpm: 130 }), errorStatus(404, 'SESSION_NO_VIEWER'));
+    await assert.rejects(publish(token, { sequence: 2 }), errorStatus(404, 'SESSION_NO_VIEWER'));
+    await assert.rejects(readSharedSession(redis, code), errorStatus(404));
+    assert.equal(await redis.command('EXISTS', `share:${code}`), 0);
+    await deleteShareSession(redis, token);
+    assert.equal(await redis.command('EXISTS', `token:${token}`), 0);
+  });
+
+  await t.test('first viewer preserves the original ninety-minute deadline for all live data', async () => {
+    const { code, token } = await session();
+    await publish(token);
+    await publishRRStream(redis, { token, snapshot: rrStream() });
+    await queueWorkoutControl(redis, control(code));
+    const before = await readHostSession(redis, token);
+    assert.equal(before.hasConnectedViewer, false);
+    await Promise.all([readSharedSession(redis, code), recordHeartBeat(redis, { token, bpm: 120 })]);
+    const after = await readHostSession(redis, token);
+    assert.equal(after.hasConnectedViewer, true);
+    assert.equal(after.expiresAt, before.expiresAt);
+    for (const prefix of ['share', 'workout', 'workout-queue', 'workout-receipts', 'workout-claims', 'rr']) {
+      assert.equal(await redis.command('PEXPIRETIME', `${prefix}:${code}`), before.expiresAt);
+    }
+    await readSharedSession(redis, code);
+    assert.equal(await redis.command('PEXPIRETIME', `share:${code}`), before.expiresAt);
+
+    const owner = JSON.parse(await redis.command('GET', `token:${token}`));
+    owner.expiresAt = Date.now() - 1;
+    await redis.command('SET', `token:${token}`, JSON.stringify(owner), 'KEEPTTL');
+    await redis.command('PEXPIRE', `share:${code}`, 1);
+    await new Promise(resolve => setTimeout(resolve, 10));
+    await assert.rejects(readHostSession(redis, token), errorStatus(404, 'SESSION_EXPIRED'));
+    await assert.rejects(publish(token, { sequence: 2 }), errorStatus(404, 'SESSION_EXPIRED'));
+  });
+
+  await t.test('late viewers and an old owner cannot revive or delete a replacement session', async () => {
+    const { code, token } = await session();
+    const raw = JSON.parse(await redis.command('GET', `share:${code}`));
+    raw.viewerDeadline = Date.now() - 1;
+    await redis.command('SET', `share:${code}`, JSON.stringify(raw), 'KEEPTTL');
+    const originalExpiry = await redis.command('PEXPIRETIME', `share:${code}`);
+    await assert.rejects(readSharedSession(redis, code), errorStatus(404));
+    assert.equal(await redis.command('PEXPIRETIME', `share:${code}`), originalExpiry);
+    await redis.command('DEL', `share:${code}`);
+    const replacement = randomBytes(32).toString('hex');
+    assert.equal(await createShareSession(redis, code, replacement), true);
+    await assert.rejects(readHostSession(redis, token), errorStatus(404));
+    await deleteShareSession(redis, token);
+    assert.equal((await readHostSession(redis, replacement)).hasConnectedViewer, false);
   });
 });

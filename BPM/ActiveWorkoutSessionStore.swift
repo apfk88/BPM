@@ -10,6 +10,29 @@ struct PersistedSetRecord: Codable, Equatable {
     let associatedWorkSetNumber: Int?
 }
 
+extension PersistedSetRecord {
+    init(_ set: SetRecord) {
+        self.init(setNumber: set.setNumber, setTime: set.setTime, heartRate: set.heartRate,
+                  totalTime: set.totalTime, isRestSet: set.isRestSet, isCooldownSet: set.isCooldownSet,
+                  associatedWorkSetNumber: set.associatedWorkSetNumber)
+    }
+
+    var record: SetRecord {
+        SetRecord(setNumber: setNumber, setTime: setTime, heartRate: heartRate,
+                  totalTime: totalTime, isRestSet: isRestSet, isCooldownSet: isCooldownSet,
+                  associatedWorkSetNumber: associatedWorkSetNumber)
+    }
+}
+
+/// The end of the set table just before a Work Set or Rest Set tap.
+struct ManualSetChange: Codable, Equatable, Identifiable {
+    let id: UUID
+    let completedRowCount: Int
+    let activeRestRow: PersistedSetRecord?
+    let setCounter: Int
+    let lastSetEndTime: TimeInterval
+}
+
 struct PersistedHeartRateSample: Codable, Equatable {
     let value: Int
     let timestamp: Date
@@ -74,6 +97,7 @@ struct ActiveWorkoutSessionSnapshot: Codable, Equatable {
     var workoutStartedAt: Date? = nil
     var workoutEndedAt: Date? = nil
     var endRecovery: WorkoutEndRecovery? = nil
+    var manualSetChanges: [ManualSetChange]? = nil
 
     var hasSession: Bool {
         startTime != nil || !sets.isEmpty || activePreset != nil || isPresetPrestartCountdownActive

@@ -7,6 +7,17 @@ import ActivityKit
 struct ShareResponse: Codable {
     let code: String
     let token: String
+    var serverTime: Int64? = nil
+    var expiresAt: Int64? = nil
+    var viewerDeadline: Int64? = nil
+    var hasConnectedViewer: Bool? = nil
+}
+
+private struct ShareSessionStatus: Decodable {
+    let serverTime: Int64
+    let expiresAt: Int64
+    let viewerDeadline: Int64?
+    let hasConnectedViewer: Bool
 }
 
 struct HeartRateResponse: Codable {
@@ -111,10 +122,12 @@ class SharingService: ObservableObject {
     @Published private(set) var workoutControlError: String?
     @Published private(set) var workoutSharingError: String?
     @Published var isSharing = false
+    @Published private(set) var hasConnectedViewer = false
     @Published var isViewing = false
     @Published var errorMessage: String?
     @Published var errorContext: ErrorContext?
     @Published var viewingStoppedMessage: String?
+    @Published var sharingStoppedMessage: String?
     @Published var pendingJoinCode: String?
     @Published private(set) var hasConnectedToFriend = false
     private let disconnectLocalMonitor: () -> Void
@@ -207,11 +220,16 @@ class SharingService: ObservableObject {
     private var updateTimer: Timer?
     private var pollTimer: Timer?
     private var expirationTimer: Timer?
+    private var sharingStatusRequestID: UUID?
+    private var shareExpiresAtTicks: TimeInterval?
+    private var shareViewerDeadlineTicks: TimeInterval?
+    private var supportsSharingStatus = false
     private var timeoutTimer: Timer?
     private var lastFreshDataTicks: TimeInterval?
     private var viewingStartTicks: TimeInterval?
     
     private let shareExpirationInterval: TimeInterval = 90 * 60 // 90 minutes
+    static let sharingExpiredMessage = "Sharing stopped automatically after 90 minutes. Start a new session to keep sharing."
     private let viewingTimeoutInterval: TimeInterval = 10.0 // 10 seconds
     
     private let shareCodeKey = "BPM_ShareCode"
@@ -333,6 +351,15 @@ class SharingService: ObservableObject {
             AppAnalytics.signal(.shareOn)
             errorMessage = nil
             errorContext = nil
+            sharingStoppedMessage = nil
+
+            shareExpiresAtTicks = ticksProvider() + shareExpirationInterval
+            supportsSharingStatus = shareResponse.serverTime != nil && shareResponse.expiresAt != nil
+            if let serverTime = shareResponse.serverTime, let expiresAt = shareResponse.expiresAt {
+                applySharingStatus(ShareSessionStatus(serverTime: serverTime, expiresAt: expiresAt,
+                    viewerDeadline: shareResponse.viewerDeadline,
+                    hasConnectedViewer: shareResponse.hasConnectedViewer ?? false))
+            }
 
             userDefaults.set(shareResponse.code, forKey: shareCodeKey)
             userDefaults.set(shareResponse.token, forKey: shareTokenKey)
@@ -396,8 +423,14 @@ class SharingService: ObservableObject {
         updateTimer = nil
         expirationTimer?.invalidate()
         expirationTimer = nil
+        sharingStatusRequestID = nil
+        shareExpiresAtTicks = nil
+        shareViewerDeadlineTicks = nil
+        hasConnectedViewer = false
+        supportsSharingStatus = false
         errorMessage = nil
         errorContext = nil
+        sharingStoppedMessage = nil
         resetHostWorkoutSync()
         rrUploadSequence = 0
         rrUnavailableToken = nil
@@ -638,11 +671,8 @@ class SharingService: ObservableObject {
                 guard let response = response as? HTTPURLResponse else { throw SharingError.invalidResponse }
                 guard response.statusCode == 200 else {
                     let serverError = try? JSONDecoder().decode(ServerErrorResponse.self, from: data)
-                    if response.statusCode == 401 || (response.statusCode == 404 && serverError?.code == "SESSION_NOT_FOUND") {
-                        stopSharing()
-                        errorMessage = Self.extractServerMessage(from: data)
-                            ?? Self.defaultSharingDeniedMessage(statusCode: response.statusCode)
-                        errorContext = .sharing
+                    if response.statusCode == 401 || (response.statusCode == 404 && Self.isEndedSession(serverError?.code)) {
+                        finishSharingAfterServerResponse(data, statusCode: response.statusCode)
                         return
                     }
                     if response.statusCode == 404 || response.statusCode == 405 {
@@ -845,9 +875,7 @@ class SharingService: ObservableObject {
                     await MainActor.run {
                         guard self.isSharing, self.shareToken == token else { return }
                         if (400...499).contains(httpResponse.statusCode) {
-                            self.stopSharing()
-                            self.errorMessage = serverMessage ?? Self.defaultSharingDeniedMessage(statusCode: httpResponse.statusCode)
-                            self.errorContext = .sharing
+                            self.finishSharingAfterServerResponse(data, statusCode: httpResponse.statusCode)
                         } else if let serverMessage {
                             self.errorMessage = serverMessage
                             self.errorContext = .sharing
@@ -867,14 +895,95 @@ class SharingService: ObservableObject {
     
     private func startExpirationTimer() {
         expirationTimer?.invalidate()
-        
-        expirationTimer = Timer.scheduledTimer(withTimeInterval: shareExpirationInterval, repeats: false) { [weak self] _ in
+        guard automaticallyPoll, isSharing, let expiresAt = shareExpiresAtTicks else { return }
+        // Refresh promptly until a viewer joins so the host's connection badge
+        // does not wait for the five-minute join deadline.
+        let nextCheck = hasConnectedViewer ? expiresAt
+            : min(supportsSharingStatus ? ticksProvider() + 5 : expiresAt,
+                  shareViewerDeadlineTicks ?? expiresAt, expiresAt)
+        scheduleSharingExpirationCheck(after: max(0.1, nextCheck - ticksProvider()))
+    }
+
+    private func scheduleSharingExpirationCheck(after interval: TimeInterval) {
+        expirationTimer?.invalidate()
+        guard automaticallyPoll, isSharing else { return }
+        expirationTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: false) { [weak self] _ in
             Task { @MainActor in
-                self?.stopSharing()
-                self?.errorMessage = "Sharing session expired after 90 minutes. To keep sharing, start a new session."
-                self?.errorContext = .sharing
+                await self?.refreshSharingSession()
             }
         }
+    }
+
+    /// Check the owner-only endpoint, never the viewer endpoint: checking our
+    /// own deadline must not count as someone connecting to the session.
+    @MainActor
+    func refreshSharingSession() async {
+        guard isSharing, let token = shareToken, sharingStatusRequestID == nil else { return }
+        if !supportsSharingStatus {
+            if let deadline = shareExpiresAtTicks, ticksProvider() >= deadline {
+                finishSharingAutomatically(message: Self.sharingExpiredMessage)
+            } else {
+                startExpirationTimer()
+            }
+            return
+        }
+        let requestID = UUID()
+        sharingStatusRequestID = requestID
+        defer { if sharingStatusRequestID == requestID { sharingStatusRequestID = nil } }
+        do {
+            guard let url = URL(string: "\(baseURL)/api/share") else { throw SharingError.invalidURL }
+            var request = URLRequest(url: url)
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            request.cachePolicy = .reloadIgnoringLocalCacheData
+            request.timeoutInterval = 5
+            let (data, response) = try await networkSession.data(for: request)
+            guard isSharing, shareToken == token, sharingStatusRequestID == requestID else { return }
+            guard let response = response as? HTTPURLResponse else { throw SharingError.invalidResponse }
+            if response.statusCode == 401 || response.statusCode == 404 {
+                finishSharingAfterServerResponse(data, statusCode: response.statusCode)
+                return
+            }
+            guard response.statusCode == 200 else { throw SharingError.serverError(response.statusCode) }
+            applySharingStatus(try JSONDecoder().decode(ShareSessionStatus.self, from: data))
+            startExpirationTimer()
+        } catch {
+            guard isSharing, shareToken == token, sharingStatusRequestID == requestID else { return }
+            if let deadline = shareExpiresAtTicks, ticksProvider() >= deadline {
+                finishSharingAutomatically(message: Self.sharingExpiredMessage)
+            } else {
+                // A failed request cannot establish that nobody connected.
+                // Redis still enforces expiry while this phone is offline.
+                scheduleSharingExpirationCheck(after: 5)
+            }
+        }
+    }
+
+    private func applySharingStatus(_ status: ShareSessionStatus) {
+        let now = ticksProvider()
+        shareExpiresAtTicks = now + max(0, Double(status.expiresAt - status.serverTime) / 1000)
+        shareViewerDeadlineTicks = status.viewerDeadline.map { now + max(0, Double($0 - status.serverTime) / 1000) }
+        hasConnectedViewer = status.hasConnectedViewer
+    }
+
+    private static func isEndedSession(_ code: String?) -> Bool {
+        ["SESSION_NOT_FOUND", "SESSION_NO_VIEWER", "SESSION_EXPIRED"].contains(code ?? "")
+    }
+
+    private func finishSharingAfterServerResponse(_ data: Data, statusCode: Int) {
+        let serverError = try? JSONDecoder().decode(ServerErrorResponse.self, from: data)
+        let expiredLocally = shareExpiresAtTicks.map { ticksProvider() >= $0 } ?? false
+        let message = expiredLocally && !Self.isEndedSession(serverError?.code)
+            ? Self.sharingExpiredMessage
+            : Self.extractServerMessage(from: data) ?? Self.defaultSharingDeniedMessage(statusCode: statusCode)
+        finishSharingAutomatically(message: message)
+    }
+
+    private func finishSharingAutomatically(message: String) {
+        guard isSharing else { return }
+        stopSharing()
+        errorMessage = message
+        errorContext = .sharing
+        sharingStoppedMessage = message
     }
     
     private func startPollingFriendHeartRate() {

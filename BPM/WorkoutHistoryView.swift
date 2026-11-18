@@ -5,6 +5,15 @@ struct WorkoutHistoryView: View {
     @State private var selectedWorkoutID: UUID?
     @State private var sharePayload: SharePayload?
     @State private var shareError: String?
+    @ObservedObject private var pageService: WorkoutPageService
+    @State private var workoutPendingDeletion: WorkoutRecord?
+    @State private var deletionError: String?
+    @State private var deletingPage = false
+
+    init(store: WorkoutStore, pageService: WorkoutPageService? = nil) {
+        self.store = store
+        self.pageService = pageService ?? .shared
+    }
 
     var body: some View {
         List {
@@ -13,19 +22,36 @@ struct WorkoutHistoryView: View {
                     Button {
                         selectedWorkoutID = workout.id
                     } label: {
-                        WorkoutShareCardPreview(snapshot: WorkoutShareSnapshot(record: workout), style: .chart, compact: true)
-                            .frame(maxWidth: 600)
-                            .frame(maxWidth: .infinity)
-                            .contentShape(Rectangle())
+                        VStack(alignment: .leading, spacing: 10) {
+                            WorkoutShareCardPreview(snapshot: WorkoutShareSnapshot(record: workout), style: .chart, compact: true)
+                            if let status = pageStatus(for: workout.id) {
+                                Label(status.title, systemImage: status.icon)
+                                    .font(.caption.weight(.medium))
+                                    .foregroundStyle(.secondary)
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 5)
+                                    .background(.white.opacity(0.08), in: Capsule())
+                                    .accessibilityIdentifier("workoutPrivateLinkBadge")
+                            }
+                        }
+                        .frame(maxWidth: 600)
+                        .frame(maxWidth: .infinity)
+                        .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+                    .accessibilityIdentifier("savedWorkoutHistoryRow")
+                    .accessibilityValue(pageStatus(for: workout.id)?.title ?? "")
                     .accessibilityHint("Opens workout details")
                     .listRowBackground(Color.clear)
                     .listRowSeparator(.hidden)
                     .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 8, trailing: 20))
                     .swipeActions(edge: .trailing) {
                         Button(role: .destructive) {
-                            store.deleteWorkout(workout)
+                            if pageService.entry(for: workout.id) != nil {
+                                workoutPendingDeletion = workout
+                            } else {
+                                store.deleteWorkout(workout)
+                            }
                         } label: {
                             Text("Delete")
                         }
@@ -45,11 +71,18 @@ struct WorkoutHistoryView: View {
         .navigationTitle("Workout History")
         .analyticsScreen(.workoutHistory)
         .navigationBarTitleDisplayMode(.inline)
+        .task {
+            guard !pageService.entries.isEmpty, !pageService.isWorking else { return }
+            // Keep cached controls available offline while reconciling links
+            // replaced or removed from another recovered installation.
+            try? await pageService.refresh()
+        }
         .navigationDestination(item: $selectedWorkoutID) { workoutID in
             if let workout = store.workouts.first(where: { $0.id == workoutID }) {
                 WorkoutDetailView(
                     initialRecord: workout,
                     store: store,
+                    pageService: pageService,
                     onDelete: {
                         store.deleteWorkout(workout)
                     }
@@ -73,6 +106,26 @@ struct WorkoutHistoryView: View {
         .sheet(item: $sharePayload) { payload in
             ShareSheet(payload: payload)
         }
+        .confirmationDialog("Delete workout?", isPresented: Binding(
+            get: { workoutPendingDeletion != nil },
+            set: { if !$0 { workoutPendingDeletion = nil } }
+        ), titleVisibility: .visible) {
+            if let workout = workoutPendingDeletion {
+                Button("Delete Workout Only", role: .destructive) { store.deleteWorkout(workout) }
+                Button("Delete Workout and Shared Pages", role: .destructive) {
+                    deleteWorkoutAndPage(workout)
+                }
+            }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("This workout has shared pages. You can keep them online and manage them later in Shared Pages.")
+        }
+        .disabled(deletingPage)
+        .alert("Couldn’t Delete Shared Page", isPresented: Binding(
+            get: { deletionError != nil }, set: { if !$0 { deletionError = nil } }
+        )) {
+            Button("OK", role: .cancel) { }
+        } message: { Text(deletionError ?? "The workout has been kept. Please try again.") }
         .alert("Couldn’t Export Logs", isPresented: Binding(
             get: { shareError != nil }, set: { if !$0 { shareError = nil } }
         )) {
@@ -80,6 +133,18 @@ struct WorkoutHistoryView: View {
         } message: {
             Text(shareError ?? "Please try again.")
         }
+    }
+
+    private func pageStatus(for workoutID: UUID) -> (title: String, icon: String)? {
+        let pages = pageService.entries.filter { $0.localWorkoutID == workoutID }
+        guard !pages.isEmpty else { return nil }
+        if pages.contains(where: { $0.status == .published && !$0.hasPendingDeletion }) {
+            return ("Private link", "link")
+        }
+        if pages.contains(where: \.hasPendingDeletion) {
+            return ("Deletion pending", "clock")
+        }
+        return ("Link pending", "clock")
     }
 
     private func presentLogs(json: String, prefix: String, date: Date, subject: String) {
@@ -90,6 +155,19 @@ struct WorkoutHistoryView: View {
         } catch {
             analytics.finish(completed: false, failed: true)
             shareError = "The JSON file couldn’t be created. Please try again."
+        }
+    }
+
+    private func deleteWorkoutAndPage(_ workout: WorkoutRecord) {
+        deletingPage = true
+        Task {
+            defer { deletingPage = false }
+            do {
+                for entry in pageService.entries.filter({ $0.localWorkoutID == workout.id }) {
+                    try await pageService.delete(entry)
+                }
+                store.deleteWorkout(workout)
+            } catch { deletionError = error.localizedDescription }
         }
     }
 
@@ -105,6 +183,17 @@ struct WorkoutDetailView: View {
     @State private var showExpandedHeartRateChart = false
     @State private var isEditingWorkout = false
     @State private var isSharingWorkout = false
+    @ObservedObject private var pageService: WorkoutPageService
+    @State private var deletionError: String?
+    @State private var deletingPage = false
+
+    init(initialRecord: WorkoutRecord, store: WorkoutStore, pageService: WorkoutPageService? = nil,
+         onDelete: @escaping () -> Void) {
+        self.initialRecord = initialRecord
+        self.store = store
+        self.pageService = pageService ?? .shared
+        self.onDelete = onDelete
+    }
 
     private var record: WorkoutRecord {
         store.workouts.first(where: { $0.id == initialRecord.id }) ?? initialRecord
@@ -138,20 +227,43 @@ struct WorkoutDetailView: View {
             WorkoutDetailsEditor(record: record, store: store)
         }
         .sheet(isPresented: $isSharingWorkout) {
-            WorkoutShareDrawer(record: record, source: .workoutDetail)
+            WorkoutShareDrawer(record: record, source: .workoutDetail, pageService: pageService)
         }
         .fullScreenCover(isPresented: $showExpandedHeartRateChart) {
             ExpandedHeartRateChartView(record: record)
         }
         .alert("Delete Workout?", isPresented: $showDeleteAlert) {
             Button("Cancel", role: .cancel) { }
-            Button("Delete", role: .destructive) {
+            Button(pageService.entry(for: record.id) == nil ? "Delete" : "Delete Workout Only", role: .destructive) {
                 onDelete()
                 dismiss()
             }
+            if pageService.entry(for: record.id) != nil {
+                Button("Delete Workout and Shared Pages", role: .destructive) {
+                    deletingPage = true
+                    Task {
+                        defer { deletingPage = false }
+                        do {
+                            for entry in pageService.entries.filter({ $0.localWorkoutID == record.id }) {
+                                try await pageService.delete(entry)
+                            }
+                            onDelete()
+                            dismiss()
+                        } catch { deletionError = error.localizedDescription }
+                    }
+                }
+            }
         } message: {
-            Text("This will permanently remove the workout from history.")
+            Text(pageService.entry(for: record.id) == nil
+                 ? "This will permanently remove the workout from history."
+                 : "This workout has shared pages. You can keep them online and manage them later in Shared Pages.")
         }
+        .disabled(deletingPage)
+        .alert("Couldn’t Delete Shared Page", isPresented: Binding(
+            get: { deletionError != nil }, set: { if !$0 { deletionError = nil } }
+        )) {
+            Button("OK", role: .cancel) { }
+        } message: { Text(deletionError ?? "The workout has been kept. Please try again.") }
     }
 
     private var workoutLog: some View {
@@ -159,6 +271,16 @@ struct WorkoutDetailView: View {
         return ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 overview(snapshot: snapshot)
+
+                let pages = pageService.entries.filter { $0.localWorkoutID == record.id }
+                if !pages.isEmpty {
+                    logSection("Private link") {
+                        ForEach(pages) { entry in
+                            WorkoutSavedPageLink(entry: entry, service: pageService)
+                            if entry.id != pages.last?.id { rule }
+                        }
+                    }
+                }
 
                 if let notes = normalizedNotes {
                     logSection("Description") {

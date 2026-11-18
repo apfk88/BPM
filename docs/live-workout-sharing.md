@@ -8,6 +8,19 @@ Device owns sharing, codes, invites, and connection errors. Start Sharing create
 
 Sharing and viewing are mutually exclusive. The friend-code input is hidden while broadcasting, and the service rejects joining your own code or joining another session before you stop sharing. Connect disconnects the local monitor before entering shared mode. If a local workout exists, Device asks to end and clear it first; Cancel preserves it. This confirmation also applies when joining from the HRV screen.
 
+New sharing sessions expire automatically after five minutes unless a viewer connects. A successful viewer read before that deadline keeps the session available until 90 minutes after sharing originally started. Subsequent reads, heartbeats, workout updates, and owner status checks do not extend either deadline. Once a viewer has connected, leaving does not start a new five-minute timer. Sessions created by the older backend keep their existing expiry.
+
+Both automatic cutoffs show a “Sharing Stopped” alert without stopping the monitor or local workout:
+
+- “Sharing stopped automatically because no one connected within 5 minutes. Start a new session to keep sharing.”
+- “Sharing stopped automatically after 90 minutes. Start a new session to keep sharing.”
+
+Redis expires the live data even when the app is suspended. The app checks the authenticated owner status at the deadline and on foreground return. A network failure alone does not prove that nobody connected; the app retries and still applies its local 90-minute limit. Alerts wait for an open editing sheet to close so unsaved changes are preserved. These are in-app alerts, not background push notifications.
+
+The owner token stores only the code, deadlines, and whether a viewer connected, for up to 95 minutes from creation so the app can retrieve the reason after live data expires. Manual Stop Sharing deletes this metadata too. `GET /api/share` requires the owner’s bearer token and does not count as a viewer; `GET /api/share/{code}` remains the viewer route.
+
+November 9 timeout validation: all 32 backend tests passed with isolated Redis, and the production build passed. Across the final Simulator runs, all 35 selected unit tests and three UI tests passed on iPhone 17 / iOS 26.5. Both alert screenshots were inspected; the UI tests verified that the workout continues and sharing controls reset. Deadline tests use an accelerated Redis expiry and synthetic server deadlines. Result bundles: `test_sim_2026-11-09T15-13-34-957Z_pid21016_8edd33c5.xcresult` (shared-workout/accuracy units and UI), `test_sim_2026-11-09T15-19-48-428Z_pid21016_58fdc5c4.xcresult` (all lifecycle units after fixing asynchronous test cleanup). This change has not been deployed or distributed to devices.
+
 The Device menu uses monochrome controls with green connection indicators. Shared viewing adds a person badge to the green heart, and the Workout icon also carries a person badge. Workout turns green only when a local or shared workout is active; a missing shared snapshot stays inactive. There is no screen border, persistent viewing label, or code outside Device.
 
 An explicit join initially opens the broadcaster's Home or Workout screen, with Workout always starting on its first table page. Returning from Home to Workout also starts on the table page; subsequent host navigation does not change the viewer's selected page. Opening or returning to the app shows Workout when a local or shared workout is active, including paused sessions and cooldowns. Restored sharing waits for a fresh snapshot and uses workout state regardless of the host’s current screen. A cold shared launch starts on the table page; returning from the background preserves the viewer’s chosen page. Idle sessions stay on their current screen. A new shared HRV measurement opens HRV on the connected devices; on reopening, an active workout takes priority without cancelling HRV.
@@ -18,7 +31,9 @@ Share Invite opens the native share sheet with `https://bpmtracker.app/join/{cod
 
 ## Workout controls and measurements
 
-Viewers can use the workout controls available in the broadcaster's current state: Start, include recoverable history, Pause, Resume, Work Set, Rest Set, Cool, End, Reset, and load or clear a preset. Save stays with the broadcaster. Reset requires confirmation. Start offers Start from now or the actual available history duration, using the same eligible sensor samples that the broadcaster would recover locally.
+Only the broadcaster can pause a workout, start cooldown, end a workout, clear an active session, or save. Viewers can start or resume a workout, log work and rest sets, load or clear a preset before starting, and reset a completed workout after confirmation. Start offers Start from now or the actual available history duration, using the same eligible sensor samples that the broadcaster would recover locally.
+
+In Settings under Live Sharing, **Allow Viewer Set Logging** is on by default. Turn it off to reserve Work Set and Rest Set for the broadcaster. The change applies during an ongoing share and persists for future workouts.
 
 The broadcaster publishes presentation snapshots about once per second while sharing. They include timers, sets, statistics, chart, zones, estimated calories, active preset, available actions, recoverable history duration, and current HRV state/countdown/result. Saved titles, notes, profile inputs, and previous workouts are excluded. Charts retain measured peaks, troughs, and signal gaps in a bounded live payload; original measurements still drive the saved recording and statistics.
 
@@ -51,7 +66,7 @@ The broadcaster also uploads a bounded rolling window of raw RR intervals, with 
 | `DELETE /api/share` | Broadcaster | `token`; removes the session and associated workout, RR, and control data |
 | `GET /join/[code]` | Invite recipient | Web page with app-opening link and code entry fallback |
 
-Workout control actions are `work`, `rest`, `start`, `startIncludingHistory`, `pause`, `resume`, `end`, `reset`, `cool`, `loadPreset`, and `clearPreset`. HRV actions are `hrvStart`, `hrvCancel`, and `hrvReset`. There is no remote Save action. The six-digit code authorizes viewing and currently permitted workout/HRV controls; read responses never expose the broadcaster token.
+Workout control actions are `work`, `rest`, `start`, `startIncludingHistory`, `resume`, `reset`, `loadPreset`, and `clearPreset`. The server rejects reset while the workout is active, including when paused or in cooldown. HRV actions are `hrvStart`, `hrvCancel`, and `hrvReset`. The six-digit code authorizes viewing and permitted controls. Only the broadcaster holds the token and can save.
 
 Workout, HRV, and RR schemas are defined in `BPM/SharedWorkout.swift` and `BPM/SharedHRV.swift` and validated in `backend/lib/share-workout.ts`. Host sequences must increase. Redis scripts atomically validate authorization, session existence, ordering, claims, acknowledgements, and expiry. Updates preserve the original 90-minute lifetime and cannot recreate deleted sessions. Older workout snapshots without `allowedActions` support only their original manual Work/Rest controls.
 

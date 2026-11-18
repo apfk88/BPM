@@ -24,7 +24,7 @@ BPM is a minimalist heart rate display app. We respect your privacy and are comm
 - **When sharing is ON**:
   - Data is transmitted over HTTPS to your backend (by default a Vercel deployment using KV/Upstash).
   - Share sessions expire automatically after 90 minutes.
-  - Anyone with the code can view the shared session and request Work and Rest sets. Only the broadcaster can start, pause, end, reset, or save the workout.
+  - Anyone with the code can follow the session, start or resume the workout, log work and rest sets, manage presets before starting, and reset a completed workout. Only the broadcaster can pause, enter cooldown, end, clear an active workout, or save.
   - Workout snapshots and control records expire with the session and are removed when sharing is stopped successfully on the backend.
 - **When sharing is OFF**:
   - No heart rate data is transmitted off-device.

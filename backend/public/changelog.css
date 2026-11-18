@@ -1,0 +1,49 @@
+.changelog { max-width: 940px; padding-block: 56px 72px; }
+.changelog-intro { max-width: 700px; padding-bottom: 44px; }
+.eyebrow { color: var(--accent); font-size: 12px; letter-spacing: .1em; text-transform: uppercase; margin-bottom: 18px; }
+.changelog-intro h1 { font-size: clamp(40px, 6vw, 64px); }
+.changelog-description { max-width: 520px; margin-top: 22px; color: var(--muted); font-size: 18px; }
+.release { display: grid; grid-template-columns: 150px minmax(0, 1fr); column-gap: 40px; padding-block: 42px; border-top: 1px solid var(--border); scroll-margin-top: 24px; }
+.release:target { border-top-color: var(--accent); }
+.release-meta { display: flex; align-items: flex-start; flex-direction: column; gap: 8px; }
+.release-version { font-size: 24px; font-weight: 500; letter-spacing: -.04em; line-height: 1.2; }
+.release-version:hover { color: var(--accent); }
+.release-meta time, .release-meta .submission-date { font-size: 12px; color: var(--muted); }
+.release-badge { display: inline-block; margin-top: 4px; padding: 4px 8px; border: 1px solid #225a32; border-radius: 4px; color: var(--accent); font-size: 11px; line-height: 1.5; }
+.release-badge.pending { border-color: #65512c; color: #e8c478; }
+.release-body h2 { font-size: 27px; line-height: 1.25; letter-spacing: -.035em; }
+.release-body h3 { margin: 24px 0 10px; font-size: 14px; }
+.release-body ul { margin: 18px 0 0; padding-left: 18px; color: var(--muted); font-size: 15px; }
+.release-body h3 + ul { margin-top: 0; }
+.release-body li { padding-left: 5px; margin-bottom: 10px; }
+.release-body li:last-child { margin-bottom: 0; }
+.release-body strong { color: var(--text); font-weight: 500; }
+.release-body p { color: var(--muted); font-size: 15px; margin-top: 16px; }
+.release-body .release-notice { padding: 12px 15px; border-left: 2px solid #b29150; background: #19160f; font-size: 13px; color: #d6c8a8; }
+.release-body a, .changelog-footnote a { text-decoration: underline; text-underline-offset: 4px; }
+.release-body a:hover, .changelog-footnote a:hover { color: var(--accent); }
+.release-group { border-top: 1px solid var(--border); padding-block: 32px 18px; color: var(--muted); font-size: 13px; font-weight: 400; letter-spacing: .06em; text-transform: uppercase; scroll-margin-top: 24px; }
+.release-group + .release { border-top: 0; padding-top: 20px; }
+.release.compact { padding-block: 30px; }
+.release.compact h2 { font-size: 21px; }
+.release.compact .release-version { font-size: 21px; }
+.changelog-footnote { margin-top: 12px; border-top: 1px solid var(--border); padding-top: 28px; color: var(--muted); font-size: 12px; }
+@media (max-width: 700px) {
+  .changelog { padding-block: 32px 48px; }
+  .changelog-intro { padding-bottom: 30px; }
+  .changelog-description { font-size: 16px; }
+  .release { grid-template-columns: 1fr; gap: 22px; padding-block: 32px; }
+  .release-meta { flex-direction: row; align-items: center; flex-wrap: wrap; gap: 10px 14px; }
+  .release-badge { margin-top: 0; }
+  .release-body h2 { font-size: 25px; }
+  .release-body ul { font-size: 14px; }
+  .release.compact { gap: 14px; }
+  .release.compact h2 { font-size: 20px; }
+}
+@media print {
+  :root { color-scheme: light; --bg: #fff; --text: #111; --muted: #444; --border: #ccc; --accent: #17652b; }
+  .site-header, .site-footer, .skip-link { display: none; }
+  .changelog { width: 100%; max-width: none; padding: 0; }
+  .release { break-inside: avoid; }
+  .release-body .release-notice { color: #333; background: transparent; }
+}

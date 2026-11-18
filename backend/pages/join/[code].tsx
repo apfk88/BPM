@@ -7,7 +7,7 @@ export default function JoinSession({ code }: { code: string }) {
       <Head>
         <title>Join a BPM session</title>
         <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <meta name="robots" content="noindex, nofollow" />
+        <meta name="robots" content="noindex, nofollow, noarchive, nosnippet" />
         <meta name="referrer" content="no-referrer" />
         <meta name="description" content="Train together with live heart rate and workout controls." />
       </Head>
@@ -34,6 +34,7 @@ export default function JoinSession({ code }: { code: string }) {
 }
 
 export const getServerSideProps: GetServerSideProps = async ({ params, res }) => {
+  res.setHeader('X-Robots-Tag', 'noindex, nofollow, noarchive, nosnippet');
   const code = params?.code;
   if (typeof code !== 'string' || !/^\d{6}$/.test(code)) return { notFound: true };
   res.setHeader('Cache-Control', 'private, no-store');
