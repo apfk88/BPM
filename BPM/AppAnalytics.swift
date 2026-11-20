@@ -49,6 +49,7 @@ enum AppAnalytics {
         case healthAccessRequested = "health_access_requested"
         case appFailure = "app_failure"
         case sensorConnection = "sensor_connection"
+        case sensorReadingsResumed = "sensor_readings_resumed"
     }
 
     enum Screen: String {

@@ -4,6 +4,78 @@ import Testing
 
 @MainActor
 struct TimerMeasurementIntegrityTests {
+    @Test func reconnectTelemetryFollowsLocalWorkoutRecordingState() {
+        let clock = Clock()
+        let timer = model(clock: clock, profile: profile)
+        let manager = HeartRateBluetoothManager()
+        timer.observeHeartRate(from: manager)
+        defer { timer.reset() }
+
+        #expect(manager.workoutRunningAtInterruption == false)
+        timer.loadPreset(TimerPreset(name: "Intervals", workDuration: 30, restDuration: 15, numberOfSets: 3,
+                                     includeCooldown: true, playSound: false))
+        timer.startPreset()
+        #expect(manager.workoutRunningAtInterruption == false)
+        clock.seconds = 6
+        #expect(manager.workoutRunningAtInterruption == true)
+        timer.reset()
+
+        timer.start()
+        timer.captureRestSet()
+        #expect(manager.workoutRunningAtInterruption == true)
+        timer.stop()
+        #expect(manager.workoutRunningAtInterruption == false)
+        timer.start()
+        timer.end()
+        #expect(manager.workoutRunningAtInterruption == true)
+        timer.toggleCooldown()
+        #expect(manager.workoutRunningAtInterruption == false)
+        timer.toggleCooldown()
+        clock.seconds += 120
+        #expect(manager.workoutRunningAtInterruption == false)
+    }
+
+    @Test func savedWorkoutContextRespectsCountdownPausesAndRecordingDeadlines() throws {
+        let clock = Clock()
+        let store = ActiveWorkoutSessionStore(fileURL: FileManager.default.temporaryDirectory
+            .appendingPathComponent("interruption-context-\(UUID()).json"))
+        let timer = TimerViewModel(sessionStore: store, nowProvider: { clock.date },
+                                   soundCueHandler: { _ in }, energyProfileProvider: profile)
+        defer { timer.reset() }
+        timer.loadPreset(TimerPreset(name: "Intervals", workDuration: 30, restDuration: 10, numberOfSets: 2,
+                                     includeCooldown: true, playSound: false))
+        timer.startPreset()
+        let countdown = try #require(store.load())
+        #expect(countdown.isRecordingHeartRate(at: clock.origin.addingTimeInterval(4)) == false)
+        #expect(countdown.isRecordingHeartRate(at: clock.origin.addingTimeInterval(5)) == true)
+        #expect(countdown.isRecordingHeartRate(at: clock.origin.addingTimeInterval(195)) == false)
+
+        clock.seconds = 15
+        timer.pausePreset()
+        let paused = try #require(store.load())
+        #expect(paused.isRecordingHeartRate(at: clock.origin.addingTimeInterval(200)) == false)
+        clock.seconds = 25
+        timer.startPreset()
+        let resumed = try #require(store.load())
+        #expect(resumed.isRecordingHeartRate(at: clock.origin.addingTimeInterval(204)) == true)
+        #expect(resumed.isRecordingHeartRate(at: clock.origin.addingTimeInterval(205)) == false)
+
+        clock.seconds = 30
+        timer.skipToCooldown()
+        let cooldown = try #require(store.load())
+        #expect(cooldown.isRecordingHeartRate(at: clock.origin.addingTimeInterval(149)) == true)
+        #expect(cooldown.isRecordingHeartRate(at: clock.origin.addingTimeInterval(150)) == false)
+    }
+
+    @Test func missingSavedWorkoutIsIdleButAnUnreadableWorkoutHasUnknownContext() throws {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("interruption-context-\(UUID()).json")
+        let store = ActiveWorkoutSessionStore(fileURL: file)
+        defer { store.clear() }
+        #expect(store.recordingWorkoutHeartRate() == false)
+        try Data("unreadable".utf8).write(to: file)
+        #expect(store.recordingWorkoutHeartRate() == nil)
+    }
+
     @Test func recoverableHistoryDurationMatchesTheMeasurementsActuallyIncluded() throws {
         let clock = Clock()
         clock.seconds = 4_000

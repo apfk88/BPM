@@ -150,6 +150,30 @@ struct SensorAnalyticsIdentity: Equatable {
 /// observed from packets, not inferred from model names, and only improve once.
 final class SensorCompatibilityAnalytics {
     enum FailureStage: String { case connect, services, characteristics, subscribe, measurement }
+    enum ReconnectTrigger: String {
+        case bpmNoData = "bpm_no_data"
+        case bpmMissingService = "bpm_missing_service"
+        case linkLoss = "link_loss"
+    }
+
+    private struct Interruption {
+        let trigger: ReconnectTrigger
+        let workoutRunning: Bool?
+        let model: SensorAnalyticsIdentity.Model
+        let startedAt: TimeInterval
+
+        var parameters: [String: String] {
+            ["reconnect_trigger": trigger.rawValue, "workout_running": workoutRunning.map { String($0) } ?? "unknown",
+             "sensor_model": model.rawValue]
+        }
+    }
+
+    private enum ReconnectState {
+        case requested(Interruption, alreadyReported: Bool)
+        case disconnected(Interruption)
+        case awaitingReading(Interruption)
+    }
+
     private let emit: (AppAnalytics.Event, [String: String]) -> Void
     private(set) var identity: SensorAnalyticsIdentity
     private var connectedReported = false
@@ -160,6 +184,10 @@ final class SensorCompatibilityAnalytics {
     private var contactSupport = "unknown"
     private var batterySupport = "unknown"
     private var lastCapabilities: [String: String]?
+    private var lastUsableReadingAt: TimeInterval?
+    private var reconnectState: ReconnectState?
+
+    var hasPendingReconnect: Bool { reconnectState != nil }
 
     init(identity: SensorAnalyticsIdentity, emit: @escaping (AppAnalytics.Event, [String: String]) -> Void = AppAnalytics.signal) {
         self.identity = identity
@@ -167,9 +195,57 @@ final class SensorCompatibilityAnalytics {
     }
 
     func connected() {
+        if case let .disconnected(interruption) = reconnectState {
+            reconnectState = .awaitingReading(interruption)
+        }
         guard !connectedReported else { return }
         connectedReported = true
         signal("connected")
+    }
+
+    func noteReconnectRequest(_ trigger: ReconnectTrigger, workoutRunning: @autoclosure () -> Bool?,
+                              at ticks: TimeInterval = MeasurementClock.ticks) {
+        switch reconnectState {
+        case nil:
+            let interruption = Interruption(trigger: trigger, workoutRunning: workoutRunning(), model: identity.model, startedAt: ticks)
+            reconnectState = .requested(interruption, alreadyReported: false)
+        case let .awaitingReading(interruption):
+            // This retry also needs to be torn down. Keep the original cause and clock.
+            reconnectState = .requested(interruption, alreadyReported: true)
+        case .requested, .disconnected:
+            break
+        }
+    }
+
+    func beginInterruption(workoutRunning: @autoclosure () -> Bool?, at ticks: TimeInterval = MeasurementClock.ticks) {
+        let interruption: Interruption
+        switch reconnectState {
+        case let .requested(request, alreadyReported):
+            if alreadyReported {
+                reconnectState = .disconnected(request)
+                return
+            }
+            interruption = request
+        case nil:
+            interruption = Interruption(trigger: .linkLoss, workoutRunning: workoutRunning(),
+                                        model: identity.model, startedAt: ticks)
+        case let .awaitingReading(existing):
+            reconnectState = .disconnected(existing)
+            return
+        case .disconnected:
+            return
+        }
+        reconnectState = .disconnected(interruption)
+        var parameters = interruption.parameters
+        parameters["component"] = AppFailureReporter.Component.bluetooth.rawValue
+        parameters["operation"] = AppFailureReporter.Operation.disconnect.rawValue
+        parameters["category"] = AppFailureCategory.connectionLost.rawValue
+        emit(.appFailure, parameters)
+    }
+
+    func abandonReconnect() {
+        reconnectState = nil
+        lastUsableReadingAt = nil
     }
 
     func updateIdentity(_ identity: SensorAnalyticsIdentity) {
@@ -189,12 +265,14 @@ final class SensorCompatibilityAnalytics {
         reportCapabilitiesIfChanged()
     }
 
-    func receivedMeasurement(hasRRIntervals: Bool, contactSupported: Bool, hasUsableHeartRate: Bool) {
+    func receivedMeasurement(hasRRIntervals: Bool, contactSupported: Bool, hasUsableHeartRate: Bool,
+                             at ticks: TimeInterval = MeasurementClock.ticks) {
         if hasRRIntervals { rrSupport = "observed" }
         else if rrSupport == "unknown" { rrSupport = "not_yet_observed" }
         if contactSupported { contactSupport = "supported" }
         else if contactSupport == "unknown" { contactSupport = "unsupported" }
         guard hasUsableHeartRate else { return }
+        recordUsableReading(at: ticks)
         if !readyReported {
             readyReported = true
             lastCapabilities = parameters
@@ -204,12 +282,35 @@ final class SensorCompatibilityAnalytics {
         }
     }
 
+    private func recordUsableReading(at ticks: TimeInterval) {
+        switch reconnectState {
+        case .requested:
+            // BPM still displays valid readings delivered before the old link disconnects.
+            lastUsableReadingAt = ticks
+            return
+        case .disconnected:
+            return
+        case let .awaitingReading(interruption):
+            var parameters = interruption.parameters
+            parameters["recovery_seconds"] = String(Int((ticks - interruption.startedAt).rounded()))
+            if let lastUsableReadingAt {
+                parameters["reading_gap_seconds"] = String(Int((ticks - lastUsableReadingAt).rounded()))
+            }
+            reconnectState = nil
+            emit(.sensorReadingsResumed, parameters)
+        case nil:
+            break
+        }
+        lastUsableReadingAt = ticks
+    }
+
     func failed(stage: FailureStage, category: AppFailureCategory) {
         guard failures.insert(stage.rawValue + ":" + category.rawValue).inserted else { return }
         signal("failed", additional: ["stage": stage.rawValue, "reason": category.rawValue])
     }
 
     func disconnected(userInitiated: Bool) {
+        if userInitiated { abandonReconnect() }
         guard !disconnectedReported else { return }
         disconnectedReported = true
         signal("disconnected", additional: ["reason": userInitiated ? "user" : "connection_lost"])

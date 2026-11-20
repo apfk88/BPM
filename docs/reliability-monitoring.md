@@ -62,6 +62,17 @@ Connected, ready and disconnected emit once per logical connection. Failures emi
 
 Manufacturer/model and battery characteristics are read locally. Only fixed identity and support categories are emitted, never raw advertisements/names, UUIDs, serials, company IDs, firmware, HR/RR or battery values. Local HRV start/completion/cancellation/failure capture sensor identity at attempt start; shared HRV omits local-sensor fields. Local readiness includes the current safe identity.
 
+### Bluetooth interruptions and recovery
+
+1. In TelemetryDeck Explore, select the build containing reconnect diagnostics and a date range. Filter to `type=app_failure`, `component=bluetooth`, `operation=disconnect` and `category=connection_lost`. Group by `reconnect_trigger` and `workout_running`. Count events for interruption frequency and unique users for reach. Add `sensor_model` to investigate a particular monitor.
+2. In the same build and date range, switch to `type=sensor_readings_resumed` and remove the component, operation and category filters. Keep the same grouping. Inspect `recovery_seconds` for the delay from BPM’s reconnect request or the observed link loss to the first usable reading. When a previous usable reading exists, `reading_gap_seconds` covers the full gap, including any silence before the reconnect request. Both durations are rounded to whole seconds. For example, 10 seconds of silence followed by 4 seconds to reconnect and receive a reading yields a 4-second recovery and a 14-second reading gap.
+
+`bpm_no_data` means BPM requested a reconnect after readings stopped arriving. `bpm_missing_service` means BPM requested a disconnect because the heart-rate service was missing. `link_loss` means BPM observed a disconnect without a known app-initiated cancellation. The workout flag describes the local timer at interruption onset. It is true during work, rest or cooldown and false while idle, paused or counting down to the start. A background restoration can report `unknown` when the saved state cannot establish whether the timer was running.
+
+One interruption retains its original trigger, workout flag and sensor model across retries. A recovery event requires a positive heart-rate reading with usable contact on the reconnected sensor. If the old link delivers a final usable reading after BPM requests a reconnect, the gap starts at that reading. A manual disconnect, app exit or reporting-window boundary can leave an interruption without a corresponding recovery in the query. Compare groups across events. BPM sends no custom incident ID, raw reading timestamp or heart-rate value.
+
+Older builds support the same `app_failure` filters for counting disconnects. A missing `reconnect_trigger` or `workout_running` on those events means the build did not record it. Keep those events out of the trigger, workout and recovery breakdowns.
+
 ### HRV diagnostics in the updated build
 
 `hrv_start`, `hrv_completed`, `hrv_cancelled` and `hrv_failed` include `source=local/shared`. Failures retain their existing reason families and add fixed details:
@@ -80,7 +91,7 @@ The updated HRV screen gates measurement on fresh usable data. `hrv_readiness` p
 
 ### Other recoverable failures in the updated build
 
-`app_failure` has exactly three application parameters: `component`, `operation`, `category`. Components are `workout_store`, `hrv_store`, `healthkit`, `health_autofill` and `bluetooth`. Operations describe load/save/sync, authorization or Bluetooth connection setup. Categories are bounded labels such as `storage_full`, `permission_denied`, `device_locked`, `corrupt_data`, `unavailable`, `timeout`, `connection_lost`, `invalid_response`, `network` and `unknown`.
+`app_failure` includes `component`, `operation` and `category`. Components are `workout_store`, `hrv_store`, `healthkit`, `health_autofill` and `bluetooth`. Bluetooth disconnect events also carry the reconnect context described above. Operations describe load/save/sync, authorization or Bluetooth connection setup. Categories are bounded labels such as `storage_full`, `permission_denied`, `device_locked`, `corrupt_data`, `unavailable`, `timeout`, `connection_lost`, `invalid_response`, `network` and `unknown`.
 
 The reporter suppresses the same component/operation/category until recovery for that operation or a new reporter instance; retries are not counted as independent failures. Cancellation is excluded. Treat `unknown` as a triage category, not permission failure. No empty Health read is interpreted as denied access.
 

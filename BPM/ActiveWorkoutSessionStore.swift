@@ -102,6 +102,35 @@ struct ActiveWorkoutSessionSnapshot: Codable, Equatable {
     var hasSession: Bool {
         startTime != nil || !sets.isEmpty || activePreset != nil || isPresetPrestartCountdownActive
     }
+
+    func restoredClock() -> MeasurementClock {
+        if let clockDate, let clockTicks, let clockBootSessionID,
+           clockBootSessionID == MeasurementClock.bootSessionID, MeasurementClock.ticks >= clockTicks {
+            return MeasurementClock(anchorDate: clockDate, anchorTicks: clockTicks)
+        }
+        return MeasurementClock()
+    }
+
+    /// Resolve recording deadlines before a restored Bluetooth connection has a live workout timer.
+    func isRecordingHeartRate(at date: Date) -> Bool? {
+        switch state {
+        case .idle, .paused, .cooldownPaused:
+            return false
+        case .cooldown:
+            guard let cooldownStartTime else { return nil }
+            return date.timeIntervalSince(cooldownStartTime) < TimerViewModel.cooldownDuration
+        case .running:
+            guard let preset = activePreset else {
+                return startTime != nil && !isPresetPrestartCountdownActive ? true : nil
+            }
+            // Pausing a preset shifts its startTime. Its total duration already includes cooldown.
+            let recordingStart = isPresetPrestartCountdownActive ? presetStartCountdownEndTime : startTime
+            guard let recordingStart, preset.numberOfSets > 0,
+                  preset.totalDuration.isFinite, preset.totalDuration > 0 else { return nil }
+            let elapsed = date.timeIntervalSince(recordingStart)
+            return elapsed >= 0 && elapsed < preset.totalDuration
+        }
+    }
 }
 
 final class ActiveWorkoutSessionStore {
@@ -127,19 +156,32 @@ final class ActiveWorkoutSessionStore {
     }
 
     func load() -> ActiveWorkoutSessionSnapshot? {
-        guard FileManager.default.fileExists(atPath: fileURL.path) else { return nil }
-
         do {
-            let data = try Data(contentsOf: fileURL)
-            let snapshot = try decoder.decode(ActiveWorkoutSessionSnapshot.self, from: data)
-            guard snapshot.schemaVersion == ActiveWorkoutSessionSnapshot.currentSchemaVersion else {
-                return nil
-            }
-            return snapshot
+            return try readSnapshot()
+        } catch let error as NSError where error.domain == NSCocoaErrorDomain && error.code == NSFileReadNoSuchFileError {
+            return nil
         } catch {
             print("⚠️ Failed to load active workout session: \(error.localizedDescription)")
             return nil
         }
+    }
+
+    func recordingWorkoutHeartRate() -> Bool? {
+        do {
+            guard let snapshot = try readSnapshot() else { return nil }
+            return snapshot.isRecordingHeartRate(at: snapshot.restoredClock().now())
+        } catch let error as NSError where error.domain == NSCocoaErrorDomain && error.code == NSFileReadNoSuchFileError {
+            return false
+        } catch {
+            // A locked, unreadable or incompatible session does not establish that the timer was idle.
+            return nil
+        }
+    }
+
+    private func readSnapshot() throws -> ActiveWorkoutSessionSnapshot? {
+        let data = try Data(contentsOf: fileURL)
+        let snapshot = try decoder.decode(ActiveWorkoutSessionSnapshot.self, from: data)
+        return snapshot.schemaVersion == ActiveWorkoutSessionSnapshot.currentSchemaVersion ? snapshot : nil
     }
 
     func clear() {

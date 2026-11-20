@@ -160,4 +160,95 @@ final class SensorCompatibilityAnalyticsTests: XCTestCase {
         }
         XCTAssertEqual(events.filter { $0["outcome"] == "failed" }.count, 2)
     }
+
+    func testWatchdogRetainsOriginalCauseWorkoutAndTimingThroughUnsuccessfulRetries() {
+        var failures: [[String: String]] = []
+        var recoveries: [[String: String]] = []
+        let tracker = SensorCompatibilityAnalytics(identity: .init(vendor: .wahoo, model: .wahooTickr)) { event, values in
+            if event == .appFailure { failures.append(values) }
+            if event == .sensorReadingsResumed { recoveries.append(values) }
+        }
+        func reading(at ticks: TimeInterval, usable: Bool = true) {
+            tracker.receivedMeasurement(hasRRIntervals: false, contactSupported: true, hasUsableHeartRate: usable, at: ticks)
+        }
+
+        tracker.connected()
+        reading(at: 100)
+        reading(at: 104, usable: false)
+        tracker.noteReconnectRequest(.bpmNoData, workoutRunning: true, at: 110)
+        tracker.noteReconnectRequest(.bpmMissingService, workoutRunning: false, at: 111)
+        reading(at: 111.5)
+        tracker.beginInterruption(workoutRunning: false, at: 112)
+        tracker.beginInterruption(workoutRunning: false, at: 113)
+        reading(at: 114)
+        tracker.connected()
+        reading(at: 116, usable: false)
+        tracker.noteReconnectRequest(.bpmMissingService, workoutRunning: false, at: 117)
+        reading(at: 118)
+        tracker.beginInterruption(workoutRunning: false, at: 119)
+        reading(at: 120)
+        XCTAssertTrue(recoveries.isEmpty)
+
+        tracker.updateIdentity(.unknown)
+        tracker.connected()
+        reading(at: 123.6)
+        reading(at: 125)
+        XCTAssertEqual(failures, [[
+            "component": "bluetooth", "operation": "disconnect", "category": "connection_lost",
+            "reconnect_trigger": "bpm_no_data", "workout_running": "true", "sensor_model": "wahoo_tickr"
+        ]])
+        XCTAssertEqual(recoveries, [[
+            "reconnect_trigger": "bpm_no_data", "workout_running": "true", "sensor_model": "wahoo_tickr",
+            "recovery_seconds": "14", "reading_gap_seconds": "6"
+        ]])
+
+        // The next loss is independent and uses the most recent usable sample.
+        tracker.beginInterruption(workoutRunning: false, at: 130)
+        tracker.connected()
+        tracker.beginInterruption(workoutRunning: true, at: 131)
+        reading(at: 132)
+        XCTAssertEqual(recoveries.count, 1)
+        tracker.connected()
+        reading(at: 134)
+        XCTAssertEqual(failures.count, 2)
+        XCTAssertEqual(recoveries.last, [
+            "reconnect_trigger": "link_loss", "workout_running": "false", "sensor_model": "unknown",
+            "recovery_seconds": "4", "reading_gap_seconds": "9"
+        ])
+    }
+
+    func testAbandonedRecoveryNeverCarriesTimingIntoNextConnection() {
+        var failures: [[String: String]] = []
+        var recoveries: [[String: String]] = []
+        let tracker = SensorCompatibilityAnalytics(identity: .unknown) { event, values in
+            if event == .appFailure { failures.append(values) }
+            if event == .sensorReadingsResumed { recoveries.append(values) }
+        }
+        func reading(at ticks: TimeInterval) {
+            tracker.receivedMeasurement(hasRRIntervals: false, contactSupported: false, hasUsableHeartRate: true, at: ticks)
+        }
+        tracker.connected()
+        reading(at: 1)
+        tracker.noteReconnectRequest(.bpmNoData, workoutRunning: true, at: 11)
+        tracker.abandonReconnect()
+        XCTAssertTrue(failures.isEmpty)
+        tracker.beginInterruption(workoutRunning: nil, at: 20)
+        XCTAssertEqual(failures.first?["reconnect_trigger"], "link_loss")
+        XCTAssertEqual(failures.first?["workout_running"], "unknown")
+        tracker.connected()
+        tracker.disconnected(userInitiated: true)
+        tracker.connected()
+        XCTAssertTrue(recoveries.isEmpty)
+
+        // A missing-service cancellation can precede the first usable reading.
+        tracker.noteReconnectRequest(.bpmMissingService, workoutRunning: false, at: 40)
+        tracker.beginInterruption(workoutRunning: true, at: 41)
+        tracker.connected()
+        reading(at: 45)
+        XCTAssertEqual(failures.count, 2)
+        XCTAssertEqual(recoveries, [[
+            "reconnect_trigger": "bpm_missing_service", "workout_running": "false",
+            "sensor_model": "unknown", "recovery_seconds": "5"
+        ]])
+    }
 }

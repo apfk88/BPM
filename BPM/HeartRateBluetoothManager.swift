@@ -100,6 +100,16 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
     private(set) var rrStreamID = UUID()
     let heartRateMeasurements = PassthroughSubject<HeartRateSample, Never>()
     let heartRateInvalidations = PassthroughSubject<Date, Never>()
+    weak var workoutTimer: TimerViewModel?
+
+    var workoutRunningAtInterruption: Bool? {
+        if let workoutTimer {
+            workoutTimer.refreshTiming()
+            return workoutTimer.isRecordingWorkoutHeartRate
+        }
+        // CoreBluetooth may restore a connection before the workout view attaches its timer.
+        return ActiveWorkoutSessionStore.shared.recordingWorkoutHeartRate()
+    }
 
     // Simulator-specific properties
     @Published var simulatorDevice: SimulatorDevice?
@@ -386,7 +396,9 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
     }
 
     private func prepareForConnection(to device: CBPeripheral) {
-        if connectedDevice?.identifier != device.identifier || sensorCompatibility == nil {
+        // A user can reselect the same strap while an automatic retry is pending.
+        let pendingDeviceID = sensorCompatibility?.hasPendingReconnect == true ? measurementDeviceIdentifier : nil
+        if (connectedDevice?.identifier ?? pendingDeviceID) != device.identifier || sensorCompatibility == nil {
             sensorCompatibility?.disconnected(userInitiated: true)
             beginSensorCompatibility(for: device)
         }
@@ -663,12 +675,14 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
         switch device.state {
         case .connected:
             connectionMessage = "Trying to reconnect..."
-            centralManager.cancelPeripheralConnection(device)
+            cancelForReconnect(device, trigger: .bpmNoData)
         case .connecting:
             return false
         default:
             connectionMessage = "Trying to reconnect..."
             connectionStatus = "Disconnected - Reconnecting..."
+            // iOS can already show a lost link when the app returns to the foreground.
+            sensorCompatibility?.beginInterruption(workoutRunning: workoutRunningAtInterruption)
             scheduleReconnect(to: device)
         }
 
@@ -1001,11 +1015,18 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
         connectionMessage = "Trying to reconnect..."
 
         if let device = connectedDevice {
-            centralManager.cancelPeripheralConnection(device)
+            cancelForReconnect(device, trigger: .bpmNoData)
         } else if isSimulatorConnected {
             disconnectSimulator()
             connectSimulator()
         }
+    }
+
+    private func cancelForReconnect(_ device: CBPeripheral, trigger: SensorCompatibilityAnalytics.ReconnectTrigger) {
+        if device.state == .connected {
+            sensorCompatibility?.noteReconnectRequest(trigger, workoutRunning: workoutRunningAtInterruption)
+        }
+        centralManager.cancelPeripheralConnection(device)
     }
 
     private func sendNoDataToSharingIfNeeded() {
@@ -1025,6 +1046,7 @@ final class HeartRateBluetoothManager: NSObject, ObservableObject {
     private func handleNoDataTimeout() {
         guard let lastSample = lastHeartRateSampleTime else { return }
         guard measurementClock.now().timeIntervalSince(lastSample) >= noDataTimeoutInterval else { return }
+        sensorCompatibility?.abandonReconnect()
         invalidateLastHeartRateMeasurement()
 
         if let device = connectedDevice {
@@ -1234,11 +1256,11 @@ extension HeartRateBluetoothManager: CBCentralManagerDelegate {
         // A cancelled old sensor can report its disconnection after a new sensor
         // is selected. It must not end or otherwise change the active session.
         guard wasConnectedDevice else { return }
+        if !isUserInitiatedDisconnect {
+            sensorCompatibility?.beginInterruption(workoutRunning: workoutRunningAtInterruption)
+        }
         sensorCompatibility?.disconnected(userInitiated: isUserInitiatedDisconnect)
         invalidateLastHeartRateMeasurement()
-        if !isUserInitiatedDisconnect {
-            failureReporter.report(.bluetooth, .disconnect, category: .connectionLost)
-        }
         let willAttemptReconnect = HeartRateConnectionState.shouldAutoReconnectAfterDisconnect(
             isUserInitiatedDisconnect: isUserInitiatedDisconnect,
             lastConnectedDeviceID: lastConnectedPeripheralIdentifier,
@@ -1364,7 +1386,7 @@ extension HeartRateBluetoothManager: CBPeripheralDelegate {
             connectionMessage = "No heart rate data. The strap may be connected to another device (like a treadmill)."
             // If we don't find the heart rate service, disconnect since this isn't a heart rate monitor
             if connectedDevice?.identifier == peripheral.identifier {
-                centralManager.cancelPeripheralConnection(peripheral)
+                cancelForReconnect(peripheral, trigger: .bpmMissingService)
             }
             return
         }
@@ -1578,6 +1600,7 @@ extension HeartRateBluetoothManager: CBPeripheralDelegate {
 
     private func scheduleReconnect(to peripheral: CBPeripheral) {
         guard reconnectAttempts < maxReconnectAttempts else {
+            sensorCompatibility?.abandonReconnect()
             let msg = "Max reconnect attempts (\(maxReconnectAttempts)) reached. Please reconnect manually."
             print(msg)
             addDebugMessage(msg)

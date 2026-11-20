@@ -27,6 +27,7 @@ argument to disable uploads again. Release builds keep the SDK's normal behavior
 | Which workout views and presets are used? | `workout_start` with `mode=manual/preset`; existing `workout_save`; `workout_view_selected` with `view=table/bpm/stats/chart`; `preset_selected`; `preset_saved` with `action=create/edit`. Preset names and durations are excluded. |
 | Is AI voice used? | `voice_recording_started` only after recording starts; `voice_recap_requested` → `voice_recap_completed/failed/cancelled`. Failures add a fixed `category`. These signals never contain recordings, transcripts, titles, or notes. |
 | Are recoverable operations failing? | `app_failure` has fixed `component`, `operation`, `category` labels for workout/HRV storage, Health access/export/autofill and Bluetooth. Duplicate failures are suppressed until recovery. See [reliability monitoring](reliability-monitoring.md) for counting rules. |
+| What triggered a sensor reconnect, and how long were readings missing? | Bluetooth disconnects in `app_failure` record `reconnect_trigger`, `workout_running` and `sensor_model`. The first usable reading after reconnection emits `sensor_readings_resumed` with the original context, `recovery_seconds` and, when a previous usable reading exists, `reading_gap_seconds`. See [Bluetooth interruptions and recovery](reliability-monitoring.md#bluetooth-interruptions-and-recovery). |
 | Which monitors work or fail? | `sensor_connection` with `outcome=connected/ready/capabilities/failed/disconnected`, allowlisted `sensor_vendor/model`, `sensor_identity_source`, and observed RR/contact/battery support. Failures include fixed `stage` and `reason`. Local HRV events include sensor identity captured at attempt start; shared HRV omits local identity. No raw device names, identifiers, or readings are sent. |
 | Which other areas are opened? | `screen_viewed` with `screen=home/workout/settings/presets/workout_save/calorie_settings/calorie_accuracy/zone_settings/zone_alerts/workout_types/devices`; `health_access_requested` when the Settings Apple Health action is used. |
 
@@ -98,8 +99,8 @@ Process termination or offline delivery can leave a funnel incomplete.
 `AppAnalyticsTests` checks privacy-safe calorie snapshots, invalid/cleared fields,
 concurrent sound deduplication, stream failures/recovery/late callbacks, HRV
 completion/failure/cancellation, and the existing export lifecycle.
-`FeatureAnalyticsUITests` exercises calorie edit bindings and both history routes;
-the Debug `Analytics` log exposes only the same fixed labels sent to the SDK.
+`FeatureAnalyticsUITests` exercises calorie edit bindings and both history routes.
+The Debug `Analytics` log shows the event fields sent to the SDK, including whole-second reconnect durations.
 Physical BLE/audio behavior and production dashboard ingestion require a device
 running a released build.
 

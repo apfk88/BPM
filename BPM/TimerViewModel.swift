@@ -41,6 +41,8 @@ struct SetRecord: Identifiable {
 }
 
 final class TimerViewModel: ObservableObject {
+    static let cooldownDuration: TimeInterval = 120
+
     @Published var state: TimerState = .idle {
         didSet {
             if state != oldValue {
@@ -78,6 +80,10 @@ final class TimerViewModel: ObservableObject {
 
     var isPresetMode: Bool {
         activePreset != nil
+    }
+
+    var isRecordingWorkoutHeartRate: Bool {
+        state == .cooldown || (state == .running && !isPresetPrestartCountdownActive)
     }
 
     /// Clearing changes the upcoming workout plan, never an active recording.
@@ -198,14 +204,7 @@ final class TimerViewModel: ObservableObject {
         self.sessionStore = sessionStore
         self.energyProfileProvider = energyProfileProvider
         let saved = sessionStore.load()
-        let clock: MeasurementClock
-        if let saved, let anchor = saved.clockDate, let ticks = saved.clockTicks,
-           let boot = saved.clockBootSessionID, boot == MeasurementClock.bootSessionID,
-           MeasurementClock.ticks >= ticks {
-            clock = MeasurementClock(anchorDate: anchor, anchorTicks: ticks)
-        } else {
-            clock = MeasurementClock()
-        }
+        let clock = saved?.restoredClock() ?? MeasurementClock()
         self.nowProvider = nowProvider ?? clock.now
         self.soundCueHandler = soundCueHandler ?? { cue in
             switch cue {
@@ -1425,6 +1424,7 @@ final class TimerViewModel: ObservableObject {
     private var passiveCaptureStateObservation: AnyCancellable?
 
     func observeHeartRate(from manager: HeartRateBluetoothManager) {
+        manager.workoutTimer = self
         passiveCaptureStateObservation = $state.map { $0 == .idle }.removeDuplicates()
             .sink { [weak manager] enabled in manager?.setPassiveCaptureEnabled(enabled) }
         currentSessionMeasurements = { [weak manager] in
@@ -1436,7 +1436,7 @@ final class TimerViewModel: ObservableObject {
         heartRateCancellable = manager.heartRateMeasurements.sink { [weak self, weak manager] sample in
             guard let self, let manager else { return }
             self.recordHeartRateSample(sample)
-            let isActive = (self.state == .running && !self.isPresetPrestartCountdownActive) || self.state == .cooldown
+            let isActive = self.isRecordingWorkoutHeartRate
             let isSimulated = manager.isSimulatorConnected || manager.connectedDevice == nil
             Task { @MainActor in
                 MaxHeartRateSuggestionStore.shared.record(sample, isLocalWorkoutActive: isActive, isSimulated: isSimulated)
@@ -1452,7 +1452,7 @@ final class TimerViewModel: ObservableObject {
 
     func recordHeartRateSample(_ sample: HeartRateSample) {
         refreshTiming()
-        guard (state == .running && !isPresetPrestartCountdownActive) || state == .cooldown,
+        guard isRecordingWorkoutHeartRate,
               sample.value > 0, sample.sensorContactStatus != .notDetected,
               recordedMeasurementIDs.insert(sample.id).inserted else { return }
         let time = state == .cooldown ? frozenElapsedTime + cooldownTime : elapsedTime
@@ -1469,7 +1469,7 @@ final class TimerViewModel: ObservableObject {
     /// Preserve the last measured value and record when the sensor explicitly
     /// stopped supporting it. Do not insert a fabricated zero-BPM measurement.
     func recordHeartRateInvalidation() {
-        guard (state == .running && !isPresetPrestartCountdownActive) || state == .cooldown,
+        guard isRecordingWorkoutHeartRate,
               let lastIndex = heartRateSamples.indices.last,
               heartRateSamples[lastIndex].invalidatedAt == nil else { return }
         heartRateSamples[lastIndex].invalidatedAt = nowProvider()
@@ -1524,11 +1524,12 @@ final class TimerViewModel: ObservableObject {
             for minute in 1...2 where cooldownTime >= Double(minute * 60) {
                 captureCooldownHeartRate(minute: minute)
             }
-            if cooldownTime >= 120, let start = cooldownStartTime {
-                cooldownTime = 120
-                currentSetTime = 120
-                requestPresetSound(.workoutComplete, at: start.addingTimeInterval(120))
-                finishWorkout(at: start.addingTimeInterval(120))
+            if cooldownTime >= Self.cooldownDuration, let start = cooldownStartTime {
+                cooldownTime = Self.cooldownDuration
+                currentSetTime = Self.cooldownDuration
+                let end = start.addingTimeInterval(Self.cooldownDuration)
+                requestPresetSound(.workoutComplete, at: end)
+                finishWorkout(at: end)
                 persistCurrentSession()
             }
         }
